@@ -6,10 +6,13 @@ your lights and no PC has to stay on.
 
 * Runs entirely on an **M5Stack AtomS3 Lite** (about 8 USD). No cloud, no app, no PC.
 * **Set up from your phone**: join the board's Wi-Fi, pick your network, find your WLED. Done.
-* **Auto-calibration with your phone's camera**: point it at the TV and the LEDs; the relay measures the TV with nine
-  squares, works out which LEDs it controls and where they are. LEDs along the TV's width are exact, the rest of the strip
-  smooths out. Works for a strip along the wall behind the TV, around the TV, or something in between.
-* Streams ~30 fps to WLED over DDP, with smoothing, brightness/gamma/saturation.
+* **Up to four targets**: a strip behind the TV, a cabinet light, a second WLED. Each has its own LEDs, its own part of the picture
+  to follow (the top, bottom, left or right edge, or all the way around) and its own brightness. One WLED can serve several targets.
+* **Find your LEDs by sight**: a block of lit LEDs you slide along the strip, and red / blue markers that show where the run and the TV
+  part start and end.
+* Streams ~30 fps to WLED over DDP, with smoothing, brightness/gamma/saturation and a **reaction boost** that cuts the delay
+  ([why the lights lag](docs/LATENCY.md)).
+* *Optional:* **auto-calibration with your phone's camera** (a separate build, `atoms3-phonecal`; see [docs/CALIBRATION.md](docs/CALIBRATION.md)).
 
 > **Unofficial.** This project is not affiliated with or endorsed by FancyLEDs, Tuya or WLED. It was developed against a
 > FancyLEDs "3 Port 2.1 Fancy Sync Box" (FSB3P2.1) by observing traffic on the author's own network; other models or
@@ -32,18 +35,19 @@ your lights and no PC has to stay on.
 2. **Join its Wi-Fi.** The LED blinks purple. On your phone connect to **`Fancy2WLED-Setup`**; the setup page opens by
    itself (otherwise browse to `http://192.168.5.5`). Choose your Wi-Fi, enter the password. The board restarts and joins it.
 3. **Open the setup page.** From any device on that network: **`http://fancy2wled.local`** (or the IP your router shows).
-4. **WLED:** press **Find** (or type its address), then **Check this WLED**.
-5. **Your LEDs:** say *where* they are (above the TV, below it, left, right, or all the way around), how long the run is (first LED +
+4. **WLED:** press **Find** (or type its address), then **Check this WLED**. The **Targets** card at the top picks which target you are
+   editing; press **Add a target** for each further strip or WLED (up to four) and give it a name.
+5. **Your LEDs** (for the target you picked): say *where* they are (above the TV, below it, left, right, or all the way around), how long the run is (first LED +
    number of LEDs; e.g. the first 210 LEDs of the strip: first LED 0, length 210) and which part of the run covers the TV (e.g. LEDs
    83 to 163). Above the TV uses the *top* of the picture's colour map, below uses the *bottom*, left/right use that edge. Not sure
    where things are? Press **Find my LEDs** and drag the slider: a block of white LEDs lights up wherever you put it, with buttons to use
    that spot as the start or end of the run or of the TV. Whenever you change the run or the TV part, a few **red** LEDs light up on
    the strip where the TV starts and ends and a few **blue** ones where the run starts and ends (for about 8 seconds, or press
    *Show markers on the LEDs*), so you can see exactly which LEDs you are choosing.
-6. **Check it:** press **Auto-calibrate with my phone** and follow the page ([details](docs/CALIBRATION.md)) to have the board measure the
-   LEDs and the TV for you, or set it by hand and press **Start rainbow test**: red shows at the TV's left edge through to violet at its
-   right edge, and every change (the +1/+10 buttons, *slide the TV part along the run*, LED numbers, where the LEDs are, look) updates
+6. **Check it:** press **Start rainbow test**: red shows at the TV's left edge through to violet at its right edge on the target you are
+   editing, and every change (the +1/+10 buttons, *slide the TV part along the run*, LED numbers, where the LEDs are, look) updates
    live without being saved. Press **Save** when it looks right (stopping the test without saving discards the changes).
+   (A build with the phone-camera calibration also offers **Auto-calibrate with my phone**: `pio run -e atoms3-phonecal -t upload`.)
 
 The LED turns **green** while it is relaying. That is it: your WLED now follows the picture.
 
@@ -65,14 +69,14 @@ The board's button: **tap it** to turn the sync on / off (the LED flashes green 
 ## Home Assistant
 
 Turn on **Home Assistant (MQTT)** on the setup page and the board appears in Home Assistant by itself as a *Fancy2WLED* device: a **Sync**
-light (on/off pauses the sync, the brightness slider is the brightness), status sensors (Sync Box connected, WLED reachable, state, frame rate, Wi-Fi signal), the Look settings as number entities
-and rainbow-test / restart buttons. The board connects *out* to your MQTT broker, so a firewall only needs to allow **board -> broker
+light (on/off pauses the sync, the brightness slider is the brightness), status sensors (Sync Box connected, WLED reachable, state, frame rate, Wi-Fi signal), the Look settings as number entities,
+an on/off switch and a brightness for each target, and rainbow-test / restart buttons. The board connects *out* to your MQTT broker, so a firewall only needs to allow **board -> broker
 (TCP 1883)**. Details, entity list, topics and troubleshooting: [docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md).
 
 ## Back up, or move to another board
 
-At the bottom of the setup page, **Export config** downloads `fancy2wled-config.json` with your WLED address, LED layout, phone
-calibration, Look settings and MQTT settings. To move to a new ESP32: flash it, join its setup Wi-Fi and enter your Wi-Fi details as
+At the bottom of the setup page, **Export config** downloads `fancy2wled-config.json` with all your targets (WLED addresses, runs, layouts, any phone
+calibration), Look settings and MQTT settings. To move to a new ESP32: flash it, join its setup Wi-Fi and enter your Wi-Fi details as
 usual, then open the setup page and press **Import config**. The page shows a summary and asks before it replaces anything.
 
 * The **Wi-Fi name and password are never in the file**, so it is safe to keep; a new board always joins Wi-Fi first.
@@ -87,13 +91,14 @@ usual, then open the setup page and press **Import config**. The page shows a su
 | Setting | Meaning |
 |---|---|
 | WLED address | IP or `name.local` of your WLED |
+| Targets | up to four runs of LEDs, each on a WLED of its own or sharing one. Each has a name, an on/off switch, its WLED, its run, where it is (which edge of the picture it follows) and a brightness trim. The Look settings below are shared |
 | Where the LEDs are | above the TV (uses the top row of the picture's colour map), below it (bottom row), left or right of it (that column), all the way around it, or the phone-measured layout |
 | First LED / length of the run | the part of the WLED strip that belongs to the TV lighting (the rest is left alone) |
 | The part that covers the TV | the strip's own LED numbers where the TV starts and ends along a straight run. Along it the colours follow the picture exactly; before and after it they fade smoothly |
 | Switch WLED on while relaying | WLED shows nothing while it is off |
 | Set WLED brightness | WLED's own master brightness (the relay's colours are scaled by it); -1 leaves it alone |
 | Put WLED back how it was | when the box goes quiet, restore WLED's previous on/off + brightness |
-| Layout | calibrated table, a straight line, or around the TV |
+| Layout | a straight line, around the TV, or (with the phone-calibration build) a table measured by the phone |
 | Brightness / gamma / saturation | 1.0 = copy the box exactly. The box tops out around 200/255 for white; raise brightness if you want full white |
 | Smoothing over time | 0 = instant, 0.9 = slow fades (the box itself already smooths ~0.3 s) |
 | Reaction boost | 0 = follow the box exactly (default), 100 = undo the box's own smoothing so the lights react as fast as the picture. Try 50-70. See [docs/LATENCY.md](docs/LATENCY.md) |
@@ -117,8 +122,8 @@ needs it). Make sure no other software is streaming to the same WLED. Check **Ch
 white tops out near 200/255, green is yellowish). The relay copies it so your WLED matches what the box's own strip would
 show. See [PROTOCOL.md](docs/PROTOCOL.md) and use the Look sliders to taste.
 
-**The phone page says the connection is not private.** Expected: the relay makes its own HTTPS certificate (browsers
-only allow camera access on HTTPS). Continue anyway; it never leaves your network.
+**The phone page says the connection is not private.** (Only in the `atoms3-phonecal` build.) Expected: the relay makes its own HTTPS certificate
+(browsers only allow camera access on HTTPS). Continue anyway; it never leaves your network.
 
 **Setup page says "Wi-Fi can only be changed from the setup access point".** Hold the button for 8 seconds to reset, then
 join `Fancy2WLED-Setup` again.
@@ -137,21 +142,22 @@ node test/test_analysis.js        # calibration maths + a simulated phone camera
 node test/test_pages.js           # loads the real web pages in headless Edge/Chrome against test/mock_device.js
 node test/test_lint.js            # sources must be plain ASCII, LF, no BOM (non-ASCII shows up garbled on the device)
 pio run -e atoms3                 # compile the firmware
+pio run -e atoms3-phonecal        # ... with the phone-camera calibration and the secure web server it needs
 ```
 
 `node test/mock_device.js` serves the web UI against a fake relay so you can work on it without hardware.
 
 ## How it works
 
-* `web/` - the UI (setup, phone calibration, TV screen), compiled into the firmware.
+* `web/` - the UI (setup; with `atoms3-phonecal` also the phone calibration and the TV screen), compiled into the firmware.
 * `src/core.cpp` - frame decoding, zone -> LED mapping, DDP packets (no Arduino dependencies, tested on a PC).
-* `src/relay.cpp` - UDP in (sleeps until a packet arrives), reaction boost, time-based smoothing, DDP out (identical frames are not resent), WLED on/off handling, calibration and test pattern states.
-* `src/webserver.cpp` - HTTP on :80 and HTTPS on :443 (self-signed key generated on first boot), JSON API.
+* `src/relay.cpp` - UDP in (sleeps until a packet arrives), reaction boost, then for every target: layout, time-based smoothing, brightness trim, DDP out (identical frames are not resent). Turning WLEDs on / handing them back runs in a background task so a missing WLED never delays the others. Also the LED finder, markers and test pattern.
+* `src/webserver.cpp` - HTTP on :80 (and, in the phone-calibration build, HTTPS on :443 with a self-signed key generated on first boot), JSON API.
 * `src/mqtt_ha.cpp` - Home Assistant over MQTT (discovery, state, commands), runs in its own task.
 * `src/perf.cpp` - optional performance statistics (CPU load per core, memory, frame timing), only active when switched on.
 * `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator, `check_mqtt.py` (checks the board's MQTT discovery) and `latency_test.py` (measures how fast the output follows a step).
 
-The image analysis for calibration runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only
+(Phone-calibration build:) the image analysis runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only
 lights LEDs on request and stores the resulting table.
 
 ## Licence

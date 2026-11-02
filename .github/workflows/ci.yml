@@ -21,3 +21,4 @@ jobs:
         with: { python-version: '3.12' }
       - run: pip install platformio
       - run: pio run -e atoms3
+      - run: pio run -e atoms3-phonecal

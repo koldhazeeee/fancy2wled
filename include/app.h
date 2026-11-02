@@ -17,15 +17,29 @@
 #define FWB_VERSION "dev"
 #endif
 
+// The camera-based phone calibration (the /calibrate page, the TV test screen and the secure web server it needs) is built only when this
+// is 1: build with `pio run -e atoms3-phonecal`. Without it the firmware is smaller and keeps more memory free. The LED finder and the
+// red/blue markers on the setup page never needed the camera and are always there.
+#ifndef FWB_PHONE_CAL
+#define FWB_PHONE_CAL 0
+#endif
+
 // ---------------------------------------------------------------- settings
 enum LayoutType { LAYOUT_LINEAR = 0, LAYOUT_LOOP = 1, LAYOUT_TABLE = 2 };
 
-struct Settings {
+constexpr int kMaxTargets = 4;       // WLED devices (or separate runs on one WLED) the relay can stream to
+constexpr int kMaxTotalLeds = 2000;  // LEDs over all targets together
+
+// One place the picture is streamed to: a run of LEDs on a WLED, with its own layout (which part of the picture it follows).
+struct Target {
+  String name;                         // shown on the setup page ("TV strip", "Cabinet")
+  bool enabled = true;                 // false: nothing is streamed to it and its WLED is left alone
   // WLED
   String wHost;
   int wStart = 0, wCount = 0;
   bool wTurnOn = true, wRestore = true, whiteMin = false;
   int wBri = -1;                       // -1 = leave WLED's brightness alone
+  float trim = 1.f;                    // this target's brightness relative to the others (0..2)
   // layout
   int lType = LAYOUT_LINEAR;
   bool led0Right = false;              // straight run: LED 0 at the right end (top/bottom run) or at the bottom end (left/right run)
@@ -36,9 +50,14 @@ struct Settings {
   int sides[4] = {0, 0, 0, 0};         // 0 = automatic
   int shift = 0;
   int aw = 16, ah = 9;
+};
+
+struct Settings {
+  Target t[kMaxTargets];
+  int nTargets = 1;
   // relay
   bool enabled = true;                 // false = paused: nothing is streamed and WLED is handed back (Home Assistant switch)
-  // look
+  // look (shared by all targets; each target has its own brightness trim)
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
   int smoothOut = 100;                 // 0 = off .. 100: LEDs beyond the TV settle on their end-corner zone colour (softens the hand-over at the TV edge)
@@ -56,8 +75,8 @@ struct Settings {
 };
 
 extern Settings gSet;
-extern fwb::Entry gTable[fwb::kMaxLeds];   // per-LED zone blend (calibrated or generated)
-extern int gTableN;                         // entries currently in gTable
+extern fwb::Entry* gTable[kMaxTargets];    // per-LED zone blend of each target (calibrated or generated); null when the target has no LEDs
+extern int gTableN[kMaxTargets];           // entries in each gTable
 extern volatile uint32_t gSettingsGen;      // bumped whenever settings change
 extern volatile uint32_t gMqttGen;          // bumped when the MQTT settings change (reconnects)
 extern SemaphoreHandle_t gLock;
@@ -80,44 +99,49 @@ String settingsImport(JsonVariantConst doc);
 // persist=false is a live preview: used immediately but not written to flash (settingsRevert() drops it).
 String settingsFromJson(JsonVariantConst d, bool persist = true);
 void settingsRevert();
-// Store a calibrated table (hex: 6 chars per LED = a, b, f). Switches the layout to "table".
-String tableStoreHex(int start, int count, const char* hex, size_t hexLen);
-void tableRebuild();                        // regenerate gTable from the layout settings
-bool tableHasStored();
+// Store a calibrated table for a target (hex: 8 chars per LED = a, b, f, d). Switches that target's layout to "table".
+String tableStoreHex(int target, int start, int count, const char* hex, size_t hexLen);
+void tableRebuild();                        // regenerate every gTable from the layout settings
+bool tableHasStored(int target);
+String targetAdd(int* index);               // new empty target at the end; "" or an error
+String targetRemove(int index);             // removes a target (the later ones move up); "" or an error
 
 // ---------------------------------------------------------------- relay
+struct TargetStatus { bool enabled = true, ok = false; int leds = 0; String name, host, wledName; };
 struct RelayStatus {
   float boxFps = 0;
   uint32_t boxAgeMs = 0;                    // since the last Sync Box frame (UINT32_MAX = never)
   String boxSender;
   const char* state = "starting";
-  bool wledOk = false;
-  int wledLeds = 0;
-  String wledName;
+  bool wledOk = false;                      // every enabled target's WLED answered
+  int wledLeds = 0;                         // LEDs over all targets
+  String wledName;                          // first target's WLED name
+  int nTargets = 0;
+  TargetStatus targets[kMaxTargets];
 };
 
 void relayBegin();
 void relayWait(uint32_t maxMs);              // sleep until a Sync Box packet arrives or the relay needs to act (max maxMs)
 void relayLoop();
-void relayStatus(RelayStatus& s);
+void relayStatus(RelayStatus& s, bool detail = false);    // detail: also names, hosts and the sender (allocates Strings; the web page wants them, the LED and MQTT do not)
 bool relayZones(uint8_t zones[fwb::kZones][3], uint32_t* ageMs);   // latest decoded frame
 // WLED queries used by the web UI
 struct WledInfo { bool ok = false; String name, ver, error; int leds = 0; bool rgbw = false, on = false; int bri = 0; };
 WledInfo wledQuery(const String& host);
 int wledDiscover(String& jsonOut);          // mDNS scan, writes a JSON array
 
-// calibration (driven by the phone through the web API)
-String calBegin(int* total);                // "" or error
+// LED finder and phone calibration sessions (driven through the web API); one target at a time
+String calBegin(int target, int* total);    // "" or error
 void calLed(int start, int count);
-void calScreen(const char* mode);
+void calScreen(const char* mode);           // phone calibration only (the TV test screen)
 const char* calScreenMode();
 void calEnd();
-// test pattern ("rainbow" across the picture for `seconds`, 0 = off)
-void testPattern(int seconds);
-// marker blocks: light these LEDs (the strip's own numbers) in the given colours for `seconds` (0 = clear), the rest of the
-// run dark, so the setup page can show where the run / the TV part starts and ends. Ignored during calibration.
+// test pattern ("rainbow" across the picture for `seconds`, 0 = off) on one target, or on every target when target < 0
+void testPattern(int target, int seconds);
+// marker blocks: light these LEDs (the strip's own numbers) of a target in the given colours for `seconds` (0 = clear), the rest of
+// the run dark, so the setup page can show where the run / the TV part starts and ends. Ignored during calibration.
 struct MarkBlock { int start, count; uint8_t r, g, b; };
-void markShow(const MarkBlock* blocks, int n, int seconds);
+void markShow(int target, const MarkBlock* blocks, int n, int seconds);
 
 // ---------------------------------------------------------------- Home Assistant (MQTT)
 struct MqttStatus { bool enabled = false, connected = false; String error, base; };

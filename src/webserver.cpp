@@ -3,23 +3,26 @@
 #include <WiFi.h>
 #include <esp_http_server.h>
 
-#if __has_include(<esp_https_server.h>)
+#include "app.h"
+
+// The secure server exists only for the phone's camera (browsers allow camera access on HTTPS only), so it is built only with it.
+#if FWB_PHONE_CAL && __has_include(<esp_https_server.h>)
 #include <esp_https_server.h>
+#include "tls_cert.h"
 #define FWB_HAS_HTTPS 1
 #endif
-
-#include "app.h"
-#include "tls_cert.h"
 
 #define ASSET(name)                                                    \
   extern const char name##_start[] asm("_binary_web_" #name "_start"); \
   extern const char name##_end[] asm("_binary_web_" #name "_end");
 ASSET(index_html)
+ASSET(style_css)
+#if FWB_PHONE_CAL
 ASSET(calibrate_html)
 ASSET(screen_html)
 ASSET(analysis_js)
 ASSET(calibration_js)
-ASSET(style_css)
+#endif
 
 static httpd_handle_t gHttp = nullptr, gHttps = nullptr;
 static String gCert, gKey;
@@ -84,11 +87,13 @@ static bool readJson(httpd_req_t* req, JsonDocument& doc, String& err) {
 #define PAGE(fn, type, sym) \
   static esp_err_t fn(httpd_req_t* req) { return sendBody(req, type, sym##_start, (size_t)(sym##_end - sym##_start) - 1); }
 PAGE(h_index, "text/html; charset=utf-8", index_html)
+PAGE(h_style, "text/css", style_css)
+#if FWB_PHONE_CAL
 PAGE(h_calibrate, "text/html; charset=utf-8", calibrate_html)
 PAGE(h_screen_page, "text/html; charset=utf-8", screen_html)
 PAGE(h_analysis, "application/javascript", analysis_js)
 PAGE(h_calibration, "application/javascript", calibration_js)
-PAGE(h_style, "text/css", style_css)
+#endif
 
 static esp_err_t h_favicon(httpd_req_t* req) {
   httpd_resp_set_status(req, "204 No Content");
@@ -108,7 +113,7 @@ static esp_err_t h_404(httpd_req_t* req, httpd_err_code_t) {
 // ------------------------------------------------------------------ API
 static esp_err_t h_status(httpd_req_t* req) {
   RelayStatus s;
-  relayStatus(s);
+  relayStatus(s, true);
   JsonDocument d;
   d["ver"] = FWB_VERSION;
   d["mode"] = wifiIsAp() ? "ap" : "sta";
@@ -129,11 +134,22 @@ static esp_err_t h_status(httpd_req_t* req) {
   b["fps"] = s.boxFps;
   b["age"] = s.boxAgeMs == UINT32_MAX ? -1 : (int)s.boxAgeMs;
   b["sender"] = s.boxSender;
-  JsonObject w = d["wled"].to<JsonObject>();
-  { Lock l; w["host"] = gSet.wHost; }
-  w["ok"] = s.wledOk;
-  w["leds"] = s.wledLeds;
-  w["name"] = s.wledName;
+  d["features"]["phoneCal"] = FWB_PHONE_CAL != 0;
+  JsonArray ta = d["targets"].to<JsonArray>();
+  for (int i = 0; i < s.nTargets; i++) {
+    JsonObject o = ta.add<JsonObject>();
+    o["name"] = s.targets[i].name;
+    o["host"] = s.targets[i].host;
+    o["enabled"] = s.targets[i].enabled;
+    o["ok"] = s.targets[i].ok;
+    o["leds"] = s.targets[i].leds;
+    o["wledName"] = s.targets[i].wledName;
+  }
+  JsonObject w = d["wled"].to<JsonObject>();       // the first target, under its old name (tools written for one target)
+  w["host"] = s.targets[0].host;
+  w["ok"] = s.targets[0].ok;
+  w["leds"] = s.targets[0].leds;
+  w["name"] = s.targets[0].wledName;
   return sendDoc(req, d);
 }
 
@@ -153,9 +169,10 @@ static esp_err_t h_ha(httpd_req_t* req) {
   JsonObject b = d["box"].to<JsonObject>();
   b["connected"] = s.boxFps > 0.f;
   b["fps"] = s.boxFps;
-  JsonObject w = d["wled"].to<JsonObject>();
+  JsonObject w = d["wled"].to<JsonObject>();       // over all enabled targets
   w["ok"] = s.wledOk;
   w["leds"] = s.wledLeds;
+  w["targets"] = s.nTargets;
   { Lock l;
     d["enabled"] = gSet.enabled;
     JsonObject k = d["look"].to<JsonObject>();
@@ -199,9 +216,20 @@ static esp_err_t h_import(httpd_req_t* req) {
 static esp_err_t h_map(httpd_req_t* req) {
   NEED_JSON(doc);
   const char* hex = doc["hex"] | "";
-  String err = tableStoreHex(doc["start"] | -1, doc["count"] | 0, hex, strlen(hex));
+  String err = tableStoreHex(doc["target"] | 0, doc["start"] | -1, doc["count"] | 0, hex, strlen(hex));
   if (err.length()) return sendError(req, "400 Bad Request", err);
   return sendOk(req);
+}
+
+static esp_err_t h_targets(httpd_req_t* req) {
+  NEED_JSON(doc);
+  String action = doc["action"] | "";
+  String err;
+  if (action == "add") { int idx = 0; err = targetAdd(&idx); }
+  else if (action == "remove") err = targetRemove(doc["index"] | -1);
+  else err = "action must be add or remove";
+  if (err.length()) return sendError(req, "400 Bad Request", err);
+  return h_config_get(req);
 }
 
 static esp_err_t h_test(httpd_req_t* req) {
@@ -210,7 +238,7 @@ static esp_err_t h_test(httpd_req_t* req) {
   int secs = doc["seconds"] | 20;
   if (secs < 1) secs = 1;
   if (secs > 3600) secs = 3600;
-  testPattern(p == "rainbow" ? secs : 0);
+  testPattern(doc["target"] | -1, p == "rainbow" ? secs : 0);       // no target given: every target
   if (p != "rainbow") settingsRevert();             // test over: forget unsaved preview changes
   return sendOk(req);
 }
@@ -230,7 +258,7 @@ static esp_err_t h_mark(httpd_req_t* req) {
   int secs = doc["seconds"] | 8;
   if (secs < 0) secs = 0;
   if (secs > 300) secs = 300;
-  markShow(bl, n, secs);
+  markShow(doc["target"] | 0, bl, n, secs);
   return sendOk(req);
 }
 
@@ -252,16 +280,18 @@ static esp_err_t h_zones(httpd_req_t* req) {
   return sendDoc(req, d);
 }
 
+#if FWB_PHONE_CAL
 static esp_err_t h_screen_get(httpd_req_t* req) {
   JsonDocument d;
   d["mode"] = calScreenMode();
   return sendDoc(req, d);
 }
+#endif
 
 static esp_err_t h_cal_begin(httpd_req_t* req) {
   NEED_JSON(doc);
   int total = 0;
-  String err = calBegin(&total);
+  String err = calBegin(doc["target"] | 0, &total);
   if (err.length()) return sendError(req, "502 Bad Gateway", err);
   JsonDocument d;
   d["total"] = total;
@@ -272,11 +302,13 @@ static esp_err_t h_cal_led(httpd_req_t* req) {
   calLed(doc["start"] | 0, doc["count"] | 0);
   return sendOk(req);
 }
+#if FWB_PHONE_CAL
 static esp_err_t h_cal_screen(httpd_req_t* req) {
   NEED_JSON(doc);
   calScreen(doc["mode"] | "idle");
   return sendOk(req);
 }
+#endif
 static esp_err_t h_cal_end(httpd_req_t* req) {
   NEED_JSON(doc);
   calEnd();
@@ -331,10 +363,12 @@ static esp_err_t h_reset(httpd_req_t* req) {
 struct Route { const char* uri; httpd_method_t method; esp_err_t (*fn)(httpd_req_t*); };
 static const Route kRoutes[] = {
     {"/", HTTP_GET, h_index},
+#if FWB_PHONE_CAL
     {"/calibrate", HTTP_GET, h_calibrate},
     {"/screen", HTTP_GET, h_screen_page},
     {"/analysis.js", HTTP_GET, h_analysis},
     {"/calibration.js", HTTP_GET, h_calibration},
+#endif
     {"/style.css", HTTP_GET, h_style},
     {"/favicon.ico", HTTP_GET, h_favicon},
     {"/api/status", HTTP_GET, h_status},
@@ -347,11 +381,14 @@ static const Route kRoutes[] = {
     {"/api/test", HTTP_POST, h_test},
     {"/api/zones", HTTP_GET, h_zones},
     {"/api/mark", HTTP_POST, h_mark},
+#if FWB_PHONE_CAL
     {"/api/screen", HTTP_GET, h_screen_get},
+    {"/api/cal/screen", HTTP_POST, h_cal_screen},
+#endif
     {"/api/cal/begin", HTTP_POST, h_cal_begin},
     {"/api/cal/led", HTTP_POST, h_cal_led},
-    {"/api/cal/screen", HTTP_POST, h_cal_screen},
     {"/api/cal/end", HTTP_POST, h_cal_end},
+    {"/api/targets", HTTP_POST, h_targets},
     {"/api/wled/discover", HTTP_GET, h_wled_discover},
     {"/api/wled/info", HTTP_GET, h_wled_info},
     {"/api/wifi/scan", HTTP_GET, h_wifi_scan},
@@ -405,8 +442,6 @@ void webBegin() {
     if (httpd_ssl_start(&gHttps, &sc) == ESP_OK) registerAll(gHttps);
     else { gHttps = nullptr; Serial.println("HTTPS server failed to start"); }
   }
-#else
-  Serial.println("This build has no HTTPS server; the phone camera page will not work.");
 #endif
 }
 

@@ -9,16 +9,24 @@ const WEB = path.join(__dirname, '..', 'web');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript', '.css': 'text/css' };
 const ROUTES = { '/': 'index.html', '/calibrate': 'calibrate.html', '/screen': 'screen.html', '/analysis.js': 'analysis.js', '/calibration.js': 'calibration.js', '/style.css': 'style.css' };
 
+function newTarget(i) {
+  return { name: 'Target ' + (i + 1), enabled: true, trim: 1,
+    wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
+    layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false } };
+}
+
 function createDevice(opts) {
   opts = opts || {};
   const calls = [];
   const state = {
-    cfg: { wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
-      layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false },
+    cfg: { targets: [newTarget(0)],
       look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, smoothOut: 100 }, box: { host: '' },
       relay: { enabled: true }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
-    screen: 'idle', calActive: false, map: null, test: null, total: opts.total || 600
+    screen: 'idle', calActive: false, maps: {}, test: null, total: opts.total || 600
   };
+  // like the firmware, the first target is also available under its old names (wled / layout)
+  const alias = () => { state.cfg.wled = state.cfg.targets[0].wled; state.cfg.layout = state.cfg.targets[0].layout; };
+  alias();
   const json = (res, code, obj) => { const s = JSON.stringify(obj); res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(s) }); res.end(s); };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -30,9 +38,13 @@ function createDevice(opts) {
     }
     if (req.method === 'GET') {
       calls.push('GET ' + p);
-      if (p === '/api/status') return json(res, 200, { ver: 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: 'waiting for the Sync Box', https: false, heap: 1e5,
-        enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
-        box: { fps: 13.4, age: 50, sender: '192.0.2.20' }, wled: { host: state.cfg.wled.host, ok: !!state.cfg.wled.host, leds: state.total, name: 'WLED' } });
+      if (p === '/api/status') {
+        const targets = state.cfg.targets.map(t => ({ name: t.name, host: t.wled.host, enabled: t.enabled, ok: !!t.wled.host, leds: state.total, wledName: 'WLED' }));
+        return json(res, 200, { ver: 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: 'waiting for the Sync Box', https: false, heap: 1e5,
+          enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
+          features: { phoneCal: opts.phoneCal !== false },
+          box: { fps: 13.4, age: 50, sender: '192.0.2.20' }, targets, wled: { host: targets[0].host, ok: targets[0].ok, leds: state.total, name: 'WLED' } });
+      }
       if (p === '/api/config') return json(res, 200, state.cfg);
       if (p === '/api/zones') return json(res, 200, { age: 40, zones: Array.from({ length: 24 }, () => [state.screen === 'white' ? 200 : 0, 0, 0]) });
       if (p === '/api/screen') return json(res, 200, { mode: state.calActive ? state.screen : 'idle' });
@@ -50,29 +62,64 @@ function createDevice(opts) {
         calls.push('POST ' + p + (p.startsWith('/api/cal/') ? ' ' + body : ''));
         if (p === '/api/config') {
           state.lastConfigPost = d;
-          Object.keys(d).forEach(k => { if (k !== 'preview') Object.assign(state.cfg[k] || (state.cfg[k] = {}), d[k]); });
+          const T = state.cfg.targets[d.target || 0];
+          if (!T) return json(res, 400, { error: 'There is no target ' + ((d.target || 0) + 1) });
+          if (d.name !== undefined) T.name = d.name;
+          if (d.enabled !== undefined) T.enabled = d.enabled;
+          if (d.trim !== undefined) T.trim = d.trim;
+          if (d.wled) Object.assign(T.wled, d.wled);
+          if (d.layout) Object.assign(T.layout, d.layout);
+          ['look', 'box', 'relay', 'mqtt'].forEach(k => { if (d[k]) Object.assign(state.cfg[k], d[k]); });
           if (d.mqtt && d.mqtt.pass !== undefined) { state.mqttPass = d.mqtt.pass; state.cfg.mqtt.passSet = d.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }
           return json(res, 200, state.cfg);
         }
-        if (p === '/api/export') {     // like the firmware: settings + calibrated table; never Wi-Fi; the MQTT password only on request
-          const cfg = JSON.parse(JSON.stringify(state.cfg)); delete cfg.layout.hasTable; delete cfg.mqtt.passSet;
+        if (p === '/api/targets') {
+          state.lastTargetsPost = d;
+          if (d.action === 'add') {
+            if (state.cfg.targets.length >= 4) return json(res, 400, { error: 'There can be at most 4 targets' });
+            state.cfg.targets.push(newTarget(state.cfg.targets.length));
+          } else if (d.action === 'remove') {
+            if (state.cfg.targets.length <= 1) return json(res, 400, { error: 'At least one target is needed' });
+            if (!(d.index >= 0 && d.index < state.cfg.targets.length)) return json(res, 400, { error: 'There is no target ' + (d.index + 1) });
+            state.cfg.targets.splice(d.index, 1);
+          } else return json(res, 400, { error: 'action must be add or remove' });
+          alias();
+          return json(res, 200, state.cfg);
+        }
+        if (p === '/api/export') {     // like the firmware: settings + calibrated tables; never Wi-Fi; the MQTT password only on request
+          const cfg = JSON.parse(JSON.stringify(state.cfg)); delete cfg.wled; delete cfg.layout; delete cfg.mqtt.passSet;
+          cfg.targets.forEach(t => delete t.layout.hasTable);
           if (d.secrets && state.mqttPass) cfg.mqtt.pass = state.mqttPass;
-          const out = { format: 'fancy2wled-config', version: 1, firmware: 'mock', config: cfg };
-          if (state.map) out.table = { start: state.map.start, count: state.map.count, hex: state.map.hex };
-          return json(res, 200, out);
+          const tables = Object.keys(state.maps).map(k => ({ target: +k, start: state.maps[k].start, count: state.maps[k].count, hex: state.maps[k].hex }));
+          return json(res, 200, { format: 'fancy2wled-config', version: 2, firmware: 'mock', config: cfg, tables });
         }
         if (p === '/api/import') {
           if (d.format !== 'fancy2wled-config') return json(res, 400, { error: 'This is not a Fancy2WLED config file.' });
           if (!(d.version >= 1)) return json(res, 400, { error: 'This config file has no version number.' });
-          if (d.version > 1) return json(res, 400, { error: 'This config file was made by a newer version of Fancy2WLED. Update this board first.' });
+          if (d.version > 2) return json(res, 400, { error: 'This config file was made by a newer version of Fancy2WLED. Update this board first.' });
           if (!d.config) return json(res, 400, { error: 'The config file has no settings in it.' });
           state.imported = d;
-          if (d.table) { state.map = d.table; state.cfg.layout.hasTable = true; }
-          Object.keys(d.config).forEach(k => Object.assign(state.cfg[k] || (state.cfg[k] = {}), d.config[k]));
-          if (d.config.mqtt && d.config.mqtt.pass !== undefined) { state.mqttPass = d.config.mqtt.pass; state.cfg.mqtt.passSet = d.config.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }
+          const c = d.config;
+          if (c.targets) {
+            while (state.cfg.targets.length < c.targets.length) state.cfg.targets.push(newTarget(state.cfg.targets.length));
+            state.cfg.targets.length = c.targets.length;
+            c.targets.forEach((t, i) => { const T = state.cfg.targets[i]; ['name', 'enabled', 'trim'].forEach(k => { if (t[k] !== undefined) T[k] = t[k]; }); Object.assign(T.wled, t.wled || {}); Object.assign(T.layout, t.layout || {}); });
+          } else {                      // a file from before several targets: it describes target 0
+            Object.assign(state.cfg.targets[0].wled, c.wled || {}); Object.assign(state.cfg.targets[0].layout, c.layout || {});
+          }
+          const tables = d.tables || (d.table ? [Object.assign({ target: 0 }, d.table)] : []);
+          tables.forEach(t => { state.maps[t.target || 0] = t; state.cfg.targets[t.target || 0].layout.hasTable = true; });
+          ['look', 'box', 'relay', 'mqtt'].forEach(k => { if (c[k]) Object.assign(state.cfg[k], c[k]); });
+          if (c.mqtt && c.mqtt.pass !== undefined) { state.mqttPass = c.mqtt.pass; state.cfg.mqtt.passSet = c.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }
+          alias();
           return json(res, 200, state.cfg);
         }
-        if (p === '/api/map') { state.map = d; state.cfg.layout.hasTable = true; state.cfg.layout.type = 'table'; state.cfg.wled.start = d.start; state.cfg.wled.count = d.count; return json(res, 200, { ok: true }); }
+        if (p === '/api/map') {
+          const ti = d.target || 0, T = state.cfg.targets[ti];
+          state.maps[ti] = d; state.lastMapPost = d;
+          T.layout.hasTable = true; T.layout.type = 'table'; T.wled.start = d.start; T.wled.count = d.count;
+          return json(res, 200, { ok: true });
+        }
         if (p === '/api/test') { state.test = d; return json(res, 200, { ok: true }); }
         if (p === '/api/mark') { state.mark = d; state.marks = (state.marks || 0) + 1; return json(res, 200, { ok: true }); }
         if (p === '/api/cal/begin') { state.calActive = true; state.screen = 'black'; return json(res, 200, { total: state.total }); }

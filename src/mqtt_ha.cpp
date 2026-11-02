@@ -6,6 +6,8 @@
 //   <base>/perf              JSON with performance statistics, every 5 s, ONLY while "Performance stats (debug)" is switched on
 //   <base>/sync/set          ON / OFF       pause or resume the sync
 //   <base>/look/<name>/set   a number       brightness, gamma, saturation, smoothing, smooth_out
+//   <base>/target/<n>/set        ON / OFF   stream to target n (0-based) or not
+//   <base>/target/<n>/trim/set   a number   that target's brightness, 0-150 %
 //   <base>/button/<name>/press   PRESS      rainbow, stop_test, restart
 //   <discovery>/<component>/<id>/<object>/config   discovery messages (retained)
 //
@@ -39,11 +41,18 @@ static void pub(const String& topic, const String& payload, bool retain, int qos
 }
 
 // ------------------------------------------------------------------ state
+// The targets as far as Home Assistant cares: how many, whether each is on, and its brightness trim.
+static String targetsKey() {
+  String k = "|" + String(gSet.nTargets);
+  for (int i = 0; i < gSet.nTargets; i++) k += String(gSet.t[i].enabled ? "1" : "0") + (int)(gSet.t[i].trim * 100.f + 0.5f) + ",";
+  return k;
+}
+
 // What makes the published state change: cheap to build, compared 5 times a second.
 static String stateKey(const RelayStatus& s) {
   Lock l;
   return String(s.state) + (s.boxFps > 0.f ? "1" : "0") + (s.wledOk ? "1" : "0") + (gSet.enabled ? "1" : "0") + (int)(gSet.kBri * 100.f + 0.5f) + "," + gSet.kGam + "," +
-         (int)(gSet.kSat * 100.f + 0.5f) + "," + (int)(gSet.kSmo * 100.f + 0.5f) + "," + gSet.smoothOut + "," + (int)(gSet.kBoost * 100.f + 0.5f);
+         (int)(gSet.kSat * 100.f + 0.5f) + "," + (int)(gSet.kSmo * 100.f + 0.5f) + "," + gSet.smoothOut + "," + (int)(gSet.kBoost * 100.f + 0.5f) + targetsKey();
 }
 
 static String stateJson(const RelayStatus& s) {
@@ -70,6 +79,14 @@ static String stateJson(const RelayStatus& s) {
   d["boost"] = boo;
   d["smooth_out"] = out;
   d["relaying"] = String(s.state) == "relaying";
+  { Lock l;
+    JsonArray ta = d["targets"].to<JsonArray>();
+    for (int i = 0; i < gSet.nTargets; i++) {
+      JsonObject o = ta.add<JsonObject>();
+      o["on"] = gSet.t[i].enabled;
+      o["trim"] = (int)(gSet.t[i].trim * 100.f + 0.5f);
+      o["ok"] = s.targets[i].ok;
+    } }
   String o;
   serializeJson(d, o);
   return o;
@@ -206,8 +223,39 @@ static String perfJson(const PerfSnapshot& p) {
 
 static bool perfSetting() { Lock l; return gSet.perfDebug; }
 
+// One switch and one brightness number per target; entities of targets that no longer exist are removed again.
+static void targetDiscovery() {
+  int n;
+  String names[kMaxTargets];
+  { Lock l; n = gSet.nTargets; for (int i = 0; i < n; i++) names[i] = gSet.t[i].name; }
+  for (int i = 0; i < kMaxTargets; i++) {
+    const String sw = "target_" + String(i), tr = "target_" + String(i) + "_trim";
+    if (i >= n) { removeOld("switch", sw.c_str()); removeOld("number", tr.c_str()); continue; }
+    { JsonDocument d;
+      d["name"] = names[i];
+      d["state_topic"] = T("state");
+      d["value_template"] = "{{ 'ON' if value_json.targets[" + String(i) + "].on else 'OFF' }}";
+      d["command_topic"] = T("target/" + String(i) + "/set");
+      d["payload_on"] = "ON";
+      d["payload_off"] = "OFF";
+      d["icon"] = "mdi:led-strip-variant";
+      discover("switch", sw.c_str(), d); }
+    { JsonDocument d;
+      d["name"] = names[i] + " brightness";
+      d["state_topic"] = T("state");
+      d["value_template"] = "{{ value_json.targets[" + String(i) + "].trim }}";
+      d["command_topic"] = T("target/" + String(i) + "/trim/set");
+      d["min"] = 0; d["max"] = 150; d["step"] = 5;
+      d["unit_of_measurement"] = "%";
+      d["entity_category"] = "config";
+      d["icon"] = "mdi:brightness-6";
+      discover("number", tr.c_str(), d); }
+  }
+}
+
 static void publishDiscovery() {
   perfDiscovery(perfSetting());                 // announce the debug sensors, or remove them again when the switch is off
+  targetDiscovery();
   removeOld("switch", "sync");                  // the Sync switch became a light (below)
   removeOld("number", "brightness");            // ... whose brightness slider replaces the separate Brightness number
   {  // the sync as a light: on / off pauses and resumes it, the brightness slider is the Look brightness (0-100 %)
@@ -318,12 +366,37 @@ static void onCommand(const String& topic, const String& payload) {
     JsonDocument d;
     d["relay"]["enabled"] = on;
     settingsFromJson(d.as<JsonVariantConst>(), true);
+  } else if (rel.startsWith("target/")) {                   // target/<n>/set (ON / OFF) and target/<n>/trim/set (0-150)
+    const String r = rel.substring(7);
+    const int slash = r.indexOf('/');
+    if (slash < 1) return;
+    const String num = r.substring(0, slash), tail = r.substring(slash + 1);
+    const int idx = num.toInt();
+    if (String(idx) != num) return;
+    { Lock l; if (idx < 0 || idx >= gSet.nTargets) return; }
+    JsonDocument d;
+    d["target"] = idx;
+    if (tail == "set") {
+      String p = payload;
+      p.trim();
+      const bool on = p.equalsIgnoreCase("ON") || p == "1" || p.equalsIgnoreCase("true");
+      const bool off = p.equalsIgnoreCase("OFF") || p == "0" || p.equalsIgnoreCase("false");
+      if (!on && !off) return;
+      d["enabled"] = on;
+    } else if (tail == "trim/set") {
+      float v;
+      if (!parseNumber(payload, &v) || v < 0.f || v > 150.f) return;
+      d["trim"] = v / 100.f;
+    } else {
+      return;
+    }
+    if (settingsFromJson(d.as<JsonVariantConst>(), true).length()) return;
   } else if (rel.startsWith("look/") && rel.endsWith("/set")) {
     if (!applyLook(rel.substring(5, rel.length() - 4), payload)) return;
   } else if (rel.startsWith("button/") && rel.endsWith("/press")) {
     const String b = rel.substring(7, rel.length() - 6);
-    if (b == "rainbow") testPattern(60);
-    else if (b == "stop_test") { testPattern(0); settingsRevert(); }
+    if (b == "rainbow") testPattern(-1, 60);
+    else if (b == "stop_test") { testPattern(-1, 0); settingsRevert(); }
     else if (b == "restart") requestRestart(800);
     else return;
   } else {
@@ -343,6 +416,8 @@ static void onEvent(void*, esp_event_base_t, int32_t id, void* data) {
       publishDiscovery();
       esp_mqtt_client_subscribe(gClient, T("sync/set").c_str(), 1);
       esp_mqtt_client_subscribe(gClient, T("look/+/set").c_str(), 1);
+      esp_mqtt_client_subscribe(gClient, T("target/+/set").c_str(), 1);
+      esp_mqtt_client_subscribe(gClient, T("target/+/trim/set").c_str(), 1);
       esp_mqtt_client_subscribe(gClient, T("button/+/press").c_str(), 1);
       gForce = true;
       break;
@@ -431,6 +506,15 @@ static void startClient() {
 void mqttBegin() { gGen = 0xFFFFFFFF; }
 
 static uint32_t gLastPerf = 0;
+static String gTargetSig;                                    // the targets' names as last announced to Home Assistant
+
+// The names and number of targets: when they change the per-target entities are announced again.
+static String targetSig() {
+  Lock l;
+  String s = String(gSet.nTargets);
+  for (int i = 0; i < gSet.nTargets; i++) s += "|" + gSet.t[i].name;
+  return s;
+}
 
 void mqttLoop() {
   if (gGen != gMqttGen) { gGen = gMqttGen; startClient(); }
@@ -438,6 +522,8 @@ void mqttLoop() {
   perfSync(wantPerf);
   if (!gClient || !gConnected) return;
   const uint32_t now = millis();
+  { const String sig = targetSig();
+    if (sig != gTargetSig) { if (gTargetSig.length()) publishDiscovery(); gTargetSig = sig; } }
   if (wantPerf && now - gLastPerf >= 5000) {
     gLastPerf = now;
     PerfSnapshot p;

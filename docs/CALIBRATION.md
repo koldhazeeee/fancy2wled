@@ -1,5 +1,7 @@
 # Phone auto-calibration
 
+> **This is an optional build.** The camera calibration (the phone page, the TV test screen and the secure web server it needs) is built only with `pio run -e atoms3-phonecal -t upload`. The normal `atoms3` firmware leaves it out, which saves about 65 KB of flash and the memory the secure server uses; the **Find my LEDs** slider and the red / blue markers on the setup page never needed the camera and are in both. With several targets, the phone page calibrates the target you were editing when you opened it.
+
 The board works out **which LEDs it controls and exactly where they are relative to the TV** by watching them with your
 phone. Everything happens on your phone and the board; nothing is uploaded anywhere and no camera image ever leaves your phone.
 

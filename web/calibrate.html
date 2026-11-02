@@ -51,6 +51,7 @@ ol{padding-left:1.2rem}li{margin:.3rem 0}
 (function(){
   var $=function(i){return document.getElementById(i);};
   var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
+  var TARGET=parseInt(new URLSearchParams(location.search).get('target')||'0',10)||0;     // which target of the relay is being calibrated (the setup page passes it)
   $('scrUrl').textContent='http://'+location.host+'/screen';
   if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
     $('insecure').classList.remove('hidden');$('httpsLink').href='https://'+location.host+'/calibrate';$('cam').disabled=true;
@@ -63,7 +64,7 @@ ol{padding-left:1.2rem}li{margin:.3rem 0}
     if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;
   }
   var api={
-    prepare:async function(){var d=await j('/api/cal/begin',{});return{total:d.total};},
+    prepare:async function(){var d=await j('/api/cal/begin',{target:TARGET});return{total:d.total};},
     restore:async function(){try{await j('/api/cal/end',{});}catch(e){}},
     release:async function(){},
     led:function(s,c){return j('/api/cal/led',{start:s,count:c});},
@@ -136,7 +137,7 @@ ol{padding-left:1.2rem}li{margin:.3rem 0}
     $('save').onclick=async function(){
       $('save').disabled=true;
       try{
-        await j('/api/map',{start:res.start,count:res.count,hex:res.hex});
+        await j('/api/map',{target:TARGET,start:res.start,count:res.count,hex:res.hex});
         $('saved').innerHTML='<span class="ok">Saved. The relay is using this layout now.</span> <a href="/">Back to setup</a>';
         $('prev').classList.remove('hidden');
       }catch(e){$('saved').innerHTML='<span class="err">Could not save: '+esc(e.message)+'</span>';$('save').disabled=false;}

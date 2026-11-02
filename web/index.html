@@ -15,7 +15,7 @@ input[type=range].wide{width:100%}
 <h1>Fancy2WLED</h1>
 
 <div class="card" id="stat">
-  <div class="row"><span id="pWifi" class="pill">Wi-Fi</span><span id="pBox" class="pill">Sync Box</span><span id="pWled" class="pill">WLED</span><span id="pState" class="pill"></span><button id="syncBtn" class="sec hidden">Pause sync</button></div>
+  <div class="row"><span id="pWifi" class="pill">Wi-Fi</span><span id="pBox" class="pill">Sync Box</span><span id="wPills"></span><span id="pState" class="pill"></span><button id="syncBtn" class="sec hidden">Pause sync</button></div>
   <div id="statTxt" class="small mut"></div>
 </div>
 
@@ -29,6 +29,15 @@ input[type=range].wide{width:100%}
 </div>
 
 <div id="main" class="hidden">
+<div class="card">
+  <h2>Targets</h2>
+  <p class="small mut">A target is a run of LEDs on a WLED that follows one part of the picture. Add one for each strip, for example a strip behind the TV and a cabinet light. The cards below edit the target you pick here; the <i>Look</i> settings are shared, and each target has its own brightness.</p>
+  <div class="row"><label for="tSel">Editing</label><select id="tSel"></select><button id="tAdd" class="sec">Add a target</button><button id="tDel" class="bad">Remove this target</button></div>
+  <div class="row"><label for="tName">Name</label><input id="tName" maxlength="24" data-live="1"></div>
+  <div class="row"><label for="tOn">Stream to this target</label><input id="tOn" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
+  <div class="row"><label for="tTrim">This target's brightness compared with the others <span id="tTrimV"></span></label><input id="tTrim" type="range" min="0" max="1.5" step="0.05" data-live="1"></div>
+</div>
+
 <div class="card">
   <h2>WLED</h2>
   <div class="row"><label for="wHost">WLED address</label><input id="wHost" placeholder="e.g. 192.168.1.50 or wled.local" autocapitalize="none"><button id="wFind" class="sec">Find</button></div>
@@ -52,7 +61,7 @@ input[type=range].wide{width:100%}
     <option value="loop">All the way around the TV</option>
     <option value="table">Use what the phone calibration measured</option></select></div>
   <p class="small mut" id="placeNote"></p>
-  <div class="row"><a class="btn" id="calBtn" href="/calibrate">Auto-calibrate with my phone</a></div>
+  <div class="row" id="calRow"><a class="btn" id="calBtn" href="/calibrate">Auto-calibrate with my phone</a></div>
 
   <h3>2. The whole run: how long is it?</h3>
   <p class="small mut">The run is the stretch of your strip you want the TV to control; the rest of the strip is left alone. For example, if the first 210 LEDs of the strip are behind and beside the TV: first LED <b>0</b>, length <b>210</b>.</p>
@@ -142,7 +151,7 @@ input[type=range].wide{width:100%}
 
 <script>
 (function(){
-  var $=function(i){return document.getElementById(i);}, cfg=null, testing=false, finder=false, timer=null, totalLeds=0, dirty=false, finderBeat=null;
+  var $=function(i){return document.getElementById(i);}, cfg=null, sel=0, testing=false, finder=false, timer=null, totalLeds=0, dirty=false, finderBeat=null;
   async function j(path,body){
     var opt=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
     var r=await fetch(path,opt),t=await r.text(),d={};try{d=JSON.parse(t);}catch(e){}
@@ -160,11 +169,20 @@ input[type=range].wide{width:100%}
       show('wifiCard',s.mode==='ap');show('main',s.mode!=='ap');
       pill('pWifi',s.mode==='ap'?'warn':'ok',s.mode==='ap'?'Setup mode':'Wi-Fi '+s.ssid);
       pill('pBox',s.box.fps>0?'ok':'warn',s.box.fps>0?('Sync Box '+s.box.fps.toFixed(0)+' fps'):'Sync Box: nothing yet');
-      pill('pWled',s.wled.ok?'ok':(s.wled.host?'bad':'warn'),s.wled.ok?('WLED '+s.wled.leds+' LEDs'):(s.wled.host?'WLED unreachable':'WLED not set'));
+      var ts=s.targets||[{name:'WLED',host:s.wled.host,ok:s.wled.ok,leds:s.wled.leds,enabled:true}],box=$('wPills');box.innerHTML='';
+      ts.forEach(function(t){
+        var sp=document.createElement('span'),nm=(ts.length>1?t.name+': ':'');
+        if(t.enabled===false){sp.className='pill warn';sp.textContent=nm+'off';}
+        else if(t.ok){sp.className='pill ok';sp.textContent=(ts.length>1?t.name+': ':'WLED ')+t.leds+' LEDs';}
+        else{sp.className='pill '+(t.host?'bad':'warn');sp.textContent=nm+(t.host?'WLED unreachable':'WLED not set');}
+        box.appendChild(sp);
+      });
       pill('pState','',s.state);
       $('statTxt').textContent=(s.ip||'')+'  |  '+s.hostname+'.local  |  signal '+s.rssi+' dBm  |  firmware '+s.ver+(s.box.sender?'  |  box at '+s.box.sender:'');
-      if(s.wled.leds){totalLeds=s.wled.leds;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);}
-      if(s.https)$('calBtn').href='https://'+location.host+'/calibrate';
+      var cur=ts[Math.min(sel,ts.length-1)];
+      if(cur&&cur.leds){totalLeds=cur.leds;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);}
+      var pc=!!(s.features&&s.features.phoneCal);show('calRow',pc);
+      if(pc)$('calBtn').href=(s.https?'https://'+location.host:'')+'/calibrate?target='+sel;
       var sb=$('syncBtn');sb.classList.toggle('hidden',s.mode==='ap');sb.textContent=s.enabled===false?'Resume sync':'Pause sync';sb.setAttribute('data-enabled',s.enabled===false?'0':'1');
       var m=s.mqtt;if(m){var e=$('mqStatus');
         if(!m.enabled)e.innerHTML='<span class="mut">Off</span>';
@@ -235,25 +253,32 @@ input[type=range].wide{width:100%}
   /* ---------------------------------------------------------------- config */
   function placeFromCfg(L){return L.type==='table'?'table':(L.type==='loop'?'loop':(L.edge||'top'));}
   function setCfg(c){
-    cfg=c;$('wHost').value=c.wled.host;$('wStart').value=c.wled.start;$('wCount').value=c.wled.count;$('wOn').checked=c.wled.turnOn;$('wBri').value=c.wled.brightness;$('wRestore').checked=c.wled.restore;
-    var L=c.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
-    $('tvFirst').value=L.spanFirst>=0?L.spanFirst+c.wled.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+c.wled.start:'';
+    cfg=c;
+    var list=c.targets||[{name:'WLED',enabled:true,trim:1,wled:c.wled,layout:c.layout}];
+    if(sel>=list.length)sel=list.length-1;if(sel<0)sel=0;
+    var T=list[sel],W=T.wled;
+    $('tSel').innerHTML=list.map(function(t,i){return '<option value="'+i+'">'+esc(t.name)+'</option>';}).join('');$('tSel').value=String(sel);
+    $('tDel').disabled=list.length<2;$('tAdd').disabled=list.length>=4;
+    $('tName').value=T.name;$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;
+    $('wHost').value=W.host;$('wStart').value=W.start;$('wCount').value=W.count;$('wOn').checked=W.turnOn;$('wBri').value=W.brightness;$('wRestore').checked=W.restore;
+    var L=T.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
+    $('tvFirst').value=L.spanFirst>=0?L.spanFirst+W.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+W.start:'';
     $('lCorner').value=L.corner;$('lDir').value=L.ccw?1:0;for(var i=0;i<4;i++)$('lS'+i).value=L.sides[i]>0?L.sides[i]:'';$('lShift').value=L.shift;
     $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;$('kBoost').value=Math.round(100*(c.look.boost||0));
     $('lPlace').querySelector('option[value=table]').disabled=!L.hasTable;
-    var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+c.wled.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
+    var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+W.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
     $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';$('mqPerf').checked=!!M.perf;
     vals();labels();info();setDirty(false);
   }
-  function vals(){['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
+  function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
   function gather(){
     var p=place(),s=tvSpan(),lay;
     lay={type:p==='loop'?'loop':(p==='table'?'table':'linear'),led0Right:$('lSide').value==='1',spanFirst:linear()?s.first:-1,spanLast:linear()?s.last:-1,
       corner:num('lCorner',0),ccw:$('lDir').value==='1',sides:[num('lS0',0),num('lS1',0),num('lS2',0),num('lS3',0)],shift:num('lShift',0)};
     if(linear())lay.edge=p;
-    return {wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
+    return {target:sel,name:$('tName').value.trim(),enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
       look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,smoothOut:parseInt($('kOut').value,10)}};
   }
@@ -289,7 +314,7 @@ input[type=range].wide{width:100%}
         bl.push({start:st+s.first,count:tz,color:[255,0,0]});            // red: the TV part (drawn last, so it wins where they overlap)
         bl.push({start:st+s.last-tz+1,count:tz,color:[255,0,0]});
       }
-      j('/api/mark',{blocks:bl,seconds:seconds}).catch(function(){});
+      j('/api/mark',{target:sel,blocks:bl,seconds:seconds}).catch(function(){});
     },150);
   }
   ['wStart','wCount','tvFirst','tvLast'].forEach(function(id){$(id).addEventListener('input',function(){markers(8);});});
@@ -335,8 +360,8 @@ input[type=range].wide{width:100%}
   }
   $('fOpen').onclick=async function(){
     try{
-      if(testing){testing=false;$('test').textContent='Start rainbow test';try{await j('/api/test',{pattern:'off'});}catch(e){}}
-      var d=await j('/api/cal/begin',{});totalLeds=d.total;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);
+      if(testing){testing=false;$('test').textContent='Start rainbow test';try{await j('/api/test',{pattern:'off',target:sel});}catch(e){}}
+      var d=await j('/api/cal/begin',{target:sel});totalLeds=d.total;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);
       finder=true;show('fBox',true);show('fOpen',false);$('fPos').value=Math.min(num('wStart',0),Math.max(0,totalLeds-1));finderSend();
       finderBeat=setInterval(function(){finderSend();},10000);       // keep the session alive
     }catch(e){msg('<span class="err">'+e.message+'</span>');}
@@ -369,15 +394,37 @@ input[type=range].wide{width:100%}
     catch(e){msg('<span class="err">'+e.message+'</span>');}
   };
   $('test').onclick=async function(){
-    if(testing){testing=false;$('test').textContent='Start rainbow test';try{await j('/api/test',{pattern:'off'});}catch(e){}msg('');return;}
+    if(testing){testing=false;$('test').textContent='Start rainbow test';try{await j('/api/test',{pattern:'off',target:sel});}catch(e){}msg('');return;}
     var pr=problems();if(pr){msg('<span class="err">'+pr+'</span>');return;}
     try{
       await finderStop();
       var b=gather();b.preview=true;await j('/api/config',b);
-      await j('/api/test',{pattern:'rainbow',seconds:3600});
+      await j('/api/test',{pattern:'rainbow',seconds:3600,target:sel});
       testing=true;$('test').textContent='Stop rainbow test';
       msg('Rainbow running: red at the TV\'s left edge to violet at its right edge. Change any setting and it updates live. Press Save to keep it.');
     }catch(e){msg('<span class="err">'+e.message+'</span>');}
+  };
+  /* ---------------------------------------------------------------- targets */
+  async function stopEverything(){
+    if(testing){testing=false;$('test').textContent='Start rainbow test';try{await j('/api/test',{pattern:'off',target:sel});}catch(e){}}
+    await finderStop();
+  }
+  $('tSel').onchange=async function(){
+    var to=parseInt($('tSel').value,10);
+    if(dirty&&!confirm('Discard the changes you have not saved?')){$('tSel').value=String(sel);return;}
+    await stopEverything();
+    sel=to;totalLeds=0;setCfg(cfg);status();
+  };
+  $('tAdd').onclick=async function(){
+    if(dirty&&!confirm('Discard the changes you have not saved?'))return;
+    try{await stopEverything();var c=await j('/api/targets',{action:'add'});sel=c.targets.length-1;totalLeds=0;setCfg(c);status();msg('<span class="ok">Added. Give it a WLED address and a name, then Save.</span>');}
+    catch(e){msg('<span class="err">'+e.message+'</span>');}
+  };
+  $('tDel').onclick=async function(){
+    var nm=$('tName').value||('target '+(sel+1));
+    if(!confirm('Remove '+nm+'? Its settings are deleted and its WLED is handed back.'))return;
+    try{await stopEverything();var c=await j('/api/targets',{action:'remove',index:sel});if(sel>=c.targets.length)sel=c.targets.length-1;totalLeds=0;setCfg(c);status();msg('<span class="ok">Removed.</span>');}
+    catch(e){msg('<span class="err">'+e.message+'</span>');}
   };
   $('syncBtn').onclick=async function(){
     var on=$('syncBtn').getAttribute('data-enabled')==='1';
@@ -430,10 +477,12 @@ input[type=range].wide{width:100%}
     var doc;
     try{if(f.size>200000)throw new Error('too big');doc=JSON.parse(await f.text());}catch(e){bk('<span class="err">That file is not a Fancy2WLED config (it is not valid JSON).</span>');return;}
     if(!doc||doc.format!=='fancy2wled-config'||!doc.config){bk('<span class="err">That file is not a Fancy2WLED config.</span>');return;}
-    var c=doc.config,w=c.wled||{},lay=c.layout||{},mq=c.mqtt||{};
-    var lines=['WLED '+(w.host||'(not set)')+', '+(w.count||0)+' LEDs from LED '+(w.start||0),'Layout: '+(lay.type==='table'?'phone-calibrated':(lay.type==='loop'?'all the way around':'straight run, '+(lay.edge||'top')+' edge')),
-      doc.table?'Includes the phone calibration ('+doc.table.count+' LEDs)':'No phone calibration in the file',
-      'Home Assistant (MQTT): '+(mq.enabled?'on ('+(mq.host||'')+')':'off')];
+    var c=doc.config,mq=c.mqtt||{},lines=[];
+    var tl=(c.targets&&c.targets.length)?c.targets:[{name:'Target 1',wled:c.wled||{},layout:c.layout||{}}];      // files from before several targets have one
+    tl.forEach(function(t){var w=t.wled||{},lay=t.layout||{};
+      lines.push((t.name||'Target')+': WLED '+(w.host||'(not set)')+', '+(w.count||0)+' LEDs from LED '+(w.start||0)+', '+(lay.type==='table'?'phone-calibrated':(lay.type==='loop'?'all the way around':'straight run, '+(lay.edge||'top')+' edge')));});
+    lines.push((doc.tables&&doc.tables.length)||doc.table?'Includes the phone calibration':'No phone calibration in the file');
+    lines.push('Home Assistant (MQTT): '+(mq.enabled?'on ('+(mq.host||'')+')':'off'));
     if(!confirm('Replace this board\'s settings with the ones in this file?\n\n'+lines.join('\n')+'\n\nThe Wi-Fi settings stay as they are.'))return;
     bk('Importing...');
     try{

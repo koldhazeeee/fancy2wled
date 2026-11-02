@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 #include "app.h"
+#if FWB_PHONE_CAL
 #include "tls_cert.h"
 
 #include <mbedtls/x509_crt.h>
@@ -92,3 +93,4 @@ bool tlsGetCert(String& certPem, String& keyPem) {
   return ok;
 }
 
+#endif  // FWB_PHONE_CAL

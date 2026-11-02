@@ -139,6 +139,38 @@ async function cdp(wsUrl) {
     await setv('tvFirst', 150); await setv('tvLast', 230); dev.state.lastConfigPost = null;
     await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
     check('index: Save stores it (no preview flag)', dev.state.lastConfigPost && !dev.state.lastConfigPost.preview && dev.state.lastConfigPost.layout.spanFirst === 50, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.layout));
+    // several targets: add one, edit it, switch between them, markers / test go to the selected one, remove it
+    await p.ev("window.confirm=function(){return true;}; 1");
+    check('targets: starts with one target, listed in the selector, and it cannot be removed', (await p.ev("document.getElementById('tSel').options.length")) === 1 && (await p.ev("document.getElementById('tDel').disabled")) === true);
+    check('targets: the phone-calibration link is shown (this build has it)', (await p.ev("document.getElementById('calRow').classList.contains('hidden')")) === false && /calibrate\?target=0/.test(await p.ev("document.getElementById('calBtn').getAttribute('href')")), await p.ev("document.getElementById('calBtn').getAttribute('href')"));
+    await p.ev("document.getElementById('tAdd').click(); 1"); await sleep(800);
+    check('targets: Add creates a second target and selects it (empty form)', dev.state.lastTargetsPost && dev.state.lastTargetsPost.action === 'add' && dev.state.cfg.targets.length === 2 &&
+      (await p.ev("document.getElementById('tSel').value")) === '1' && (await p.ev("document.getElementById('wHost').value")) === '' && (await p.ev("document.getElementById('tName').value")) === 'Target 2');
+    await setv('tName', 'Cabinet'); await setv('wHost', '192.0.2.225'); await setv('wStart', 0); await setv('wCount', 266); await setv('lPlace', 'right', 'change'); await setv('tTrim', 0.5);
+    dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('save').click(); 1"); await sleep(800);
+    const t0 = dev.state.cfg.targets[0], t1 = dev.state.cfg.targets[1];
+    check('targets: Save sends the target number and stores the second target only', dev.state.lastConfigPost && dev.state.lastConfigPost.target === 1 && t1.name === 'Cabinet' && t1.wled.host === '192.0.2.225' && t1.wled.count === 266 &&
+      t1.layout.edge === 'right' && t1.trim === 0.5 && t0.wled.host === '192.0.2.50' && t0.layout.edge === 'top' && t0.name === 'Target 1', JSON.stringify(dev.state.cfg.targets.map(t => [t.name, t.wled.host, t.layout.edge, t.trim])));
+    await sleep(2800);
+    check('targets: the selector lists both by name and the status has a pill for each', /Cabinet/.test(await p.ev("document.getElementById('tSel').textContent")) && (await p.ev("document.getElementById('wPills').children.length")) === 2, await p.ev("document.getElementById('wPills').textContent"));
+    await p.ev("var s=document.getElementById('tSel'); s.value='0'; s.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(700);
+    check('targets: switching back shows the first target (its address, edge and name)', (await p.ev("document.getElementById('wHost').value")) === '192.0.2.50' && (await p.ev("document.getElementById('lPlace').value")) === 'top' && (await p.ev("document.getElementById('tName').value")) === 'Target 1');
+    await p.ev("var s=document.getElementById('tSel'); s.value='1'; s.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(700);
+    check('targets: ... and the second again, with its trim', (await p.ev("document.getElementById('wHost').value")) === '192.0.2.225' && (await p.ev("document.getElementById('lPlace').value")) === 'right' && (await p.ev("document.getElementById('tTrim').value")) === '0.5');
+    check('targets: the phone-calibration link carries the selected target', /calibrate\?target=1/.test(await p.ev("document.getElementById('calBtn').getAttribute('href')")), await p.ev("document.getElementById('calBtn').getAttribute('href')"));
+    dev.state.mark = null;
+    await p.ev("document.getElementById('markBtn').click(); 1"); await sleep(700);
+    const mk1 = dev.state.mark;
+    check('targets: markers go to the selected target, on its own LED numbers', mk1 && mk1.target === 1 && mk1.blocks.some(b => b.start === 0) && mk1.blocks.some(b => b.start === 263), JSON.stringify(mk1));
+    dev.state.test = null;
+    await p.ev("document.getElementById('test').click(); 1"); await sleep(800);
+    check('targets: the rainbow test runs on the selected target only', dev.state.test && dev.state.test.pattern === 'rainbow' && dev.state.test.target === 1, JSON.stringify(dev.state.test));
+    await p.ev("document.getElementById('test').click(); 1"); await sleep(400);
+    check('targets: stopping the test names the target too', dev.state.test && dev.state.test.pattern === 'off' && dev.state.test.target === 1);
+    await p.ev("document.getElementById('tDel').click(); 1"); await sleep(800);
+    check('targets: Remove deletes the selected target and goes back to the first', dev.state.lastTargetsPost.action === 'remove' && dev.state.lastTargetsPost.index === 1 && dev.state.cfg.targets.length === 1 &&
+      (await p.ev("document.getElementById('tSel').options.length")) === 1 && (await p.ev("document.getElementById('wHost').value")) === '192.0.2.50');
     // finder: a block of LEDs that can be moved, and used to set the run and the TV part
     dev.calls.length = 0;
     await p.ev("document.getElementById('fOpen').click(); 1"); await sleep(500);
@@ -183,12 +215,12 @@ async function cdp(wsUrl) {
     await p.send('Page.enable');
     await p.ev("window.__dl=null; window.__confirms=[]; window.confirm=function(m){window.__confirms.push(m);return window.__ok!==false;}; "
       + "var oc=HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click=function(){ if(this.download){ var a=this; fetch(a.href).then(function(r){return r.text();}).then(function(t){window.__dl={name:a.download,text:t};}); } else oc.call(this); }; 1");
-    dev.state.map = { start: 0, count: 2, hex: '0005ff000105ff00' }; dev.state.cfg.layout.hasTable = true;
+    dev.state.maps[0] = { start: 0, count: 2, hex: '0005ff000105ff00' }; dev.state.cfg.targets[0].layout.hasTable = true;
     await p.ev("document.getElementById('exportBtn').click(); 1"); await sleep(700);
     const dl = JSON.parse((await p.ev("window.__dl && window.__dl.text")) || 'null');
     check('backup: Export downloads fancy2wled-config.json', (await p.ev("window.__dl && window.__dl.name")) === 'fancy2wled-config.json');
-    check('backup: the file says what it is and carries settings + calibration', dl && dl.format === 'fancy2wled-config' && dl.version === 1 && dl.config.wled.host === '192.0.2.50' && dl.table && dl.table.count === 2 && dl.table.hex === '0005ff000105ff00', JSON.stringify(dl).slice(0, 200));
-    check('backup: no Wi-Fi details and no MQTT password by default', dl && !JSON.stringify(dl).includes('TestNet') && !('wifi' in dl) && !('pass' in dl.config.mqtt) && !('passSet' in dl.config.mqtt) && !('hasTable' in dl.config.layout), JSON.stringify(dl && dl.config.mqtt));
+    check('backup: the file says what it is and carries settings + calibration', dl && dl.format === 'fancy2wled-config' && dl.version === 2 && dl.config.targets[0].wled.host === '192.0.2.50' && dl.tables[0].target === 0 && dl.tables[0].count === 2 && dl.tables[0].hex === '0005ff000105ff00', JSON.stringify(dl).slice(0, 200));
+    check('backup: no Wi-Fi details and no MQTT password by default', dl && !JSON.stringify(dl).includes('TestNet') && !('wifi' in dl) && !('pass' in dl.config.mqtt) && !('passSet' in dl.config.mqtt) && !('hasTable' in dl.config.targets[0].layout) && !('wled' in dl.config) && !('layout' in dl.config), JSON.stringify(dl && dl.config.mqtt));
     await p.ev("document.getElementById('exSecrets').checked=true; window.__dl=null; document.getElementById('exportBtn').click(); 1"); await sleep(700);
     const dl2 = JSON.parse((await p.ev("window.__dl && window.__dl.text")) || 'null');
     check('backup: the MQTT password goes in only when asked for', dl2 && dl2.config.mqtt.pass === 'secret', JSON.stringify(dl2 && dl2.config.mqtt));
@@ -198,10 +230,10 @@ async function cdp(wsUrl) {
       await p.ev("var dt=new DataTransfer(); dt.items.add(new File([" + JSON.stringify(typeof obj === 'string' ? obj : JSON.stringify(obj)) + "],'x.json',{type:'application/json'})); var fi=document.getElementById('importFile'); fi.files=dt.files; fi.dispatchEvent(new Event('change',{bubbles:true})); 1");
       await sleep(900); return p.ev("document.getElementById('bkMsg').textContent");
     };
-    const moved = JSON.parse(JSON.stringify(dl)); moved.config.wled.host = '192.0.2.99'; moved.config.layout.spanFirst = 55; moved.config.mqtt.enabled = true;
+    const moved = JSON.parse(JSON.stringify(dl)); moved.config.targets[0].wled.host = '192.0.2.99'; moved.config.targets[0].layout.spanFirst = 55; moved.config.mqtt.enabled = true;
     let note = await importFile(moved);
     check('backup: Import asks first, shows a summary, and says the Wi-Fi is untouched', (await p.ev("window.__confirms.length")) === 1 && /192\.0\.2\.99/.test(await p.ev("window.__confirms[0]")) && /Wi-Fi/.test(await p.ev("window.__confirms[0]")));
-    check('backup: Import sends the file to the board and applies it', dev.state.imported && dev.state.cfg.wled.host === '192.0.2.99' && dev.state.cfg.layout.spanFirst === 55 && dev.state.map.count === 2, note);
+    check('backup: Import sends the file to the board and applies it', dev.state.imported && dev.state.cfg.wled.host === '192.0.2.99' && dev.state.cfg.layout.spanFirst === 55 && dev.state.maps[0].count === 2, note);
     check('backup: the page shows the imported values and says so', (await p.ev("document.getElementById('wHost').value")) === '192.0.2.99' && /Imported/.test(note), note);
     check('backup: warns when MQTT is on but the file has no password', /type it again/.test(note), note);
     note = await importFile(moved, false);
@@ -210,11 +242,24 @@ async function cdp(wsUrl) {
     check('backup: a file that is not JSON is refused', dev.state.imported === null && /not a Fancy2WLED config/.test(note), note);
     note = await importFile({ hello: 'world' });
     check('backup: JSON that is not a Fancy2WLED config is refused', dev.state.imported === null && /not a Fancy2WLED config/.test(note), note);
-    const newer = JSON.parse(JSON.stringify(dl)); newer.version = 2;
+    const newer = JSON.parse(JSON.stringify(dl)); newer.version = 3;
     note = await importFile(newer);
     check('backup: a file from a newer version is refused with an explanation', dev.state.imported === null && /newer version/.test(note), note);
+    // a file from before several targets (version 1: wled / layout / table at the top) still imports, as target 0
+    const legacy = { format: 'fancy2wled-config', version: 1, config: { wled: { host: '192.0.2.77', start: 0, count: 150, turnOn: true, restore: true, brightness: -1 }, layout: { type: 'linear', edge: 'bottom', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0 } }, table: { start: 0, count: 2, hex: '0005ff000105ff00' } };
+    note = await importFile(legacy);
+    check('backup: a version-1 file (one target) imports as target 0', dev.state.imported && dev.state.cfg.targets[0].wled.host === '192.0.2.77' && dev.state.cfg.targets[0].layout.edge === 'bottom' && dev.state.cfg.targets.length >= 1, note);
     check('index: no script errors', p.logs.length === 0, p.logs.join(' | '));
     p.close();
+
+    // ---- a build without the camera calibration: the setup page does not offer it
+    { const dev2 = createDevice({ phoneCal: false });
+      await new Promise(r => dev2.server.listen(0, r));
+      const p2 = await newTab('http://localhost:' + dev2.server.address().port + '/');
+      await sleep(1800);
+      check('no phone calibration in this build: the link is hidden', await p2.ev("document.getElementById('calRow').classList.contains('hidden')"));
+      check('... but the LED finder is still there', await p2.ev("!document.getElementById('fOpen').classList.contains('hidden')"));
+      p2.close(); dev2.server.close(); }
 
     // ---- screen page follows the device
     p = await newTab(base + '/screen');
