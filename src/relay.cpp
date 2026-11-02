@@ -394,6 +394,7 @@ void relayLoop() {
   }
   if (!gPrepared) wledPrepare();
 
+  const uint32_t pf0 = gPerfOn ? micros() : 0;              // performance statistics: time the frame work
   { Lock l; if (testing) { uint8_t z[kZones][3]; rainbowZones(z); adjustZones(z); }
     if (gSmoothGen != gSettingsGen) { gSmooth = smoothInfo(gTable, n, gSet.smoothOut); gSmoothGen = gSettingsGen; }
     applyTable(gTable, n, gAdj, gTgt, gSmooth); }
@@ -402,6 +403,7 @@ void relayLoop() {
   else for (int i = 0; i < n * 3; i++) gCur[i] += (gTgt[i] - gCur[i]) * alpha;
   size_t len = packColours(gCur, n, whiteMin);
   ddpSend(gPayload, len, start, whiteMin);
+  if (gPerfOn && pf0) perfFrame(micros() - pf0);
 }
 
 // ---------------------------------------------------------------- calibration API

@@ -35,6 +35,27 @@ same if the board vanishes unexpectedly).
 
 Layout (where the LEDs are, the run and the TV part) is set on the board's own page, not in Home Assistant.
 
+## Performance stats (debug)
+
+Off by default. Tick **Performance stats (debug)** in the MQTT card on the setup page (and press *Save and connect*) to see how hard the
+board is working. Every 5 seconds it publishes to `<prefix>/perf` and Home Assistant gets these **diagnostic** sensors:
+
+| Sensor | Meaning |
+|---|---|
+| **CPU core 0 / core 1 load** | % of the time each core was busy (core 0 mostly runs Wi-Fi; core 1 the relay loop) |
+| **Main loop busy / longest pass** | % of the time the relay loop spends working, and its slowest single pass in the window (a stall detector) |
+| **Frame work (average / longest)** | time to mix, smooth and send one frame to WLED |
+| **Frames sent to WLED** | frames per second actually sent |
+| **Free memory / Lowest free memory since boot / Largest free memory block** | heap; the lowest value shows the worst moment since boot, the largest block shows fragmentation |
+| **Main task / MQTT task stack left** | stack bytes those tasks have never used (a small number would mean a risk of overflow) |
+
+Typical values on an AtomS3 Lite relaying a Sync Box to 210 LEDs at 30 fps: core 0 about 4 %, core 1 about 10 %, frame work about
+1.1 ms, about 150 KB of free memory.
+
+**Switched off, nothing is measured.** The CPU sampling timers are stopped, the counters do not run, nothing is published to `<prefix>/perf`,
+and the sensors are removed from Home Assistant again. While on it costs a little CPU (two small timer interrupts about 1400 times a second),
+so switch it off when you are done. Measuring only happens while the board is connected to the broker.
+
 ## Automation ideas
 
 * Turn the sync off when the TV turns off: trigger on your TV's `media_player` going `off`, action `light.turn_off` on *Fancy2WLED Sync*

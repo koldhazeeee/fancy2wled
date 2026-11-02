@@ -113,6 +113,8 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="mqPass">Password</label><input id="mqPass" type="password" autocomplete="off"></div>
   <div class="row"><label for="mqBase">Topic prefix (blank = automatic)</label><input id="mqBase" autocapitalize="none"></div>
   <div class="row"><label for="mqDisc">Home Assistant discovery prefix</label><input id="mqDisc" value="homeassistant" autocapitalize="none"></div>
+  <div class="row"><label for="mqPerf">Performance stats (debug)</label><input id="mqPerf" type="checkbox" style="flex:0 0 auto"></div>
+  <p class="small mut">Off by default. When on, the board measures its CPU load, memory and frame timing and publishes them every 5 seconds to <code>&lt;topic prefix&gt;/perf</code>, plus a set of diagnostic sensors in Home Assistant. The measuring itself uses a little CPU, so switch it off when you are done: it then stops measuring and publishing, and the sensors disappear from Home Assistant. Needs MQTT to be connected.</p>
   <div class="row"><button id="mqSave">Save and connect</button><span id="mqStatus" class="small"></span></div>
 </div>
 
@@ -239,7 +241,7 @@ input[type=range].wide{width:100%}
     $('lPlace').querySelector('option[value=table]').disabled=!L.hasTable;
     var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+c.wled.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
-    $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';
+    $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';$('mqPerf').checked=!!M.perf;
     vals();labels();info();setDirty(false);
   }
   function vals(){['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';}
@@ -380,7 +382,7 @@ input[type=range].wide{width:100%}
     try{await j('/api/config',{relay:{enabled:!on}});await status();}catch(e){msg('<span class="err">'+e.message+'</span>');}
   };
   $('mqSave').onclick=async function(){
-    var m={enabled:$('mqOn').checked,host:$('mqHost').value.trim(),port:num('mqPort',1883),user:$('mqUser').value.trim(),base:$('mqBase').value.trim(),discovery:$('mqDisc').value.trim()};
+    var m={enabled:$('mqOn').checked,host:$('mqHost').value.trim(),port:num('mqPort',1883),user:$('mqUser').value.trim(),base:$('mqBase').value.trim(),discovery:$('mqDisc').value.trim(),perf:$('mqPerf').checked};
     if($('mqPass').value!=='')m.pass=$('mqPass').value;
     $('mqStatus').innerHTML='<span class="mut">Saving...</span>';
     try{await j('/api/config',{mqtt:m});$('mqPass').value='';$('mqStatus').innerHTML='<span class="mut">Saved. Connecting...</span>';setTimeout(status,3000);}

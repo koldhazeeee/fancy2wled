@@ -3,6 +3,7 @@
 //
 //   <base>/status            online / offline (retained, last-will)
 //   <base>/state             JSON with everything the entities need (every ~10 s and on change)
+//   <base>/perf              JSON with performance statistics, every 5 s, ONLY while "Performance stats (debug)" is switched on
 //   <base>/sync/set          ON / OFF       pause or resume the sync
 //   <base>/look/<name>/set   a number       brightness, gamma, saturation, smoothing, smooth_out
 //   <base>/button/<name>/press   PRESS      rainbow, stop_test, restart
@@ -20,7 +21,7 @@ static String gError;
 static uint32_t gGen = 0xFFFFFFFF;
 static String gBase, gDisc, gId, gClientId, gLwtTopic, gHost, gUser, gPass;
 static volatile bool gForce = true;
-static uint32_t gLastPub = 0, gLastForce = 0;
+static uint32_t gLastCheck = 0, gLastForce = 0;
 static String gLastKey;
 
 String mqttBaseTopic() {
@@ -130,7 +131,65 @@ static void removeOld(const char* comp, const char* obj) {
   pub(gDisc + "/" + comp + "/" + gId + "/" + obj + "/config", "", true, 1);
 }
 
+// ---- performance statistics (debug switch): sensors exist in Home Assistant only while the switch is on
+struct PerfEnt { const char* obj; const char* name; const char* unit; const char* field; const char* devClass; };
+static const PerfEnt kPerf[] = {
+    {"perf_cpu0", "CPU core 0 load", "%", "cpu0", nullptr},
+    {"perf_cpu1", "CPU core 1 load", "%", "cpu1", nullptr},
+    {"perf_loop_busy", "Main loop busy", "%", "loop_busy", nullptr},
+    {"perf_loop_max", "Main loop longest pass", "ms", "loop_max_ms", nullptr},
+    {"perf_frame_avg", "Frame work (average)", "ms", "frame_avg_ms", nullptr},
+    {"perf_frame_max", "Frame work (longest)", "ms", "frame_max_ms", nullptr},
+    {"perf_out_fps", "Frames sent to WLED", "fps", "out_fps", nullptr},
+    {"perf_heap_free", "Free memory", "B", "heap_free", "data_size"},
+    {"perf_heap_min", "Lowest free memory since boot", "B", "heap_min", "data_size"},
+    {"perf_heap_big", "Largest free memory block", "B", "heap_big", "data_size"},
+    {"perf_stack_loop", "Main task stack left", "B", "stack_loop", "data_size"},
+    {"perf_stack_mqtt", "MQTT task stack left", "B", "stack_mqtt", "data_size"},
+};
+
+static void perfDiscovery(bool announce) {
+  for (const PerfEnt& e : kPerf) {
+    if (!announce) { removeOld("sensor", e.obj); continue; }
+    JsonDocument d;
+    d["name"] = e.name;
+    d["state_topic"] = T("perf");
+    d["value_template"] = String("{{ value_json.") + e.field + " }}";
+    d["unit_of_measurement"] = e.unit;
+    d["state_class"] = "measurement";
+    d["entity_category"] = "diagnostic";
+    if (e.devClass) { d["device_class"] = e.devClass; d["suggested_unit_of_measurement"] = "kB"; }
+    d["icon"] = "mdi:speedometer";
+    discover("sensor", e.obj, d);
+  }
+}
+
+static String perfJson(const PerfSnapshot& p) {
+  JsonDocument d;
+  auto r1 = [](float v) { return ((int)(v * 10.f + 0.5f)) / 10.f; };
+  auto r3 = [](float v) { return ((int)(v * 1000.f + 0.5f)) / 1000.f; };
+  d["cpu0"] = r1(p.cpu0);
+  d["cpu1"] = r1(p.cpu1);
+  d["loop_busy"] = r1(p.loopBusy);
+  d["loop_max_ms"] = r3(p.loopMaxMs);
+  d["frame_avg_ms"] = r3(p.frameAvgMs);
+  d["frame_max_ms"] = r3(p.frameMaxMs);
+  d["out_fps"] = r1(p.outFps);
+  d["heap_free"] = p.heapFree;
+  d["heap_min"] = p.heapMin;
+  d["heap_big"] = p.heapBig;
+  d["stack_loop"] = p.stackLoop;
+  d["stack_mqtt"] = p.stackMqtt;
+  d["window_s"] = r1(p.windowS);
+  String o;
+  serializeJson(d, o);
+  return o;
+}
+
+static bool perfSetting() { Lock l; return gSet.perfDebug; }
+
 static void publishDiscovery() {
+  perfDiscovery(perfSetting());                 // announce the debug sensors, or remove them again when the switch is off
   removeOld("switch", "sync");                  // the Sync switch became a light (below)
   removeOld("number", "brightness");            // ... whose brightness slider replaces the separate Brightness number
   {  // the sync as a light: on / off pauses and resumes it, the brightness slider is the Look brightness (0-100 %)
@@ -351,18 +410,28 @@ static void startClient() {
 
 void mqttBegin() { gGen = 0xFFFFFFFF; }
 
+static uint32_t gLastPerf = 0;
+
 void mqttLoop() {
   if (gGen != gMqttGen) { gGen = gMqttGen; startClient(); }
+  const bool wantPerf = gClient && gConnected && perfSetting();     // measured only while the switch is on AND the broker is reachable
+  perfSync(wantPerf);
   if (!gClient || !gConnected) return;
   const uint32_t now = millis();
-  if (now - gLastPub < 200) return;                       // report a change within a fraction of a second
+  if (wantPerf && now - gLastPerf >= 5000) {
+    gLastPerf = now;
+    PerfSnapshot p;
+    perfTake(p);
+    pub(T("perf"), perfJson(p), false, 0);
+  }
+  if (now - gLastCheck < 200) return;                     // look for a change 5 times a second (building the state JSON is not free)
+  gLastCheck = now;
   String key;
   String json = stateJson(&key);
   const bool changed = key != gLastKey;
   if (gForce || changed || now - gLastForce > 10000) {
     pub(T("state"), json, false, 0);
     gLastKey = key;
-    gLastPub = now;
     gLastForce = now;
     gForce = false;
   }

@@ -18,6 +18,7 @@ void setup() {
 }
 
 void loop() {
+  if (gPerfOn) perfLoopBegin();
   wifiLoop();
   if (!wifiIsAp() && WiFi.status() == WL_CONNECTED) { relayLoop(); mqttLoop(); }
   ledStatusLoop();
@@ -25,5 +26,6 @@ void loop() {
     delay(100);
     ESP.restart();
   }
+  if (gPerfOn) perfLoopEnd();
   delay(1);
 }

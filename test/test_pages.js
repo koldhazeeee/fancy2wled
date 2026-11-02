@@ -145,6 +145,11 @@ async function cdp(wsUrl) {
     const mq = dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt;
     check('mqtt: Save sends the broker settings (and the password only because one was typed)', mq && mq.enabled === true && mq.host === '192.0.2.8' && mq.port === 1883 && mq.user === 'ha' && mq.pass === 'secret' && !('relay' in dev.state.lastConfigPost), JSON.stringify(mq));
     check('mqtt: the password field is cleared after saving', (await p.ev("document.getElementById('mqPass').value")) === '');
+    check('mqtt: performance stats are off by default and saved as off', mq.perf === false && (await p.ev("document.getElementById('mqPerf').checked")) === false, JSON.stringify(mq));
+    await p.ev("document.getElementById('mqPerf').checked=true; document.getElementById('mqSave').click(); 1"); await sleep(600);
+    check('mqtt: the performance-stats switch is saved when turned on', dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt.perf === true && dev.state.cfg.mqtt.perf === true, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt));
+    await p.ev("document.getElementById('mqPerf').checked=false; document.getElementById('mqSave').click(); 1"); await sleep(600);
+    check('mqtt: ... and turned off again', dev.state.cfg.mqtt.perf === false);
     dev.state.lastConfigPost = null;
     await p.ev("document.getElementById('mqSave').click(); 1"); await sleep(500);
     check('mqtt: saving again without typing a password leaves it unchanged (not sent)', dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt && !('pass' in dev.state.lastConfigPost.mqtt), JSON.stringify(dev.state.lastConfigPost));

@@ -143,6 +143,7 @@ pio run -e atoms3                 # compile the firmware
 * `src/relay.cpp` - UDP in, smoothing, DDP out, WLED on/off handling, calibration and test pattern states.
 * `src/webserver.cpp` - HTTP on :80 and HTTPS on :443 (self-signed key generated on first boot), JSON API.
 * `src/mqtt_ha.cpp` - Home Assistant over MQTT (discovery, state, commands), runs in its own task.
+* `src/perf.cpp` - optional performance statistics (CPU load per core, memory, frame timing), only active when switched on.
 * `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator and `check_mqtt.py` (checks the board's MQTT discovery).
 
 The image analysis for calibration runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only

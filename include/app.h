@@ -48,6 +48,7 @@ struct Settings {
   int mqttPort = 1883;
   String mqttBase;                     // topic prefix; "" = fancy2wled/<last 4 of the board id>
   String mqttDisc = "homeassistant";   // Home Assistant's discovery prefix
+  bool perfDebug = false;              // measure and publish performance statistics over MQTT (off = nothing is measured)
   // network
   String boxHost;                      // only accept the broadcast from this IP ("" = anyone)
   String ssid, pass;
@@ -118,6 +119,22 @@ void markShow(const MarkBlock* blocks, int n, int seconds);
 
 // ---------------------------------------------------------------- Home Assistant (MQTT)
 struct MqttStatus { bool enabled = false, connected = false; String error, base; };
+// ---------------------------------------------------------------- performance statistics (debug; see perf.cpp)
+struct PerfSnapshot {
+  float cpu0 = 0, cpu1 = 0;                // % of the time each core was busy
+  float loopBusy = 0, loopMaxMs = 0;       // % of the time the main loop spends working; its longest pass (ms)
+  float frameAvgMs = 0, frameMaxMs = 0;    // time to build and send one frame to WLED
+  float outFps = 0, windowS = 0;           // frames sent per second; length of the measuring window
+  uint32_t heapFree = 0, heapMin = 0, heapBig = 0;   // bytes: free now, lowest since boot, largest free block
+  uint32_t stackLoop = 0, stackMqtt = 0;   // bytes of stack the main task / MQTT task have never used
+};
+extern volatile bool gPerfOn;              // true while statistics are being collected
+void perfSync(bool wanted);                // start / stop collecting (starts or stops the sampling timers)
+void perfLoopBegin();                      // call only when gPerfOn
+void perfLoopEnd();
+void perfFrame(uint32_t us);
+void perfTake(PerfSnapshot& p);            // statistics since the last call; starts a new window
+
 String mqttBaseTopic();                     // the configured topic prefix, or the default
 void mqttBegin();
 void mqttLoop();                            // call often: (re)connects when settings change, publishes state

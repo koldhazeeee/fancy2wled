@@ -55,6 +55,7 @@ static void loadFromFlash() {
   s.mqttPass = gS("mqPass", "");
   s.mqttBase = gS("mqBase", "");
   s.mqttDisc = gS("mqDisc", "homeassistant");
+  s.perfDebug = gB("perf", false);
   s.smoothOut = gI("kOut", 100);
   s.fps = gI("fps", 30);
   s.boxHost = gS("boxHost", "");
@@ -115,6 +116,7 @@ void settingsSave() {
   prefs.putString("mqPass", s.mqttPass);
   prefs.putString("mqBase", s.mqttBase);
   prefs.putString("mqDisc", s.mqttDisc);
+  prefs.putBool("perf", s.perfDebug);
   prefs.putInt("kOut", s.smoothOut);
   prefs.putInt("fps", s.fps);
   prefs.putString("boxHost", s.boxHost);
@@ -192,6 +194,7 @@ void settingsToJson(JsonDocument& d) {
   mq["passSet"] = s.mqttPass.length() > 0;        // the password itself is never sent back
   mq["base"] = s.mqttBase;
   mq["discovery"] = s.mqttDisc;
+  mq["perf"] = s.perfDebug;
 }
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -332,6 +335,7 @@ String settingsFromJson(JsonVariantConst d, bool persist) {
       for (size_t i = 0; i < h.length(); i++) { char c = h[i]; if (!(isalnum(c) || c == '.' || c == '-' || c == '_')) return "The MQTT broker address may only contain letters, digits, dots and dashes"; }
       n.mqttHost = h;
     }
+    if (!mq["perf"].isNull()) n.perfDebug = mq["perf"].as<bool>();
     if (!mq["port"].isNull()) n.mqttPort = mq["port"].as<int>();
     if (!mq["user"].isNull()) { n.mqttUser = mq["user"].as<String>(); if (n.mqttUser.length() > 64) return "The MQTT user name is too long"; }
     if (!mq["pass"].isNull()) { n.mqttPass = mq["pass"].as<String>(); if (n.mqttPass.length() > 96) return "The MQTT password is too long"; }

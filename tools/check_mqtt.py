@@ -29,13 +29,15 @@ def main():
     c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="fancy2wled-check")
     if a.user:
         c.username_pw_set(a.user, a.password)
-    c.on_message = lambda cl, ud, m: msgs.append((m.topic, m.payload.decode("utf-8", "replace"), bool(m.retain)))
+    latest = {}                      # MQTT may deliver a message twice (QoS 1 is at-least-once): keep the last one per topic
+    c.on_message = lambda cl, ud, m: latest.__setitem__(m.topic, (m.topic, m.payload.decode("utf-8", "replace"), bool(m.retain)))
     c.connect(a.broker, a.port)
     c.subscribe("#", 1)
     c.loop_start()
     time.sleep(a.seconds)
     c.loop_stop()
     c.disconnect()
+    msgs = list(latest.values())
 
     disc = [(t, json.loads(p)) for t, p, _ in msgs if t.startswith(a.discovery + "/") and t.endswith("/config") and "fancy2wled" in p and p.strip()]
     if not disc:
