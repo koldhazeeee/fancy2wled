@@ -7,7 +7,7 @@
 //   <base>/sync/set          ON / OFF       pause or resume the sync
 //   <base>/look/<name>/set   a number       brightness, gamma, saturation, smoothing, smooth_out
 //   <base>/target/<n>/set        ON / OFF   stream to target n (0-based) or not
-//   <base>/target/<n>/trim/set   a number   that target's brightness, 0-150 %
+//   <base>/target/<n>/trim/set   a number   that target's brightness, 0-150 % (Home Assistant's light slider uses 0-100)
 //   <base>/button/<name>/press   PRESS      rainbow, stop_test, restart
 //   <discovery>/<component>/<id>/<object>/config   discovery messages (retained)
 //
@@ -223,36 +223,33 @@ static String perfJson(const PerfSnapshot& p) {
 
 static bool perfSetting() { Lock l; return gSet.perfDebug; }
 
-// One switch and one brightness number per target; entities of targets that no longer exist are removed again.
+// One light per target: on / off is "stream to this target", the brightness slider is the target's brightness compared with the
+// others (0-100 %; the setup page can go up to 150 %, shown as 100 here). Lights of targets that no longer exist are removed again,
+// and so are the separate switch and brightness number that earlier versions announced.
 static void targetDiscovery() {
   int n;
   String names[kMaxTargets];
   { Lock l; n = gSet.nTargets; for (int i = 0; i < n; i++) names[i] = gSet.t[i].name; }
   for (int i = 0; i < kMaxTargets; i++) {
-    const String sw = "target_" + String(i), tr = "target_" + String(i) + "_trim";
-    if (i >= n) { removeOld("switch", sw.c_str()); removeOld("number", tr.c_str()); continue; }
-    { JsonDocument d;
-      d["name"] = names[i];
-      d["state_topic"] = T("state");
-      d["value_template"] = "{{ 'ON' if value_json.targets[" + String(i) + "].on else 'OFF' }}";
-      d["command_topic"] = T("target/" + String(i) + "/set");
-      d["payload_on"] = "ON";
-      d["payload_off"] = "OFF";
-      d["icon"] = "mdi:led-strip-variant";
-      discover("switch", sw.c_str(), d); }
-    { JsonDocument d;
-      d["name"] = names[i] + " brightness";
-      d["state_topic"] = T("state");
-      d["value_template"] = "{{ value_json.targets[" + String(i) + "].trim }}";
-      d["command_topic"] = T("target/" + String(i) + "/trim/set");
-      d["min"] = 0; d["max"] = 150; d["step"] = 5;
-      d["unit_of_measurement"] = "%";
-      d["entity_category"] = "config";
-      d["icon"] = "mdi:brightness-6";
-      discover("number", tr.c_str(), d); }
+    const String obj = "target_" + String(i), tr = "target_" + String(i) + "_trim";
+    removeOld("switch", obj.c_str());
+    removeOld("number", tr.c_str());
+    if (i >= n) { removeOld("light", obj.c_str()); continue; }
+    JsonDocument d;
+    d["name"] = names[i];
+    d["state_topic"] = T("state");
+    d["state_value_template"] = "{{ 'ON' if value_json.targets[" + String(i) + "].on else 'OFF' }}";
+    d["command_topic"] = T("target/" + String(i) + "/set");
+    d["payload_on"] = "ON";
+    d["payload_off"] = "OFF";
+    d["brightness_state_topic"] = T("state");
+    d["brightness_value_template"] = "{{ [value_json.targets[" + String(i) + "].trim, 100] | min }}";
+    d["brightness_command_topic"] = T("target/" + String(i) + "/trim/set");
+    d["brightness_scale"] = 100;
+    d["icon"] = "mdi:led-strip-variant";
+    discover("light", obj.c_str(), d);
   }
 }
-
 static void publishDiscovery() {
   perfDiscovery(perfSetting());                 // announce the debug sensors, or remove them again when the switch is off
   targetDiscovery();

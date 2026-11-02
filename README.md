@@ -70,7 +70,7 @@ The board's button: **tap it** to turn the sync on / off (the LED flashes green 
 
 Turn on **Home Assistant (MQTT)** on the setup page and the board appears in Home Assistant by itself as a *Fancy2WLED* device: a **Sync**
 light (on/off pauses the sync, the brightness slider is the brightness), status sensors (Sync Box connected, WLED reachable, state, frame rate, Wi-Fi signal), the Look settings as number entities,
-an on/off switch and a brightness for each target, and rainbow-test / restart buttons. The board connects *out* to your MQTT broker, so a firewall only needs to allow **board -> broker
+a light (on/off and brightness) for each target, and rainbow-test / restart buttons. The board connects *out* to your MQTT broker, so a firewall only needs to allow **board -> broker
 (TCP 1883)**. Details, entity list, topics and troubleshooting: [docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md).
 
 ## Back up, or move to another board

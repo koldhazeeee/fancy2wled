@@ -28,7 +28,7 @@ Give the board a DHCP reservation if you like, but nothing depends on its addres
 | **Relaying** (running) | colours are being streamed to WLED right now |
 | **Sync Box frame rate**, **Wi-Fi signal**, **Uptime** | sensors (the last two are diagnostic) |
 | **Gamma**, **Saturation** (0-200 %), **Smoothing over time** (0-90 %), **Reaction boost** (0-100 %, see [LATENCY.md](LATENCY.md)), **Smooth beyond the TV** (0-100 %) | the *Look* settings, saved on the board |
-| **One switch and one brightness per target** (named after the target, for example *Cabinet* and *Cabinet brightness*) | stream to that target or not, and its brightness compared with the others, 0-150 %. They appear and disappear as you add, rename and remove targets |
+| **One light per target** (named after the target, for example *Cabinet*) | on / off = stream to that target or not; the brightness slider is its brightness compared with the others, 0-100 % (the setup page goes up to 150 %). They appear and disappear as you add, rename and remove targets |
 | **Rainbow test**, **Stop test**, **Restart** (buttons) | the same as the setup page |
 
 The entities go *unavailable* when the board loses its connection to the broker (it announces `offline`, and the broker publishes the
@@ -90,5 +90,5 @@ messages are complete and that their templates render against the live state.
 * *The broker refused the user name / password* - check them (the password is never shown again; type it again to change it).
 * Connected but no device in Home Assistant - the discovery prefix must match Home Assistant's (default `homeassistant`), and the MQTT
   integration must be set up.
-* Upgrading from an older version: the board removes the old *Sync* switch and *Brightness* number from Home Assistant by itself and adds the *Sync* light (automations that used `switch.fancy2wled_sync` or `number.fancy2wled_brightness` need to use `light.fancy2wled_sync` instead).
+* Upgrading from an older version: the board removes the old *Sync* switch and *Brightness* number (and the per-target switches and brightness numbers) from Home Assistant by itself and adds the *Sync* light and a light per target (automations that used `switch.fancy2wled_sync` or `number.fancy2wled_brightness` need to use `light.fancy2wled_sync` instead).
 * Entities show old values after you change the topic prefix - delete the old device in Home Assistant (*MQTT -> Fancy2WLED -> Delete*).
