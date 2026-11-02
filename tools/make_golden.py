@@ -41,6 +41,51 @@ def main():
         assert protocol.decode_frame(b) is None
         lines.append("DECODE %s -" % (b.hex() or "00"))
 
+    # --- classifying datagrams (understood / new payload layout / unreadable) -----------
+    def fix_checksum(d):
+        d = bytearray(d)
+        d[5] = (167 + sum(d) - d[3] - d[5]) & 255
+        return bytes(d)
+
+    def change_marker(d, new):
+        q = len(d) - 83
+        d = bytearray(d)
+        for i, b in enumerate(new):
+            d[8 + q + i] = b ^ d[8 + (i % q)]
+        return fix_checksum(d)
+
+    def grow(d, extra_zones):
+        q = len(d) - 83
+        pt = bytes(b ^ d[8 + (i % q)] for i, b in enumerate(d[8 + q:])) + bytes(3 * extra_zones)
+        out = bytearray(d[:8 + q]) + bytes(b ^ d[8 + (i % q)] for i, b in enumerate(pt))
+        out[3] = len(out) - 5
+        return fix_checksum(out)
+
+    def classify_line(d):
+        cls, cs, head, _ = protocol.classify_frame(d)
+        return "CLASSIFY %s %d %d %s" % (d.hex() or "00", cls, int(cs), head.hex() if head else "-")
+
+    samples = []
+    for i in range(24):                                              # real-looking frames, every key length
+        zones = [tuple(rnd.randrange(256) for _ in range(3)) for _ in range(24)]
+        samples.append(protocol.encode_frame(zones, bytes(rnd.randrange(256) for _ in range(3 + i % 8))))
+    ok_frames = list(samples)
+    for d in ok_frames[:4]:
+        samples.append(d[:5] + bytes([d[5] ^ 0x55]) + d[6:])         # wrong checksum: still decodes
+    for d in ok_frames[:8]:
+        samples.append(change_marker(d, b"\x08\x06\x06"))            # a different marker, valid checksum
+        samples.append(change_marker(d, b"\x06\x04\x07"))
+    d = ok_frames[3]
+    samples.append(change_marker(d, b"\x08\x06\x06")[:5] + b"\x00" + change_marker(d, b"\x08\x06\x06")[6:])   # new marker and a wrong checksum
+    for d in ok_frames[:6]:
+        samples.append(grow(d, 2))                                   # a bigger payload: size outside 86-93, framing and checksum valid
+        samples.append(grow(d, 8))
+    d = ok_frames[1]
+    samples += [b"\x56" + d[1:], d[:3] + bytes([d[3] + 1]) + d[4:], d[:-1], d + b"\x00", d[:5], b"", bytes(90), bytes(rnd.randrange(256) for _ in range(90)),
+                b"\x55\xaa\x5a" + bytes([255 - 5 + 1]) + bytes(300), d[:2]]
+    for d in samples:
+        lines.append(classify_line(d))
+
     # --- uv -> entry (with distance beyond the TV) --------------------------------
     pts = [(round(-0.3 + 0.1 * i, 6), round(-0.3 + 0.1 * j, 6)) for i in range(17) for j in range(17)]
     pts += [(round(rnd.uniform(-1.5, 2.5), 6), round(rnd.uniform(-0.8, 1.8), 6)) for _ in range(250)]   # same precision as printed

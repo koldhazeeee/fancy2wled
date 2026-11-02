@@ -21,6 +21,34 @@ bool decodeFrame(const uint8_t* d, size_t len, uint8_t zones[kZones][3]) {
   return true;
 }
 
+bool frameChecksumOk(const uint8_t* d, size_t len) {
+  if (len < 8) return false;
+  uint32_t sum = 167;
+  for (size_t i = 0; i < len; i++)
+    if (i != 3 && i != 5) sum += d[i];
+  return (uint8_t)(sum & 255) == d[5];
+}
+
+FrameClass classifyFrame(const uint8_t* d, size_t len, uint8_t zones[kZones][3], FrameInfo* info) {
+  FrameInfo local;
+  FrameInfo& fi = info ? *info : local;
+  fi = FrameInfo();
+  if (decodeFrame(d, len, zones)) {
+    fi.checksumOk = frameChecksumOk(d, len);
+    return kFrameOk;
+  }
+  if (len >= 12 && len <= 260 && d[0] == 0x55 && d[1] == 0xAA && d[2] == 0x5A && d[3] == len - 5) {
+    fi.checksumOk = frameChecksumOk(d, len);
+    if (len >= 86 && len <= 93) {                       // the key length is known, so the first payload bytes can be shown
+      const size_t q = len - 83;
+      for (int i = 0; i < 3; i++) fi.head[i] = d[8 + q + i] ^ d[8 + (i % q)];
+      fi.headKnown = true;
+    }
+    return kFrameNewLayout;
+  }
+  return kFrameUnreadable;
+}
+
 // ---------------------------------------------------------------------------
 // Border zones in screen order along each edge (corners appear on two edges).
 static const uint8_t kTop[6] = {0, 1, 2, 3, 4, 5};        // left -> right

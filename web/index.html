@@ -19,6 +19,14 @@ input[type=range].wide{width:100%}
   <div id="statTxt" class="small mut"></div>
 </div>
 
+<div class="card hidden" id="boxWarn">
+  <h2><span class="err">The Sync Box is sending, but its data cannot be read</span></h2>
+  <p class="small">Data is arriving on the Sync Box port, but none of it can be decoded, so the lights are not following the picture. This usually means the box's firmware changed what it sends.
+  <span id="boxWarnN"></span></p>
+  <p class="small mut">Press <b>Download diagnostics</b> and attach the file to an issue on the project's GitHub page, together with your box's firmware versions (from its app). The file holds counters and a few raw frames (colours and sizes only: no addresses). If you kept a capture from before the update, <code>tools/check_capture.py</code> can compare it with the new one (see docs/RESILIENCE.md).</p>
+  <div class="row"><button id="diagBtn">Download diagnostics</button><span id="diagMsg" class="small"></span></div>
+</div>
+
 <div class="card hidden" id="wifiCard">
   <h2>1. Connect to your Wi-Fi</h2>
   <div class="row"><label>Network</label><select id="ssidSel"></select></div>
@@ -168,7 +176,10 @@ input[type=range].wide{width:100%}
       var s=await j('/api/status');
       show('wifiCard',s.mode==='ap');show('main',s.mode!=='ap');
       pill('pWifi',s.mode==='ap'?'warn':'ok',s.mode==='ap'?'Setup mode':'Wi-Fi '+s.ssid);
-      pill('pBox',s.box.fps>0?'ok':'warn',s.box.fps>0?('Sync Box '+s.box.fps.toFixed(0)+' fps'):'Sync Box: nothing yet');
+      var bp=!!(s.box&&s.box.problem),bf=s.box.frames||{};
+      pill('pBox',bp?'bad':(s.box.fps>0?'ok':'warn'),bp?'Sync Box: frames not understood':(s.box.fps>0?('Sync Box '+s.box.fps.toFixed(0)+' fps'):'Sync Box: nothing yet'));
+      show('boxWarn',bp);
+      if(bp)$('boxWarnN').textContent='Since the board started: '+(bf.newLayout||0)+' frames with the Sync Box framing but a payload it does not know, '+(bf.unreadable||0)+' unreadable, '+(bf.understood||0)+' understood.';
       var ts=s.targets||[{name:'WLED',host:s.wled.host,ok:s.wled.ok,leds:s.wled.leds,enabled:true}],box=$('wPills');box.innerHTML='';
       ts.forEach(function(t){
         var sp=document.createElement('span'),nm=(ts.length>1?t.name+': ':'');
@@ -425,6 +436,15 @@ input[type=range].wide{width:100%}
     if(!confirm('Remove '+nm+'? Its settings are deleted and its WLED is handed back.'))return;
     try{await stopEverything();var c=await j('/api/targets',{action:'remove',index:sel});if(sel>=c.targets.length)sel=c.targets.length-1;totalLeds=0;setCfg(c);status();msg('<span class="ok">Removed.</span>');}
     catch(e){msg('<span class="err">'+e.message+'</span>');}
+  };
+  $('diagBtn').onclick=async function(){
+    try{
+      var r=await fetch('/api/diag'),t=await r.text();if(!r.ok)throw new Error('HTTP '+r.status);
+      var blob=new Blob([t],{type:'application/json'}),a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);a.download='fancy2wled-diagnostics.json';document.body.appendChild(a);a.click();a.remove();
+      setTimeout(function(){URL.revokeObjectURL(a.href);},3000);
+      $('diagMsg').innerHTML='<span class="ok">Saved fancy2wled-diagnostics.json.</span>';
+    }catch(e){$('diagMsg').innerHTML='<span class="err">'+esc(e.message)+'</span>';}
   };
   $('syncBtn').onclick=async function(){
     var on=$('syncBtn').getAttribute('data-enabled')==='1';

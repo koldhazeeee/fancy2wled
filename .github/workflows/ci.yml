@@ -13,6 +13,8 @@ jobs:
         run: python test/run_core_tests.py
       - name: Calibration maths + simulated camera
         run: node test/test_analysis.js
+      - name: Capture / firmware-change tools
+        run: python test/test_capture_tools.py
   firmware:
     runs-on: ubuntu-latest
     steps:

@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[200000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -89,6 +89,27 @@ int main(int argc, char** argv) {
         }
       }
       nDecode++;
+    } else if (k == "CLASSIFY") {
+      // CLASSIFY hex class checksumOk head|-
+      static char hex[4000], head[16];
+      int cls = -1, cs = -1;
+      head[0] = 0;
+      sscanf(rest, "%3999s %d %d %15s", hex, &cls, &cs, head);
+      auto fr = fromHex(hex);
+      if (strcmp(hex, "00") == 0 && fr.size() == 1 && fr[0] == 0 && cls == 2) fr.clear();     // the generator writes an empty datagram as "00"
+      uint8_t z[kZones][3];
+      FrameInfo info;
+      const FrameClass got = classifyFrame(fr.data(), fr.size(), z, &info);
+      CHECK((int)got == cls, "classify: %zu-byte datagram got class %d want %d", fr.size(), (int)got, cls);
+      CHECK(info.checksumOk == (cs != 0), "classify: checksum flag %d want %d (class %d, %zu bytes)", (int)info.checksumOk, cs, cls, fr.size());
+      if (cls == 1) {
+        if (head[0] == '-') CHECK(!info.headKnown, "classify: head should be unknown for a %zu-byte datagram", fr.size());
+        else {
+          auto want = fromHex(head);
+          CHECK(info.headKnown && memcmp(want.data(), info.head, 3) == 0, "classify: payload head differs (%02x%02x%02x want %s)", info.head[0], info.head[1], info.head[2], head);
+        }
+      }
+      nClassify++;
     } else if (k == "UV") {
       float u, v; int a, b, ff, dd;
       if (sscanf(rest, "%f %f %d,%d,%d,%d", &u, &v, &a, &b, &ff, &dd) == 6) {
@@ -278,8 +299,8 @@ int main(int argc, char** argv) {
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }
 
-  printf("decode %d, uv %d, linear %d, loop %d, apply %d, ddp %d vectors; %d checks passed, %d failed\n",
-         nDecode, nUv, nLin, nLoop, nApply, nDdp, g_pass, g_fail);
+  printf("decode %d, classify %d, uv %d, linear %d, loop %d, apply %d, ddp %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUv, nLin, nLoop, nApply, nDdp, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

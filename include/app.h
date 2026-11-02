@@ -118,11 +118,15 @@ struct RelayStatus {
   String wledName;                          // first target's WLED name
   int nTargets = 0;
   TargetStatus targets[kMaxTargets];
+  // what arrives on the Sync Box port (see classifyFrame in core.h)
+  uint32_t framesOk = 0, framesNewLayout = 0, framesUnreadable = 0;
+  bool boxProblem = false;                  // frames arrive but none can be read: the box probably changed what it sends
 };
 
 void relayBegin();
 void relayWait(uint32_t maxMs);              // sleep until a Sync Box packet arrives or the relay needs to act (max maxMs)
 void relayLoop();
+void relayDiagnostics(JsonObject d);                       // counters and a few raw frames, for a bug report (GET /api/diag)
 void relayStatus(RelayStatus& s, bool detail = false);    // detail: also names, hosts and the sender (allocates Strings; the web page wants them, the LED and MQTT do not)
 bool relayZones(uint8_t zones[fwb::kZones][3], uint32_t* ageMs);   // latest decoded frame
 // WLED queries used by the web UI

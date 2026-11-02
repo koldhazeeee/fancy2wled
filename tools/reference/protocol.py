@@ -6,6 +6,10 @@ Frame layout (86..93 bytes), see docs/PROTOCOL.md for how it was worked out:
     55 AA 5A n 00 b5 b6 b7 | KEY (len-83 bytes) | DATA (75 bytes)
 
     n  = total length - 5
+    b5 = checksum: 167 + the sum of every byte except bytes 3 and 5, modulo 256 (holds on every frame of a real capture)
+    b6 = a fixed function of n (the table in docs/PROTOCOL.md)
+    b7 = the last byte of the key
+    The decoder does not check b4..b7 on purpose: the relay keeps working if the box changes them.
     plaintext = DATA xor KEY (key repeats)  =  06 04 06 + 24 x RGB
 
 The 24 RGB values are a 6 x 4 grid over the picture: zone = row * 6 + col,
@@ -44,6 +48,35 @@ def decode_frame(data):
     return [(pt[3 + i * 3], pt[4 + i * 3], pt[5 + i * 3]) for i in range(ZONES)]
 
 
+OK, NEW_LAYOUT, UNREADABLE = 0, 1, 2
+
+
+def frame_checksum_ok(data):
+    """Header byte 5: 167 + the sum of every byte except bytes 3 and 5, modulo 256."""
+    return len(data) >= 8 and ((167 + sum(data) - data[3] - data[5]) & 255) == data[5]
+
+
+def classify_frame(data):
+    """(class, checksum_ok, head, zones) for any datagram on the sync port. Mirrors classifyFrame() in src/core.cpp.
+
+    OK            decodes (zones is the list of colours)
+    NEW_LAYOUT    has the Sync Box framing (magic, length byte = size - 5) but the payload is not readable: head is the first
+                  3 payload bytes after undoing the key when the size is one of the known 86-93 (else None)
+    UNREADABLE    anything else
+    """
+    n = len(data)
+    zones = decode_frame(data)
+    if zones is not None:
+        return OK, frame_checksum_ok(data), None, zones
+    if 12 <= n <= 260 and data[0:3] == _MAGIC and data[3] == n - 5:
+        head = None
+        if 86 <= n <= 93:
+            q = n - 83
+            head = bytes(data[8 + q + i] ^ data[8 + (i % q)] for i in range(3))
+        return NEW_LAYOUT, frame_checksum_ok(data), head, None
+    return UNREADABLE, False, None, None
+
+
 def encode_frame(zones, key=None):
     """Build a frame the way the box does. Used by tests and simulators."""
     if key is None:
@@ -54,6 +87,7 @@ def encode_frame(zones, key=None):
     pt = _MARK + bytes(v for z in zones for v in z)
     body = bytes(b ^ key[i % q] for i, b in enumerate(pt))
     n = q + 83 - 5
-    b6 = n - 0x1F if n % 2 else n - 0x1D       # observed relation, not needed for decoding
-    header = _MAGIC + bytes([n, 0, os.urandom(1)[0], b6, key[-1]])
-    return header + key + body
+    b6 = n - 0x1F if n % 2 else n - 0x1D       # observed relation (see the table in docs/PROTOCOL.md)
+    frame = bytearray(_MAGIC + bytes([n, 0, 0, b6, key[-1]]) + key + body)
+    frame[5] = (167 + sum(frame) - frame[3]) & 255          # byte 5 is still 0 here, so it adds nothing to the sum
+    return bytes(frame)

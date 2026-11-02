@@ -32,6 +32,26 @@ static IPAddress gBoxFilter;                   // 0.0.0.0 = accept anyone
 static uint32_t gFilterGen = 0xFFFFFFFF;
 static float gAdj[kZones][3];                  // the picture's 24 zones with brightness / gamma / saturation applied (shared by all targets)
 
+// ---- what arrives on the Sync Box port, for telling "the box is silent" from "the box changed what it sends"
+static struct {
+  uint32_t ok = 0, newLayout = 0, unreadable = 0;   // datagrams by class since boot
+  uint32_t lastOddMs = 0;
+  bool haveOdd = false;
+} gStat;
+struct OddSample {                                  // a raw datagram we could not read (colours only: nothing private is in it)
+  uint32_t ms = 0;
+  uint8_t cls = 0;
+  bool checksumOk = false;
+  uint16_t len = 0;
+  uint8_t data[260];
+};
+static OddSample gOdd[4];
+static int gOddCount = 0, gOddHead = 0;             // a ring: the newest is at gOddHead - 1
+static uint32_t gOddStoredMs = 0;
+static uint8_t gGoodSample[93];                     // one recent frame that did decode, to compare with
+static uint8_t gGoodLen = 0;
+static uint32_t gGoodSampleMs = 0;
+
 // ---- output timing (shared: all targets are produced in the same output cycle)
 static uint8_t gPayload[kCalMaxLeds * 4];      // scratch for one frame
 static uint8_t gDbuf[kDdpHeader + kDdpMaxData];
@@ -376,6 +396,60 @@ static void requestRestore(int i) {
 }
 
 // ---------------------------------------------------------------- receive
+// A datagram on the Sync Box port that we cannot read: count it and keep a few raw samples (at most one every half second).
+static void noteOddFrame(const uint8_t* d, int len, FrameClass cls, const FrameInfo& fi) {
+  const uint32_t now = millis();
+  Lock l;
+  if (cls == kFrameNewLayout) gStat.newLayout++; else gStat.unreadable++;
+  gStat.lastOddMs = now;
+  gStat.haveOdd = true;
+  if (gOddCount > 0 && now - gOddStoredMs < 500) return;
+  OddSample& s = gOdd[gOddHead];
+  s.ms = now;
+  s.cls = (uint8_t)cls;
+  s.checksumOk = fi.checksumOk;
+  s.len = (uint16_t)len;
+  memcpy(s.data, d, len < (int)sizeof s.data ? len : sizeof s.data);
+  gOddHead = (gOddHead + 1) % 4;
+  if (gOddCount < 4) gOddCount++;
+  gOddStoredMs = now;
+}
+
+static String toHex(const uint8_t* d, size_t n) {
+  static const char* kHex = "0123456789abcdef";
+  String s;
+  s.reserve(n * 2);
+  for (size_t i = 0; i < n; i++) { s += kHex[d[i] >> 4]; s += kHex[d[i] & 15]; }
+  return s;
+}
+
+void relayDiagnostics(JsonObject d) {
+  Lock l;
+  const uint32_t now = millis();
+  JsonObject f = d["frames"].to<JsonObject>();
+  f["understood"] = gStat.ok;
+  f["newLayout"] = gStat.newLayout;
+  f["unreadable"] = gStat.unreadable;
+  f["lastUnderstoodAgoMs"] = gHave ? (int64_t)(now - gLastFrame) : -1;
+  f["lastOtherAgoMs"] = gStat.haveOdd ? (int64_t)(now - gStat.lastOddMs) : -1;
+  JsonArray a = d["samples"].to<JsonArray>();
+  for (int i = 0; i < gOddCount; i++) {                    // oldest first
+    const OddSample& s = gOdd[(gOddHead - gOddCount + i + 8) % 4];
+    JsonObject o = a.add<JsonObject>();
+    o["ageMs"] = (int64_t)(now - s.ms);
+    o["class"] = s.cls == kFrameNewLayout ? "sync box framing, payload not understood" : "unreadable";
+    o["len"] = s.len;
+    o["checksumOk"] = s.checksumOk;
+    o["hex"] = toHex(s.data, s.len < sizeof s.data ? s.len : sizeof s.data);
+  }
+  if (gGoodLen) {
+    JsonObject g = d["lastUnderstood"].to<JsonObject>();
+    g["ageMs"] = (int64_t)(now - gGoodSampleMs);
+    g["len"] = gGoodLen;
+    g["hex"] = toHex(gGoodSample, gGoodLen);
+  }
+}
+
 // Reads every queued Sync Box packet; true if at least one valid frame arrived.
 static bool pollBox() {
   if (gRx < 0) return false;
@@ -387,7 +461,7 @@ static bool pollBox() {
   bool got = false;
   float boost;
   { Lock l; boost = gSet.kBoost; }
-  uint8_t buf[160];
+  uint8_t buf[300];                                       // longer than any frame seen (86-93 bytes) so a bigger one is not cut short
   for (int guard = 0; guard < 16; guard++) {
     sockaddr_in sa;
     socklen_t sl = sizeof sa;
@@ -396,9 +470,14 @@ static bool pollBox() {
     const IPAddress from((uint32_t)sa.sin_addr.s_addr);
     if ((uint32_t)gBoxFilter != 0 && from != gBoxFilter) continue;
     uint8_t z[kZones][3];
-    if (decodeFrame(buf, (size_t)r, z)) {                // frames are 86-93 bytes; anything longer was cut at 160 and fails here
+    FrameInfo fi;
+    const FrameClass cls = classifyFrame(buf, (size_t)r, z, &fi);
+    if (cls != kFrameOk) { noteOddFrame(buf, r, cls, fi); continue; }
+    {
       uint32_t now = millis();
       Lock l;
+      gStat.ok++;
+      if (now - gGoodSampleMs >= 2000 || !gGoodLen) { gGoodLen = (uint8_t)(r < (int)sizeof gGoodSample ? r : sizeof gGoodSample); memcpy(gGoodSample, buf, gGoodLen); gGoodSampleMs = now; }
       if (now - gLastFrame > 1500) gPrevValid = false;             // the box was silent: do not extrapolate across the gap
       memcpy(gRaw, z, sizeof gRaw);                                // the raw box output (calibration and /api/zones use this)
       gSender = from;
@@ -489,6 +568,10 @@ void relayStatus(RelayStatus& s, bool detail) {
   s.boxFps = (fresh && gIntervalMs > 0) ? 1000.f / gIntervalMs : 0.f;
   s.boxAgeMs = gHave ? now - gLastFrame : UINT32_MAX;
   s.boxSender = (detail && gHave) ? gSender.toString() : String("");
+  s.framesOk = gStat.ok;
+  s.framesNewLayout = gStat.newLayout;
+  s.framesUnreadable = gStat.unreadable;
+  s.boxProblem = !fresh && gStat.haveOdd && now - gStat.lastOddMs < kStaleMs;     // nothing readable lately, but something arrived
   s.nTargets = gSet.nTargets;
   bool anyUsable = false, allOk = true, calibrating = false, marking = false, testing = false;
   int leds = 0;
@@ -513,7 +596,7 @@ void relayStatus(RelayStatus& s, bool detail) {
   else if (testing) s.state = "showing test pattern";
   else if (!anyUsable) s.state = "needs setup";
   else if (!gSet.enabled) s.state = "paused";
-  else if (!fresh) s.state = "waiting for the Sync Box";
+  else if (!fresh) s.state = s.boxProblem ? "Sync Box frames not understood" : "waiting for the Sync Box";
   else s.state = "relaying";
 }
 

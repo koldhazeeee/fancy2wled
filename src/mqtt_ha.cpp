@@ -51,7 +51,7 @@ static String targetsKey() {
 // What makes the published state change: cheap to build, compared 5 times a second.
 static String stateKey(const RelayStatus& s) {
   Lock l;
-  return String(s.state) + (s.boxFps > 0.f ? "1" : "0") + (s.wledOk ? "1" : "0") + (gSet.enabled ? "1" : "0") + (int)(gSet.kBri * 100.f + 0.5f) + "," + gSet.kGam + "," +
+  return String(s.state) + (s.boxProblem ? "P" : "") + (s.boxFps > 0.f ? "1" : "0") + (s.wledOk ? "1" : "0") + (gSet.enabled ? "1" : "0") + (int)(gSet.kBri * 100.f + 0.5f) + "," + gSet.kGam + "," +
          (int)(gSet.kSat * 100.f + 0.5f) + "," + (int)(gSet.kSmo * 100.f + 0.5f) + "," + gSet.smoothOut + "," + (int)(gSet.kBoost * 100.f + 0.5f) + targetsKey();
 }
 
@@ -59,6 +59,8 @@ static String stateJson(const RelayStatus& s) {
   JsonDocument d;
   d["state"] = s.state;
   d["box_connected"] = s.boxFps > 0.f;
+  d["box_problem"] = s.boxProblem;
+  d["frames_odd"] = s.framesNewLayout + s.framesUnreadable;
   d["box_fps"] = ((int)(s.boxFps * 10.f + 0.5f)) / 10.f;
   d["wled_ok"] = s.wledOk;
   d["wled_leds"] = s.wledLeds;
@@ -276,11 +278,21 @@ static void publishDiscovery() {
     withState(d, "{{ value_json.state }}");
     d["device_class"] = "enum";
     JsonArray o = d["options"].to<JsonArray>();
-    for (const char* s : {"relaying", "waiting for the Sync Box", "paused", "needs setup", "calibrating", "showing markers", "showing test pattern", "starting"}) o.add(s);
+    for (const char* s : {"relaying", "waiting for the Sync Box", "Sync Box frames not understood", "paused", "needs setup", "calibrating", "showing markers", "showing test pattern", "starting"}) o.add(s);
     d["icon"] = "mdi:information-outline";
     discover("sensor", "state", d);
   }
   binary("sync_box", "Sync Box", "connectivity", "box_connected");
+  binary("box_problem", "Sync Box frames not understood", "problem", "box_problem");     // ON: the box is sending, but nothing can be read (a firmware change?)
+  {
+    JsonDocument d;
+    d["name"] = "Frames not understood";
+    withState(d, "{{ value_json.frames_odd }}");
+    d["state_class"] = "total_increasing";
+    d["entity_category"] = "diagnostic";
+    d["icon"] = "mdi:alert-circle-outline";
+    discover("sensor", "frames_odd", d);
+  }
   binary("wled", "WLED", "connectivity", "wled_ok");
   binary("relaying", "Relaying", "running", "relaying");
   {

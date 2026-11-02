@@ -17,6 +17,22 @@ constexpr int kMaxLeds = 1000;  // per-LED table size limit
 // Frame: 55 AA 5A n 00 b5 b6 b7 | KEY (len-83 bytes) | DATA (75 bytes), plaintext = DATA xor KEY = 06 04 06 + 24 x RGB.
 bool decodeFrame(const uint8_t* data, size_t len, uint8_t zones[kZones][3]);
 
+// What a datagram on the Sync Box port is, for telling "the box is silent" from "the box changed what it sends":
+//   kFrameOk         decodes: the colours are in zones
+//   kFrameNewLayout  has the Sync Box framing (magic bytes, and the length byte matching the size) but the payload is not one we can read:
+//                    a box firmware that changed the payload (a new marker, more zones, a new key scheme)
+//   kFrameUnreadable anything else (other data on that port, a changed header, a damaged datagram)
+// Header byte 5 is a checksum (167 + the sum of every byte except bytes 3 and 5, mod 256); decodeFrame does not check it so a
+// changed checksum cannot break the relay, but it is reported: a valid checksum on a frame we cannot read means "same protocol, new payload".
+enum FrameClass { kFrameOk = 0, kFrameNewLayout = 1, kFrameUnreadable = 2 };
+struct FrameInfo {
+  bool checksumOk = false;
+  bool headKnown = false;    // head is valid (the size is one of the known 86-93 so the key length is known)
+  uint8_t head[3] = {0, 0, 0};   // the first 3 payload bytes after undoing the key: 06 04 06 on every box seen so far
+};
+bool frameChecksumOk(const uint8_t* data, size_t len);
+FrameClass classifyFrame(const uint8_t* data, size_t len, uint8_t zones[kZones][3], FrameInfo* info);
+
 // ---- zone -> LED mapping --------------------------------------------------
 // Each LED blends two zones: colour = zone[a] * (1 - f/255) + zone[b] * (f/255).
 // d says how far the LED is beyond the TV along its edge (0 = lined up with the TV): 0..255 = 0..kOutMax picture widths.

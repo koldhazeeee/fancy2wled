@@ -134,6 +134,11 @@ static esp_err_t h_status(httpd_req_t* req) {
   b["fps"] = s.boxFps;
   b["age"] = s.boxAgeMs == UINT32_MAX ? -1 : (int)s.boxAgeMs;
   b["sender"] = s.boxSender;
+  b["problem"] = s.boxProblem;                      // frames arrive but none can be read
+  JsonObject bf = b["frames"].to<JsonObject>();
+  bf["understood"] = s.framesOk;
+  bf["newLayout"] = s.framesNewLayout;
+  bf["unreadable"] = s.framesUnreadable;
   d["features"]["phoneCal"] = FWB_PHONE_CAL != 0;
   JsonArray ta = d["targets"].to<JsonArray>();
   for (int i = 0; i < s.nTargets; i++) {
@@ -182,6 +187,30 @@ static esp_err_t h_ha(httpd_req_t* req) {
     k["smoothing"] = gSet.kSmo;
     k["boost"] = gSet.kBoost;
     k["smoothOut"] = gSet.smoothOut; }
+  return sendDoc(req, d);
+}
+
+// For a bug report when the Sync Box changes what it sends: counters, a few raw datagrams we could not read and one that we could.
+// Colours and sizes only: no addresses, nothing private.
+static esp_err_t h_diag(httpd_req_t* req) {
+  JsonDocument d;
+  d["format"] = "fancy2wled-diagnostics";
+  d["version"] = 1;
+  d["firmware"] = FWB_VERSION;
+  d["uptimeSeconds"] = (uint32_t)(millis() / 1000);
+  JsonObject e = d["expected"].to<JsonObject>();
+  e["port"] = 19875;
+  e["sizes"] = "86-93 bytes";
+  e["start"] = "55 aa 5a, then the length byte = size - 5";
+  e["checksum"] = "header byte 5 = 167 + the sum of every byte except bytes 3 and 5, mod 256";
+  e["payloadStartsWith"] = "06 04 06 after undoing the key (the key is size - 83 bytes at offset 8)";
+  relayDiagnostics(d["relay"].to<JsonObject>());
+  RelayStatus s;
+  relayStatus(s);
+  d["state"] = s.state;
+  d["boxFps"] = s.boxFps;
+  d["how"] = "Attach this file to an issue on the project's GitHub page together with your Sync Box's firmware versions (from its app).";
+  httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"fancy2wled-diagnostics.json\"");
   return sendDoc(req, d);
 }
 
@@ -373,6 +402,7 @@ static const Route kRoutes[] = {
     {"/favicon.ico", HTTP_GET, h_favicon},
     {"/api/status", HTTP_GET, h_status},
     {"/api/ha", HTTP_GET, h_ha},
+    {"/api/diag", HTTP_GET, h_diag},
     {"/api/config", HTTP_GET, h_config_get},
     {"/api/config", HTTP_POST, h_config_post},
     {"/api/map", HTTP_POST, h_map},

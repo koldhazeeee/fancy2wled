@@ -2,7 +2,7 @@
 //   purple blink  setup access point      blue blink   joining Wi-Fi
 //   blue          waiting for the Sync Box   green      relaying
 //   yellow        needs WLED set up          white      calibrating / test pattern
-//   violet        paused (sync is off)
+//   violet        paused (sync is off)             red blink  Sync Box frames arrive but cannot be read (see the setup page)
 // Button: a short tap turns the sync on / off (same as the Pause/Resume button on the setup page and the Home Assistant
 // switch); hold for 8 s to factory-reset (the LED turns red after 3 s; letting go before 8 s cancels).
 #include <WiFi.h>
@@ -73,6 +73,7 @@ void ledStatusLoop() {
   if (s == "relaying") show(0, 14, 0);
   else if (s == "needs setup") show(18, 12, 0);
   else if (s == "paused") show(10, 0, 14);
+  else if (s == "Sync Box frames not understood") show(blink ? 30 : 0, 0, 0);          // red blink: the box is talking, we cannot read it
   else if (s == "calibrating" || s == "showing test pattern" || s == "showing markers") show(14, 14, 14);
   else show(0, 0, 14);
 }

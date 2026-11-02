@@ -249,6 +249,16 @@ async function cdp(wsUrl) {
     const legacy = { format: 'fancy2wled-config', version: 1, config: { wled: { host: '192.0.2.77', start: 0, count: 150, turnOn: true, restore: true, brightness: -1 }, layout: { type: 'linear', edge: 'bottom', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0 } }, table: { start: 0, count: 2, hex: '0005ff000105ff00' } };
     note = await importFile(legacy);
     check('backup: a version-1 file (one target) imports as target 0', dev.state.imported && dev.state.cfg.targets[0].wled.host === '192.0.2.77' && dev.state.cfg.targets[0].layout.edge === 'bottom' && dev.state.cfg.targets.length >= 1, note);
+    // the Sync Box sends something the relay cannot read: a red warning with a diagnostics download
+    check('box problem: no warning while the box is understood', (await p.ev("document.getElementById('boxWarn').classList.contains('hidden')")) === true && !/not understood/.test(await p.ev("document.getElementById('pBox').textContent")));
+    dev.state.boxProblem = true; await sleep(3200);
+    check('box problem: the Sync Box pill goes red and says what is wrong', /bad/.test(await p.ev("document.getElementById('pBox').className")) && /frames not understood/.test(await p.ev("document.getElementById('pBox').textContent")), await p.ev("document.getElementById('pBox').textContent"));
+    check('box problem: the warning card shows the counts', (await p.ev("document.getElementById('boxWarn').classList.contains('hidden')")) === false && /340 frames with the Sync Box framing/.test(await p.ev("document.getElementById('boxWarnN').textContent")), await p.ev("document.getElementById('boxWarnN').textContent"));
+    await p.ev("window.__dl=null; document.getElementById('diagBtn').click(); 1"); await sleep(900);
+    const diag = JSON.parse((await p.ev("window.__dl && window.__dl.text")) || 'null');
+    check('box problem: Download diagnostics saves fancy2wled-diagnostics.json', (await p.ev("window.__dl && window.__dl.name")) === 'fancy2wled-diagnostics.json' && diag && diag.format === 'fancy2wled-diagnostics' && diag.relay.samples.length === 1, JSON.stringify(diag).slice(0, 120));
+    dev.state.boxProblem = false; await sleep(3200);
+    check('box problem: the warning goes away when the box is understood again', (await p.ev("document.getElementById('boxWarn').classList.contains('hidden')")) === true);
     check('index: no script errors', p.logs.length === 0, p.logs.join(' | '));
     p.close();
 

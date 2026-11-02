@@ -12,6 +12,8 @@ your lights and no PC has to stay on.
   part start and end.
 * Streams ~30 fps to WLED over DDP, with smoothing, brightness/gamma/saturation and a **reaction boost** that cuts the delay
   ([why the lights lag](docs/LATENCY.md)).
+* **Tells you when the box changes**: if a Sync Box firmware update changes what it broadcasts, the relay says so (setup page, red LED, Home Assistant) and
+  can give you a diagnostics file, instead of just looking like a switched-off box ([docs/RESILIENCE.md](docs/RESILIENCE.md)).
 * *Optional:* **auto-calibration with your phone's camera** (a separate build, `atoms3-phonecal`; see [docs/CALIBRATION.md](docs/CALIBRATION.md)).
 
 > **Unofficial.** This project is not affiliated with or endorsed by FancyLEDs, Tuya or WLED. It was developed against a
@@ -62,6 +64,7 @@ The LED turns **green** while it is relaying. That is it: your WLED now follows 
 | violet | sync paused (button, setup page or Home Assistant) |
 | green | relaying |
 | white | calibrating / showing the test pattern |
+| red, blinking | the Sync Box is sending, but its frames cannot be read |
 
 The board's button: **tap it** to turn the sync on / off (the LED flashes green for on, violet for off; paused shows steady violet).
 **Hold it for 8 seconds** to factory-reset the board (Wi-Fi and settings; the LED blinks red after 3 s, and letting go before 8 s cancels).
@@ -106,6 +109,10 @@ usual, then open the setup page and press **Import config**. The page shows a su
 
 ## Troubleshooting
 
+**"Sync Box: frames not understood" (red), or the LED blinks red.** Data is arriving from the box but none of it can be read: its firmware probably changed
+what it sends. Press **Download diagnostics** on the setup page and attach the file to an issue. What to do before and after a box update, and how to compare
+captures: [docs/RESILIENCE.md](docs/RESILIENCE.md).
+
 **The lights lag behind the picture.** Most of that delay is the Sync Box smoothing its own colours, then the Wi-Fi network delivering
 its broadcast in bursts. Turn up **Reaction boost** (Look) and see [docs/LATENCY.md](docs/LATENCY.md) for where the time goes, what to change
 on your network, and how to measure it (`tools/latency_test.py`).
@@ -140,6 +147,7 @@ The setup access point is open while it is waiting for Wi-Fi details (it disappe
 python test/run_core_tests.py     # C++ core vs golden vectors from the Python reference (needs g++/clang++ or `pip install ziglang`)
 node test/test_analysis.js        # calibration maths + a simulated phone camera (needs Node 18+)
 node test/test_pages.js           # loads the real web pages in headless Edge/Chrome against test/mock_device.js
+python test/test_capture_tools.py  # the capture / firmware-change tools
 node test/test_lint.js            # sources must be plain ASCII, LF, no BOM (non-ASCII shows up garbled on the device)
 pio run -e atoms3                 # compile the firmware
 pio run -e atoms3-phonecal        # ... with the phone-camera calibration and the secure web server it needs
@@ -155,7 +163,7 @@ pio run -e atoms3-phonecal        # ... with the phone-camera calibration and th
 * `src/webserver.cpp` - HTTP on :80 (and, in the phone-calibration build, HTTPS on :443 with a self-signed key generated on first boot), JSON API.
 * `src/mqtt_ha.cpp` - Home Assistant over MQTT (discovery, state, commands), runs in its own task.
 * `src/perf.cpp` - optional performance statistics (CPU load per core, memory, frame timing), only active when switched on.
-* `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator, `check_mqtt.py` (checks the board's MQTT discovery) and `latency_test.py` (measures how fast the output follows a step).
+* `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator, `check_mqtt.py` (checks the board's MQTT discovery), `latency_test.py` (measures how fast the output follows a step), `capture_frames.py` and `check_capture.py` (record the box's broadcast and compare captures, see [docs/RESILIENCE.md](docs/RESILIENCE.md)).
 
 (Phone-calibration build:) the image analysis runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only
 lights LEDs on request and stores the resulting table.

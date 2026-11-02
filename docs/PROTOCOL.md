@@ -40,6 +40,20 @@ bytes are:
 That is all there is: no checksum is needed. The "randomness" seen in raw captures is just the XOR key, which changes
 every frame.
 
+### Header fields and what the relay checks
+
+| Byte | Meaning | Checked by the relay |
+|---|---|---|
+| 0-2 | magic `55 AA 5A` | yes |
+| 3 | total length - 5 | yes (must match the datagram size, which must be 86-93) |
+| 4 | always `00` | no |
+| 5 | checksum: 167 + the sum of every byte except bytes 3 and 5, modulo 256 | no (holds on all 3,173 frames of a 4-minute capture) |
+| 6 | a fixed function of byte 3 (81 -> 32, 82 -> 35, 83 -> 34, 84 -> 37, 85 -> 36, 86 -> 39, 87 -> 38, 88 -> 3B, hex) | no |
+| 7 | the last byte of the key | no |
+
+After the header: the key (size - 83 bytes) and 75 data bytes. The plaintext starts with `06 04 06`, which the relay requires (it doubles as the
+integrity check). Those three bytes are probably the grid size (6 columns, 4 rows) plus one more value, which would fit the 24 zones, but that is a guess:
+every box seen so far has the same grid.
 ## Zones
 
 The 24 zones are a **6 x 4 grid over the picture**: `zone = row * 6 + col`, row 0 at the top, col 0 on the left.
@@ -59,6 +73,11 @@ top->bottom 0,6,12,18.
 Each zone behaves like an *area average* of its region (a small bright square gives the same response anywhere inside
 the zone), but the regions overlap their neighbours a little - a bright block exactly filling one tile also leaks into
 the next zone.
+
+## If the protocol changes
+
+The relay classifies every datagram on the port (understood / Sync Box framing with a payload it cannot read / unreadable) and reports it, so a firmware change
+is noticed instead of looking like a switched-off box. See [RESILIENCE.md](RESILIENCE.md) for what it tolerates, what to capture before an update and how to compare.
 
 ## Delivery
 
