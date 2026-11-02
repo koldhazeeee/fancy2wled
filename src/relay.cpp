@@ -24,7 +24,7 @@ static float gIntervalMs = 0;                  // smoothed time between frames
 static IPAddress gSender;
 static IPAddress gBoxFilter;                   // 0.0.0.0 = accept anyone
 static uint32_t gFilterGen = 0xFFFFFFFF;
-static SmoothInfo gSmooth = {0, -1, 0, 0};     // how the strip beyond the TV eases to the average (recomputed when settings change)
+static SmoothInfo gSmooth = {0, -1, 0, 0, 0u, 0u};     // how the strip beyond the TV eases toward its nearest zones (recomputed when settings change)
 static uint32_t gSmoothGen = 0xFFFFFFFF;
 
 // ---- relay state

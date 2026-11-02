@@ -186,19 +186,49 @@ int main(int argc, char** argv) {
     CHECK(t[91].d == 0 && t[130].d == 0 && t[174].d == 0, "no distance over the TV");
     CHECK(t[0].d > t[50].d && t[209].d > t[180].d && t[0].d > 0 && t[209].d > 0, "distance grows beyond the TV");
     float z[kZones][3]; for (int i = 0; i < kZones; i++) { z[i][0] = (i % 6 == 0) ? 255.f : 0.f; z[i][1] = 0; z[i][2] = 0; }
-    float avgR = 0; for (int i = 0; i < kZones; i++) avgR += z[i][0]; avgR /= kZones;
+    const float avgL = (z[0][0] + z[1][0] + z[2][0]) / 3.f, avgRt = (z[3][0] + z[4][0] + z[5][0]) / 3.f;   // halves of the top row
     const SmoothInfo si = smoothInfo(t, 210, 100);
     float out[210 * 3]; applyTable(t, 210, z, out, si);
     CHECK(si.firstZero > 0 && si.lastZero < 209 && si.lenStart > si.lenEnd && si.lenEnd >= kMinOutQ, "each tail gets its own length (%d, %d)", si.lenStart, si.lenEnd);
     CHECK(fabsf(out[91 * 3] - 255.f) < 1.f, "over the TV the edge zone colour is exact (%.1f)", out[91 * 3]);
-    CHECK(fabsf(out[0] - avgR) < 2.f, "the far end of the strip reaches the average (%.1f vs %.1f)", out[0], avgR);
-    CHECK(fabsf(out[209 * 3] - avgR) < 2.f, "the SHORTER tail also reaches the average at its own end (%.1f vs %.1f)", out[209 * 3], avgR);
+    CHECK(fabsf(out[0] - avgL) < 2.f, "the far end of the strip reaches the average of its half of the top row (%.1f vs %.1f)", out[0], avgL);
+    CHECK(fabsf(out[209 * 3] - avgRt) < 2.f, "the SHORTER tail also reaches its target at its own end (%.1f vs %.1f)", out[209 * 3], avgRt);
     CHECK(out[50 * 3] < out[91 * 3] && out[50 * 3] > out[0] - 1.f, "beyond the TV the colour eases smoothly from the edge to the average");
     float prev = out[91 * 3]; bool mono = true;
     for (int i = 90; i >= 0; i--) { if (out[i * 3] > prev + 0.01f) mono = false; prev = out[i * 3]; }
     CHECK(mono, "the ease is monotonic (no bumps)");
     applyTable(t, 210, z, out, smoothInfo(t, 210, 0));
     CHECK(fabsf(out[0] - 255.f) < 1.f, "smoothing off: the strip beyond the TV repeats the edge colour"); }
+  { // a strip on the ceiling (top edge) must only ever see the top row: a green dot in the bottom-left corner of the picture
+    // (zone 18) must not tint the LEDs beyond the TV; they ease toward the average of the TOP ROW
+    Entry t[210]; tableLinear(t, 210, false, 82, 172, 0);
+    const SmoothInfo si = smoothInfo(t, 210, 100);
+    CHECK(si.maskStart == 0x07u && si.maskEnd == 0x38u, "a top strip: left tail -> left half of the top row (zones 0-2), right tail -> right half (3-5): %x %x", si.maskStart, si.maskEnd);
+    float z[kZones][3] = {};
+    z[18][0] = 51.f; z[18][1] = 87.f; z[18][2] = 13.f;
+    float out[210 * 3]; applyTable(t, 210, z, out, si);
+    float worst = 0.f; for (int i = 0; i < 210 * 3; i++) worst = fmaxf(worst, out[i]);
+    CHECK(worst < 0.5f, "a green dot at the bottom-left leaves the ceiling strip dark (brightest value %.2f)", worst);
+    // an orange dot in the top-left corner (zone 0): the left tail shows it, the right tail must stay dark
+    for (int i = 0; i < kZones; i++) z[i][0] = z[i][1] = z[i][2] = 0.f;
+    z[0][0] = 255.f; z[0][1] = 120.f;
+    applyTable(t, 210, z, out, si);
+    CHECK(out[0] > 20.f && out[(81) * 3] > 100.f, "the left tail carries the orange (%.1f / %.1f)", out[0], out[81 * 3]);
+    float rmax = 0.f; for (int i = 173 * 3; i < 210 * 3; i++) rmax = fmaxf(rmax, out[i]);
+    CHECK(rmax < 0.5f, "an orange dot in the top-left corner leaves the right tail dark (brightest %.2f)", rmax);
+    for (int i = 0; i < kZones; i++) { z[i][0] = z[i][1] = z[i][2] = (i < 3) ? 100.f : (i < 6 ? 40.f : 255.f); }   // top row 100|40, rest 255
+    applyTable(t, 210, z, out, si);
+    CHECK(fabsf(out[0] - 100.f) < 1.f && fabsf(out[209 * 3] - 40.f) < 1.f,
+          "each far end reaches the average of its own half of the top row (%.1f, %.1f)", out[0], out[209 * 3]);
+    Entry b[210]; tableLinear(b, 210, false, 82, 172, 2);                         // strip under the TV: bottom row
+    const SmoothInfo sb = smoothInfo(b, 210, 100);
+    CHECK(sb.maskStart == (7u << 18) && sb.maskEnd == (7u << 21), "a bottom strip uses halves of the bottom row (zones 18-20 / 21-23): %x %x", sb.maskStart, sb.maskEnd);
+    Entry r2[210]; tableLinear(r2, 210, true, 82, 172, 0);                        // LED 0 at the right end: the tails swap sides
+    const SmoothInfo sr = smoothInfo(r2, 210, 100);
+    CHECK(sr.maskStart == 0x38u && sr.maskEnd == 0x07u, "LED 0 on the right: first tail uses the right half (%x %x)", sr.maskStart, sr.maskEnd);
+    Entry l[180]; tableLinear(l, 180, false, 50, 130, 3);
+    const SmoothInfo sl = smoothInfo(l, 180, 100);
+    CHECK(sl.maskStart == ((1u << 0) | (1u << 6)) && sl.maskEnd == ((1u << 12) | (1u << 18)), "a left strip uses halves of the left column: %x %x", sl.maskStart, sl.maskEnd); }
   { Entry t[10]; int bad[4] = {1, 1, 1, 1};
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }

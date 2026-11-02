@@ -20,7 +20,7 @@ bool decodeFrame(const uint8_t* data, size_t len, uint8_t zones[kZones][3]);
 // ---- zone -> LED mapping --------------------------------------------------
 // Each LED blends two zones: colour = zone[a] * (1 - f/255) + zone[b] * (f/255).
 // d says how far the LED is beyond the TV along its edge (0 = lined up with the TV): 0..255 = 0..kOutMax picture widths.
-// LEDs beyond the TV ease toward the average picture colour (see applyTable), so the TV-length part is exact and the rest
+// LEDs beyond the TV ease toward the average colour of the nearest zones (see applyTable), so the TV-length part is exact and the rest
 // of the strip is smooth instead of repeating the edge colour.
 struct Entry {
   uint8_t a, b, f, d;
@@ -47,11 +47,15 @@ void tableLinear(Entry* out, int count, bool led0Right, int spanFirst, int spanL
 bool tableLoop(Entry* out, int count, int startCorner, bool counterClockwise, const int* sides, int shift,
                int aspectW, int aspectH);
 
-// The two tails of a strip (the LEDs before / after the part lined up with the TV) each ease to the average colour,
-// reaching it at the strip's own end when percent = 100. Lengths are in d units; 0 = no smoothing.
+// The two tails of a strip (the LEDs before / after the part lined up with the TV) each ease toward the average colour of
+// the zones nearest to that tail: the half of the picture edge the strip runs along that lies at its end (a ceiling strip's
+// left tail eases toward the left half of the top row, its right tail toward the right half). Colours from the other sides
+// of the picture, or from the far end of the same edge, never leak in. Reached at the strip's own end when percent = 100.
+// Lengths are in d units; 0 = no smoothing.
 struct SmoothInfo {
-  int firstZero, lastZero;   // first / last LED with d == 0 (lined up with the TV); count / -1 when there is none
-  int lenStart, lenEnd;      // ease length for the LEDs before firstZero / after lastZero
+  int firstZero, lastZero;           // first / last LED with d == 0 (lined up with the TV); count / -1 when there is none
+  int lenStart, lenEnd;              // ease length for the LEDs before firstZero / after lastZero
+  uint32_t maskStart, maskEnd;       // zones each tail eases toward (bit z = zone z); 0 = unknown (all 24 zones)
 };
 SmoothInfo smoothInfo(const Entry* table, int count, int percent);   // percent: 0 = off, 100 = reach the average at the strip end
 

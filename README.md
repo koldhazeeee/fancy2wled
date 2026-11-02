@@ -83,7 +83,7 @@ and rainbow-test / restart buttons. The board connects *out* to your MQTT broker
 | Layout | calibrated table, a straight line, or around the TV |
 | Brightness / gamma / saturation | 1.0 = copy the box exactly. The box tops out around 200/255 for white; raise brightness if you want full white |
 | Smoothing over time | 0 = instant, 0.9 = slow fades (the box itself already smooths ~0.3 s) |
-| Smooth beyond the TV | LEDs lined up with the TV follow the picture exactly; LEDs past its edges fade toward the picture's average colour, reaching it at the end of the strip. 100% = the whole tail, 0 = repeat the edge colour |
+| Smooth beyond the TV | LEDs lined up with the TV follow the picture exactly; LEDs past its edges fade toward the average colour of the nearest part of the picture edge the strip runs along (for a ceiling strip: the left tail toward the left half of the top row, the right tail toward the right half, so a colour in one corner never leaks to the other end and the other sides of the picture never matter), reaching it at the end of the strip. 100% = the whole tail, 0 = repeat the edge colour |
 
 ## Troubleshooting
 

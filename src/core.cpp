@@ -161,12 +161,54 @@ static int tailLength(const Entry* t, int lo, int hi, int percent) {
   return len < kMinOutQ ? kMinOutQ : len;
 }
 
+// Which picture edge a pair of neighbouring zones lies on (-1 when the zones are not neighbours on one edge).
+static int edgeOfPair(int a, int b) {
+  for (int e = 0; e < 4; e++) {
+    int k;
+    const uint8_t* z = edgeZones((Edge)e, &k);
+    bool ha = false, hb = false;
+    for (int j = 0; j < k; j++) { if (z[j] == a) ha = true; if (z[j] == b) hb = true; }
+    if (ha && hb) return e;
+  }
+  return -1;
+}
+
+// The edge a strip runs along, read from the LEDs lined up with the TV: the first one (from the given end) that blends two
+// different zones tells which edge of the picture they belong to.
+static int edgeOfRun(const Entry* t, int lo, int hi, bool fromLow) {
+  for (int n = lo; n <= hi; n++) {
+    const Entry& e = t[fromLow ? n : hi - (n - lo)];
+    if (e.a != e.b) return edgeOfPair(e.a, e.b);
+  }
+  return -1;
+}
+
+// The zones a tail eases toward: the half of its picture edge that lies at the strip's end (bit z = zone z; 0 = unknown).
+static uint32_t tailTarget(const Entry* t, int lo, int hi, bool fromLow, int outer) {
+  const int e = edgeOfRun(t, lo, hi, fromLow);
+  if (e < 0) return 0;
+  int k;
+  const uint8_t* ez = edgeZones((Edge)e, &k);
+  const int zone = t[outer].f < 128 ? t[outer].a : t[outer].b;      // the zone the outermost LED shows
+  int j = -1;
+  for (int q = 0; q < k; q++) if (ez[q] == zone) j = q;
+  const int half = k / 2;
+  const int from = (j >= 0 && j * 2 >= k) ? k - half : 0;
+  uint32_t m = 0;
+  for (int q = from; q < from + half; q++) m |= 1u << ez[q];
+  return m;
+}
+
 SmoothInfo smoothInfo(const Entry* t, int count, int percent) {
-  SmoothInfo s{count, -1, 0, 0};
+  SmoothInfo s{count, -1, 0, 0, 0u, 0u};
   for (int i = 0; i < count; i++)
     if (t[i].d == 0) { if (s.firstZero == count) s.firstZero = i; s.lastZero = i; }
   s.lenStart = tailLength(t, 0, s.firstZero, percent);
   s.lenEnd = tailLength(t, s.lastZero + 1, count, percent);
+  if (s.lastZero >= s.firstZero) {
+    s.maskStart = tailTarget(t, s.firstZero, s.lastZero, true, 0);
+    s.maskEnd = tailTarget(t, s.firstZero, s.lastZero, false, count - 1);
+  }
   return s;
 }
 
@@ -175,18 +217,29 @@ static inline float smoothstep01(float x) {
   return x * x * (3.f - 2.f * x);
 }
 
-void applyTable(const Entry* t, int count, const float zones[kZones][3], float* out, const SmoothInfo& sm) {
-  float avg[3] = {0, 0, 0};
-  if (sm.lenStart > 0 || sm.lenEnd > 0) {
-    for (int z = 0; z < kZones; z++)
-      for (int c = 0; c < 3; c++) avg[c] += zones[z][c];
-    for (int c = 0; c < 3; c++) avg[c] /= kZones;
+// Average colour of the zones in `mask` (bit z = zone z); an empty mask means all 24 zones.
+static void averageOf(const float zones[kZones][3], uint32_t mask, float avg[3]) {
+  avg[0] = avg[1] = avg[2] = 0.f;
+  int n = 0;
+  for (int z = 0; z < kZones; z++) {
+    if (mask && !(mask & (1u << z))) continue;
+    for (int c = 0; c < 3; c++) avg[c] += zones[z][c];
+    n++;
   }
+  for (int c = 0; c < 3; c++) avg[c] /= n;
+}
+
+void applyTable(const Entry* t, int count, const float zones[kZones][3], float* out, const SmoothInfo& sm) {
+  float avgS[3] = {0, 0, 0}, avgE[3] = {0, 0, 0};
+  if (sm.lenStart > 0) averageOf(zones, sm.maskStart, avgS);
+  if (sm.lenEnd > 0) averageOf(zones, sm.maskEnd, avgE);
   for (int i = 0; i < count; i++) {
     const float w = t[i].f / 255.f;
     const float* za = zones[t[i].a];
     const float* zb = zones[t[i].b];
-    const int len = i < sm.firstZero ? sm.lenStart : (i > sm.lastZero ? sm.lenEnd : 0);
+    const bool before = i < sm.firstZero;
+    const int len = before ? sm.lenStart : (i > sm.lastZero ? sm.lenEnd : 0);
+    const float* avg = before ? avgS : avgE;
     const float g = (len > 0 && t[i].d > 0) ? smoothstep01(t[i].d / (float)len) : 0.f;
     for (int c = 0; c < 3; c++) {
       float col = za[c] + (zb[c] - za[c]) * w;

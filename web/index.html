@@ -99,7 +99,7 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="kSat">Saturation <span id="kSatV"></span></label><input id="kSat" type="range" min="0" max="2" step="0.05" data-live="1"></div>
   <div class="row"><label for="kSmo">Smoothing over time <span id="kSmoV"></span></label><input id="kSmo" type="range" min="0" max="0.9" step="0.05" data-live="1"></div>
   <div class="row"><label for="kOut">Smooth beyond the TV <span id="kOutV"></span></label><input id="kOut" type="range" min="0" max="100" step="5" data-live="1"></div>
-  <p class="small mut">LEDs along the TV follow the picture exactly. LEDs past the edge of the TV fade smoothly toward the picture's average colour,
+  <p class="small mut">LEDs along the TV follow the picture exactly. LEDs past the edge of the TV fade smoothly toward the average colour of the nearest part of the picture edge they run along (for LEDs on the ceiling: the left half of the top row at the left end, the right half at the right end),
   reaching it at the end of the strip. 100% = it takes the whole strip, lower = it blends faster, 0 = the end LEDs just repeat the TV's edge colour.</p>
 </div>
 

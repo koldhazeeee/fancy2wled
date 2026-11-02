@@ -80,8 +80,26 @@ const sameEntry = (a, b) => entryDiff(a, b) <= 0.012 && Math.abs(a[3] - b[3]) <=
   check('no distance over the TV, growing beyond it', t[91][3] === 0 && t[130][3] === 0 && t[174][3] === 0 && t[0][3] > t[60][3] && t[209][3] > t[180][3] && t[0][3] > 0);
   const z = []; for (let i = 0; i < 24; i++) z.push([i % 6 === 0 ? 255 : 0, 0, 0]);
   const avgR = z.reduce((s, c) => s + c[0], 0) / 24, cols = A.applyTable(t, z, A.smoothInfo(t, 100));
-  check('over the TV: exact edge colour; strip end reaches the average', Math.abs(cols[91][0] - 255) < 1 && Math.abs(cols[0][0] - avgR) < 2 && Math.abs(cols[209][0] - avgR) < 2, cols[91][0] + ' ' + cols[0][0]);
+  check('over the TV: exact edge colour; strip end reaches the average', Math.abs(cols[91][0] - 255) < 1 && Math.abs(cols[0][0] - (255 / 3)) < 2 && Math.abs(cols[209][0]) < 2, cols[91][0] + ' ' + cols[0][0]);
   check('smoothing off: the edge colour just repeats', Math.abs(A.applyTable(t, z, A.smoothInfo(t, 0))[0][0] - 255) < 1);
+  // a strip on the ceiling only ever sees the top row: a green dot in the bottom-left corner (zone 18) must not tint it
+  const tc = A.tableLinear(210, false, 82, 172, 0), sic = A.smoothInfo(tc, 100), zg = []; for (let i = 0; i < 24; i++) zg.push([0, 0, 0]);
+  zg[18] = [51, 87, 13];
+  const cg = A.applyTable(tc, zg, sic); let brightest = 0; for (const c of cg) brightest = Math.max(brightest, c[0], c[1], c[2]);
+  check('a top strip: left tail -> zones 0-2, right tail -> zones 3-5', JSON.stringify(sic.zonesStart) === '[0,1,2]' && JSON.stringify(sic.zonesEnd) === '[3,4,5]', JSON.stringify(sic));
+  check('a green dot at the bottom-left leaves the ceiling strip dark', brightest < 0.5, brightest);
+  // an orange dot in the top-left corner: the left tail shows it, the right tail stays dark
+  const zo = []; for (let i = 0; i < 24; i++) zo.push([0, 0, 0]); zo[0] = [255, 120, 0];
+  const co = A.applyTable(tc, zo, sic); let rbright = 0; for (let i = 173; i < 210; i++) rbright = Math.max(rbright, co[i][0], co[i][1], co[i][2]);
+  check('orange top-left dot: left tail carries it', co[0][0] > 20 && co[81][0] > 100, co[0][0] + ' ' + co[81][0]);
+  check('orange top-left dot: right tail stays dark', rbright < 0.5, rbright);
+  const zt = []; for (let i = 0; i < 24; i++) zt.push(i < 3 ? [100, 100, 100] : (i < 6 ? [40, 40, 40] : [255, 255, 255]));
+  const ct = A.applyTable(tc, zt, sic);
+  check('each far end reaches the average of its own half of the top row', Math.abs(ct[0][0] - 100) < 1 && Math.abs(ct[209][0] - 40) < 1, ct[0][0] + ' ' + ct[209][0]);
+  const tb = A.tableLinear(210, false, 82, 172, 2), sib = A.smoothInfo(tb, 100);
+  check('a strip under the TV uses halves of the bottom row', JSON.stringify(sib.zonesStart) === '[18,19,20]' && JSON.stringify(sib.zonesEnd) === '[21,22,23]', JSON.stringify(sib));
+  const sir = A.smoothInfo(A.tableLinear(210, true, 82, 172, 0), 100);
+  check('LED 0 on the right: the first tail uses the right half', JSON.stringify(sir.zonesStart) === '[3,4,5]' && JSON.stringify(sir.zonesEnd) === '[0,1,2]', JSON.stringify(sir));
 })();
 
 /* ------------------------------------------------------------------ scenarios */
@@ -129,7 +147,7 @@ async function scenario(name, scene, opts, truthFn, expect) {
       check('A: exact (no smoothing distance) along the TV, smoothing distance beyond it', inside.every(e => e[3] <= 2) && outsideL.every(e => e[3] > 0) && outsideL[0][3] > outsideL[outsideL.length - 1][3]);
       const zones = []; for (let z = 0; z < 24; z++) zones.push([z % 6 === 0 ? 255 : 0, 40, z % 6 === 5 ? 255 : 0]);
       const cols = A.applyTable(res.table, zones, A.smoothInfo(res.table, 100));
-      const avg = zones.reduce((s, c) => s + c[0], 0) / 24;
+      const avg = 255 / 3;     // each tail eases toward its own half of the top row: left half has one red zone in three, right half one blue in three
       check('A: the far end of the strip reaches the average colour', Math.abs(cols[0][0] - avg) < 15 && Math.abs(cols[res.count - 1][2] - avg) < 15, cols[0][0] + ' / ' + cols[res.count - 1][2] + ' vs ' + avg);
     }
   }
