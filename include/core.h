@@ -12,6 +12,12 @@ constexpr int kRows = 4;
 constexpr uint16_t kBoxPort = 19875;
 constexpr int kMaxLeds = 1000;  // per-LED table size limit
 
+// ---- WLED address ---------------------------------------------------------
+// Cleans up what was typed or pasted into the "WLED address" box so that "  HTTP://Wled-Ceiling.local/ " becomes "wled-ceiling.local":
+// leading / trailing spaces, an "http://" or "https://" in front, everything from the first '/', '?' or '#', a ":80" port, trailing dots,
+// upper case. Writes at most cap-1 characters and a terminator. Returns the length, or -1 when it does not fit (or the input is null).
+int normalizeHost(const char* in, char* out, int cap);
+
 // ---- Sync Box frame -------------------------------------------------------
 // Decodes one UDP payload. On success returns true and fills zones[24][3] (r,g,b).
 // Frame: 55 AA 5A n 00 b5 b6 b7 | KEY (len-83 bytes) | DATA (75 bytes), plaintext = DATA xor KEY = 06 04 06 + 24 x RGB.

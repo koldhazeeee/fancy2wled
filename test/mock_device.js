@@ -54,7 +54,9 @@ function createDevice(opts) {
     if (req.method === 'GET') {
       calls.push('GET ' + p);
       if (p === '/api/status') {
-        const targets = state.cfg.targets.map(t => ({ name: t.name, host: t.wled.host, enabled: t.enabled, ok: !!t.wled.host, leds: state.total, wledName: 'WLED' }));
+        // a name points to some address (192.0.2.51) unless the test says it was not found yet; an IP address is its own address
+        const addrOf = h => !h ? '' : (/^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : (state.nameNotFound ? '' : '192.0.2.51'));
+        const targets = state.cfg.targets.map(t => ({ name: t.name, host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: state.total, wledName: 'WLED' }));
         return json(res, 200, { ver: 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: 'waiting for the Sync Box', https: false, heap: 1e5,
           enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
           features: { phoneCal: opts.phoneCal !== false },
@@ -64,7 +66,7 @@ function createDevice(opts) {
       if (p === '/api/diag') return json(res, 200, { format: 'fancy2wled-diagnostics', version: 1, firmware: 'mock', relay: { frames: { understood: 1200, newLayout: 340, unreadable: 2 }, samples: [{ ageMs: 100, class: 'sync box framing, payload not understood', len: 90, checksumOk: true, hex: '55aa5a55' }] } });
       if (p === '/api/zones') return json(res, 200, { age: 40, zones: Array.from({ length: 24 }, () => [state.screen === 'white' ? 200 : 0, 0, 0]) });
       if (p === '/api/screen') return json(res, 200, { mode: state.calActive ? state.screen : 'idle' });
-      if (p === '/api/wled/discover') return json(res, 200, { devices: [{ name: 'wled-test', ip: '192.0.2.50' }] });
+      if (p === '/api/wled/discover') return json(res, 200, { devices: [{ name: 'wled-test', ip: '192.0.2.50', host: 'wled-test.local' }] });
       if (p === '/api/wled/info') return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false, on: true, bri: 128 });
       if (p === '/api/wifi/scan') return json(res, 200, { networks: ['TestNet', 'Other'] });
       res.writeHead(404); return res.end('nope');
@@ -83,7 +85,13 @@ function createDevice(opts) {
           if (d.name !== undefined) T.name = d.name;
           if (d.enabled !== undefined) T.enabled = d.enabled;
           if (d.trim !== undefined) T.trim = d.trim;
-          if (d.wled) Object.assign(T.wled, d.wled);
+          if (d.wled) {
+            if (typeof d.wled.host === 'string') {   // like the board: a pasted URL is cleaned up ("HTTP://Wled-Test.local/" -> "wled-test.local")
+              d = Object.assign({}, d, { wled: Object.assign({}, d.wled, { host: d.wled.host.trim().replace(/^https?:\/\//i, '').split(/[\/?#]/)[0].replace(/:80$/, '').replace(/\.+$/, '').toLowerCase() }) });
+              if (!/^[A-Za-z0-9._-]*$/.test(d.wled.host)) return json(res, 400, { error: 'WLED address may only contain letters, digits, dots and dashes' });
+            }
+            Object.assign(T.wled, d.wled);
+          }
           if (d.layout) Object.assign(T.layout, d.layout);
           ['look', 'box', 'relay', 'mqtt'].forEach(k => { if (d[k]) Object.assign(state.cfg[k], d[k]); });
           if (d.mqtt && d.mqtt.pass !== undefined) { state.mqttPass = d.mqtt.pass; state.cfg.mqtt.passSet = d.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }

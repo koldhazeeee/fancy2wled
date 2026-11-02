@@ -145,6 +145,8 @@ static esp_err_t h_status(httpd_req_t* req) {
     JsonObject o = ta.add<JsonObject>();
     o["name"] = s.targets[i].name;
     o["host"] = s.targets[i].host;
+    o["ip"] = s.targets[i].ip;                      // the address in use: for a name, what it currently points to ("" = not found yet)
+    o["ipAge"] = s.targets[i].ipAgeS;               // seconds since it was last confirmed (-1 = never)
     o["enabled"] = s.targets[i].enabled;
     o["ok"] = s.targets[i].ok;
     o["leds"] = s.targets[i].leds;
@@ -364,10 +366,23 @@ static esp_err_t h_wled_discover(httpd_req_t* req) {
   return sendJson(req, out);
 }
 
+// "http%3A%2F%2Fwled.local%2F" -> "http://wled.local/" (the page encodes what was typed in the address box)
+static void urlDecode(const char* in, char* out, size_t cap) {
+  size_t n = 0;
+  auto hex = [](char c) { return c >= '0' && c <= '9' ? c - '0' : (c >= 'a' && c <= 'f' ? c - 'a' + 10 : (c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1)); };
+  for (; *in && n + 1 < cap; in++) {
+    if (in[0] == '%' && hex(in[1]) >= 0 && hex(in[2]) >= 0) { out[n++] = (char)(hex(in[1]) * 16 + hex(in[2])); in += 2; }
+    else out[n++] = in[0] == '+' ? ' ' : in[0];
+  }
+  out[n] = 0;
+}
+
 static esp_err_t h_wled_info(httpd_req_t* req) {
-  char q[96] = {0}, host[72] = {0};
-  if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK || httpd_query_key_value(q, "host", host, sizeof host) != ESP_OK)
+  char q[200] = {0}, enc[160] = {0}, raw[160] = {0}, host[64] = {0};
+  if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK || httpd_query_key_value(q, "host", enc, sizeof enc) != ESP_OK)
     return sendError(req, "400 Bad Request", "host is required");
+  urlDecode(enc, raw, sizeof raw);
+  if (fwb::normalizeHost(raw, host, sizeof host) < 0) return sendError(req, "400 Bad Request", "WLED address is too long");
   WledInfo i = wledQuery(String(host));
   if (!i.ok) return sendError(req, "502 Bad Gateway", i.error);
   JsonDocument d;

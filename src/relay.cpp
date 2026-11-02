@@ -61,6 +61,9 @@ static bool gNewPending = false;               // a Sync Box frame arrived that 
 static uint32_t gWaitHintMs = 10;              // how long the main loop may sleep before the relay needs to act again
 static const uint32_t kMinGapMs = 6;           // never run two output cycles closer than this
 static const uint32_t kKeepaliveMs = 1000;     // resend an unchanged frame this often so WLED does not leave realtime mode (2.5 s)
+static const uint32_t kResolveEveryMs = 60000; // look a WLED's name up again this often (its IP may have changed)
+static const uint32_t kRetryResolveMs = 15000; // ... and this often while the name has not been found yet
+static uint32_t gHouseMs = 0;                  // when the once-a-second housekeeping last ran
 
 // ---- per-target state
 struct Cal {                                   // the LED finder / phone calibration session on this target
@@ -91,9 +94,15 @@ struct Rt {
   bool curValid = false, converged = false, prepared = false, wasTesting = false;
   uint32_t smoothUs = 0, computedGen = 0xFFFFFFFF, smoothGen = 0xFFFFFFFF;
   SmoothInfo smooth = {0, -1, 0, 0, 0u, 0u};   // how the strip beyond the TV eases (recomputed when settings change)
-  IPAddress ip;                                // the WLED's address (resolved from its name when needed)
-  String resolved;
-  uint32_t tryMs = 0, addrGen = 0xFFFFFFFF;
+  // The WLED's address. A name (wled-ceiling.local) is resolved by the background task, never by the relay loop (a lookup can take
+  // seconds), and looked up again every kResolveEveryMs, so a WLED whose IP changed is found again. A name that stops answering keeps its
+  // last known address.
+  volatile uint32_t ipRaw = 0;                 // the address as a network-order word, 0 = not known yet (written by the worker, read by the relay loop)
+  String resolved;                             // the host ipRaw belongs to (relay task only)
+  bool hostIsName = false;                     // the host is a name, not an IP address (relay task only)
+  bool resolving = false;                      // a lookup is queued or running (under Lock)
+  uint32_t resolveMs = 0;                      // when ipRaw was last confirmed (under Lock)
+  uint32_t tryMs = 0, addrGen = 0xFFFFFFFF;    // when a lookup was last requested; the settings generation the host was last compared at
   String hostCache;                            // the host this target was prepared for
   bool restoreCache = true;
   String snapHost;                             // the host snapOn / snapBri were read from
@@ -197,6 +206,7 @@ int wledDiscover(String& out) {
     String h = MDNS.hostname(i);
     o["name"] = h.length() ? h : String("WLED");
     o["ip"] = MDNS.IP(i).toString();
+    o["host"] = h.length() ? h + ".local" : MDNS.IP(i).toString();      // what to type in the address box: the name keeps working if the IP changes
   }
   serializeJson(d, out);
   return n;
@@ -213,19 +223,30 @@ static bool resolveWled(const String& host, IPAddress& out) {
   return WiFi.hostByName(host.c_str(), out) == 1;
 }
 
-// The address of a target's WLED. The common case (nothing changed since the last frame) costs no allocation.
-static bool wledAddress(int ti, IPAddress& ip) {
+// Keeps a target's address in step with its settings: when the host was edited, the old address is dropped (an IP address is taken at
+// once, a name is looked up by the background task). Costs nothing when the settings did not change. Relay task only.
+static void syncAddress(int ti) {
   Rt& r = gRt[ti];
-  if (r.addrGen == gSettingsGen && (uint32_t)r.ip != 0) { ip = r.ip; return true; }
+  if (r.addrGen == gSettingsGen) return;
   String host;
   { Lock l; host = gSet.t[ti].wHost; }
   r.addrGen = gSettingsGen;
-  if (host != r.resolved) { r.resolved = host; r.tryMs = 0; r.ip = IPAddress((uint32_t)0); }
-  if ((uint32_t)r.ip != 0) { ip = r.ip; return true; }
-  if (millis() - r.tryMs < 15000 && r.tryMs != 0) return false;   // do not hammer name resolution
-  r.tryMs = millis();
-  if (resolveWled(host, r.ip)) { ip = r.ip; return true; }
-  return false;
+  if (host == r.resolved) return;
+  r.resolved = host;
+  r.tryMs = 0;
+  IPAddress ip;
+  const bool literal = ip.fromString(host);
+  r.hostIsName = host.length() > 0 && !literal;
+  { Lock l; r.ipRaw = literal ? (uint32_t)ip : 0u; r.resolveMs = millis(); }
+}
+
+// The address of a target's WLED, or false while it is not known (a name that has not been found yet).
+static bool wledAddress(int ti, IPAddress& ip) {
+  syncAddress(ti);
+  const uint32_t a = gRt[ti].ipRaw;
+  if (a == 0) return false;
+  ip = IPAddress(a);
+  return true;
 }
 
 // ---------------------------------------------------------------- sockets + DDP
@@ -316,6 +337,7 @@ static size_t packColours(const float* cur, int n, bool whiteMin) {
 // in their own task, one after the other, so a slow or missing WLED never delays the lights on the other targets.
 struct WledJob {
   bool prepare = true;
+  bool resolveOnly = false;                        // just look the host's address up again (a name whose IP may have changed)
   int target = 0;
   String host;
   bool turnOn = true, restore = true;
@@ -325,16 +347,62 @@ struct WledJob {
 };
 static QueueHandle_t gJobs = nullptr;
 
-static void postJob(WledJob* j) {
-  if (!gJobs || xQueueSend(gJobs, &j, 0) != pdTRUE) delete j;
+static bool postJob(WledJob* j) {
+  if (!gJobs || xQueueSend(gJobs, &j, 0) != pdTRUE) { delete j; return false; }
+  return true;
+}
+
+// The address to use for a WLED in a background job: the IP address when the host is (or just resolved to) one, else the host as typed.
+// A name is looked up here, in the worker, and the result is published for the relay loop; a name that cannot be found keeps its last
+// known address. Returns true when the address changed from a known one (a WLED that moved).
+static bool workerAddress(int target, const String& host, bool fresh, String& addr) {
+  addr = host;
+  uint32_t known = 0;
+  uint32_t age = 0;
+  {
+    Lock l;
+    if (target >= gSet.nTargets || gSet.t[target].wHost != host) return false;     // the host was edited meanwhile: the new one is looked after elsewhere
+    known = gRt[target].ipRaw;
+    age = millis() - gRt[target].resolveMs;
+  }
+  IPAddress ip;
+  if (ip.fromString(host)) { addr = host; return false; }
+  if (!fresh && known != 0 && age < kResolveEveryMs) { addr = IPAddress(known).toString(); return false; }
+  const bool found = resolveWled(host, ip);
+  bool moved = false;
+  {
+    Lock l;
+    Rt& r = gRt[target];
+    if (target < gSet.nTargets && gSet.t[target].wHost == host) {
+      if (found) { moved = r.ipRaw != 0 && r.ipRaw != (uint32_t)ip; r.ipRaw = (uint32_t)ip; r.resolveMs = millis(); }
+      known = r.ipRaw;
+    }
+  }
+  if (known != 0) addr = IPAddress(known).toString();
+  return moved;
 }
 
 static void wledWorker(void*) {
   for (;;) {
     WledJob* j = nullptr;
     if (xQueueReceive(gJobs, &j, portMAX_DELAY) != pdTRUE || !j) continue;
-    if (j->prepare) {
-      WledInfo wi = wledQuery(j->host);
+    if (j->resolveOnly) {
+      String addr;
+      const bool moved = workerAddress(j->target, j->host, true, addr);
+      { Lock l; gRt[j->target].resolving = false; }
+      if (moved) {                                    // the WLED has a new address: check it is the same device and refresh what the page shows
+        WledInfo wi = wledQuery(addr);
+        Lock l;
+        Rt& r = gRt[j->target];
+        if (j->target < gSet.nTargets && gSet.t[j->target].wHost == j->host) {
+          r.wledOk = wi.ok;
+          if (wi.ok) { r.wledLeds = wi.leds; r.wledName = wi.name; }
+        }
+      }
+    } else if (j->prepare) {
+      String addr;
+      workerAddress(j->target, j->host, false, addr);
+      WledInfo wi = wledQuery(addr);
       {
         Lock l;
         Rt& r = gRt[j->target];
@@ -349,9 +417,11 @@ static void wledWorker(void*) {
         if (j->turnOn && !wi.on) { body += "\"on\":true"; any = true; }
         if (j->bri >= 0 && j->bri != wi.bri) { body += String(any ? "," : "") + "\"bri\":" + String(j->bri); any = true; }
         body += "}";
-        if (any) httpPostJson(j->host, "/json/state", body);
+        if (any) httpPostJson(addr, "/json/state", body);
       }
     } else {
+      String addr;
+      workerAddress(j->target, j->host, false, addr);
       // WLED keeps showing the last streamed frame until its realtime timeout (about 2.5 s) runs out. {"live":false} makes it leave
       // realtime mode at once, so the lights return the moment we stop streaming.
       bool sOn = j->snapOn;
@@ -364,9 +434,37 @@ static void wledWorker(void*) {
       }
       String body = "{\"live\":false";
       if (j->restore && haveSnap) body += ",\"on\":" + String(sOn ? "true" : "false") + ",\"bri\":" + String(sBri);
-      httpPostJson(j->host, "/json/state", body + "}");
+      httpPostJson(addr, "/json/state", body + "}");
     }
     delete j;
+  }
+}
+
+// Asks the background task to look a target's name up (again). Relay task only.
+static void requestResolve(int i) {
+  Rt& r = gRt[i];
+  r.tryMs = millis();
+  if (r.tryMs == 0) r.tryMs = 1;                  // 0 means "never asked"
+  WledJob* j = new WledJob();
+  j->prepare = false; j->resolveOnly = true; j->target = i; j->host = r.resolved;
+  { Lock l; r.resolving = true; }
+  if (!postJob(j)) { Lock l; r.resolving = false; }
+}
+
+// Once a second: keep every target's address current. A name is looked up when it has not been found yet (every kRetryResolveMs) and
+// again every kResolveEveryMs while it is known, so a WLED that got a new IP address is found again without anyone touching the setup page.
+static void housekeeping(int nT) {
+  const uint32_t now = millis();
+  for (int i = 0; i < nT; i++) {
+    Rt& r = gRt[i];
+    syncAddress(i);
+    if (!r.hostIsName) continue;
+    bool busy;
+    uint32_t known, since;
+    { Lock l; busy = r.resolving; known = r.ipRaw; since = now - r.resolveMs; }
+    if (busy) continue;
+    const bool due = known == 0 ? (r.tryMs == 0 || now - r.tryMs >= kRetryResolveMs) : since >= kResolveEveryMs;
+    if (due) requestResolve(i);
   }
 }
 
@@ -582,7 +680,11 @@ void relayStatus(RelayStatus& s, bool detail) {
     ts.enabled = t.enabled;
     ts.ok = r.wledOk;
     ts.leds = r.wledLeds;
-    if (detail) { ts.name = t.name; ts.host = t.wHost; ts.wledName = r.wledName; }
+    if (detail) {
+      ts.name = t.name; ts.host = t.wHost; ts.wledName = r.wledName;
+      const uint32_t a = r.ipRaw;
+      if (a != 0) { ts.ip = IPAddress(a).toString(); ts.ipAgeS = (int)((now - r.resolveMs) / 1000); }
+    }
     if (r.cal.active) calibrating = true;
     if (r.mark.until && (int32_t)(r.mark.until - now) > 0) marking = true;
     if (r.testUntil && (int32_t)(r.testUntil - now) > 0) testing = true;
@@ -632,6 +734,7 @@ void relayLoop() {
     if (r.cal.active || r.cal.endPending) { Lock l; r.cal = Cal(); if (gCalTarget == i) gCalTarget = -1; }
     r.testUntil = 0; r.mark.until = 0;
   }
+  if (now - gHouseMs >= 1000) { gHouseMs = now; housekeeping(nT); }
 
   // ---- per target: calibration sessions and markers take the target over; the others stream
   bool streaming[kMaxTargets] = {};

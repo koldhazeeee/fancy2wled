@@ -109,7 +109,7 @@ String targetAdd(int* index);               // new empty target at the end; "" o
 String targetRemove(int index);             // removes a target (the later ones move up); "" or an error
 
 // ---------------------------------------------------------------- relay
-struct TargetStatus { bool enabled = true, ok = false; int leds = 0; String name, host, wledName; };
+struct TargetStatus { bool enabled = true, ok = false; int leds = 0; String name, host, wledName, ip; int ipAgeS = -1; };   // ip: the address in use (a name's current address)
 struct RelayStatus {
   float boxFps = 0;
   uint32_t boxAgeMs = 0;                    // since the last Sync Box frame (UINT32_MAX = never)

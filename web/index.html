@@ -58,7 +58,8 @@ input[type=range].wide{width:100%}
 
 <div class="card">
   <h2>WLED</h2>
-  <div class="row"><label for="wHost">WLED address</label><input id="wHost" placeholder="e.g. 192.168.1.50 or wled.local" autocapitalize="none"><button id="wFind" class="sec">Find</button></div>
+  <div class="row"><label for="wHost">WLED address</label><input id="wHost" placeholder="IP address or name, e.g. wled-ceiling.local" autocapitalize="none"><button id="wFind" class="sec">Find</button></div>
+  <div id="wResolved" class="small mut hidden"></div>
   <div id="wList" class="row"></div>
   <div class="row"><label>Check</label><button id="wCheck" class="sec">Check this WLED</button><span id="wInfo" class="small mut"></span></div>
   <div class="row"><label for="wOn">Switch WLED on while relaying</label><input id="wOn" type="checkbox" style="flex:0 0 auto"></div>
@@ -246,6 +247,9 @@ input[type=range].wide{width:100%}
       pill('pState','',s.state);
       $('statTxt').textContent=(s.ip||'')+'  |  '+s.hostname+'.local  |  signal '+s.rssi+' dBm  |  firmware '+s.ver+(s.box.sender?'  |  box at '+s.box.sender:'');
       var cur=ts[Math.min(sel,ts.length-1)];
+      var byName=!!(cur&&cur.host&&cur.ip!==cur.host);      // a name: say which address it points to now (it is looked up again every minute)
+      show('wResolved',byName);
+      if(byName)$('wResolved').textContent=cur.ip?'Reaching '+cur.host+' at '+cur.ip+' (looked up again every minute, so a new IP is found on its own).':'Looking for '+cur.host+' on the network...';
       if(cur&&cur.leds){totalLeds=cur.leds;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);}
       var pc=!!(s.features&&s.features.phoneCal);show('calRow',pc);
       if(pc)$('calBtn').href=(s.https?'https://'+location.host:'')+'/calibrate?target='+sel;
@@ -517,7 +521,7 @@ input[type=range].wide{width:100%}
     $('wList').textContent='Looking for WLED devices...';
     try{var d=await j('/api/wled/discover');$('wList').innerHTML='';
       if(!d.devices.length)$('wList').textContent='None found. Type the address above.';
-      d.devices.forEach(function(x){var b=document.createElement('button');b.className='sec';b.textContent=x.name+' ('+x.ip+')';b.onclick=function(){$('wHost').value=x.ip;$('wCheck').click();};$('wList').appendChild(b);});
+      d.devices.forEach(function(x){var b=document.createElement('button');b.className='sec';b.textContent=x.name+' ('+x.ip+')';b.onclick=function(){$('wHost').value=x.host||x.ip;changed();$('wCheck').click();};$('wList').appendChild(b);});
     }catch(e){$('wList').textContent=e.message;}
   };
   $('wCheck').onclick=async function(){

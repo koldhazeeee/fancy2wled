@@ -95,7 +95,7 @@ usual, then open the setup page and press **Import config**. The page shows a su
 
 | Setting | Meaning |
 |---|---|
-| WLED address | IP or `name.local` of your WLED |
+| WLED address | IP or `name.local` of your WLED (a pasted `http://wled-ceiling.local/` is cleaned up). **Prefer the name** (set it in WLED under Config > WiFi Setup > mDNS address): the board looks it up again every minute, so a WLED that gets a new IP from your router is found again on its own. The page shows which address the name points to. The *Find* button fills in the name. |
 | Picture map | not a setting: the TV as a 6 by 4 grid with the zones each target follows highlighted in its colour, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`) |
 | Targets | up to four runs of LEDs, each on a WLED of its own or sharing one. Each has a name, an on/off switch, its WLED, its run, where it is (which edge of the picture it follows) and a brightness trim. The Look settings below are shared |
 | Where the LEDs are | above the TV (uses the top row of the picture's colour map), below it (bottom row), left or right of it (that column), all the way around it, or the phone-measured layout |

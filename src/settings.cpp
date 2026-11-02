@@ -302,9 +302,11 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
   if (!x["trim"].isNull()) n.trim = clampf(x["trim"].as<float>(), 0.f, 2.f);
 
   if (!w["host"].isNull()) {
-    String h = w["host"].as<String>();
-    h.trim();
-    if (h.length() > 63) return "WLED address is too long";
+    // an IP address or a name (wled-ceiling.local); pasted URLs ("http://wled-ceiling.local/") are cleaned up first
+    String raw = w["host"].as<String>();
+    char buf[64];
+    if (raw.length() > 200 || fwb::normalizeHost(raw.c_str(), buf, sizeof buf) < 0) return "WLED address is too long";
+    String h = buf;
     for (size_t i = 0; i < h.length(); i++) {
       char c = h[i];
       if (!(isalnum((unsigned char)c) || c == '.' || c == '-' || c == '_')) return "WLED address may only contain letters, digits, dots and dashes";

@@ -310,6 +310,28 @@ int main(int argc, char** argv) {
     CHECK(ut[0] > ut[1] && ut[5] > ut[4] && ut[0] > 40.f, "the corner zones carry the stretch of strip beyond the TV (zone 0: %.1f, zone 1: %.1f)", ut[0], ut[1]);
     CHECK(fabsf(ur[5] - ur[23]) < 2.f && ur[11] > 40.f, "a right-hand strip spreads over its column (zone 5: %.1f, 11: %.1f)", ur[5], ur[11]);
   }
+  { // the WLED address box: pasted URLs are cleaned up
+    struct { const char* in; const char* want; } cases[] = {
+      {"wled-ceiling.local", "wled-ceiling.local"},
+      {"http://wled-ceiling.local", "wled-ceiling.local"},
+      {"  HTTP://Wled-Ceiling.local/  ", "wled-ceiling.local"},
+      {"https://wled-cabinet.local/json/info?x=1", "wled-cabinet.local"},
+      {"192.168.3.251", "192.168.3.251"},
+      {"http://192.168.3.251:80/", "192.168.3.251"},
+      {"wled.local.", "wled.local"},
+      {"wled.local:80", "wled.local"},
+      {"wled.local:8080", "wled.local:8080"},          // another port is kept, so the validation can refuse it with a clear message
+      {"", ""}, {"   ", ""}, {"http://", ""}, {"/only/a/path", ""},
+    };
+    for (const auto& c : cases) {
+      char out[64];
+      const int n = normalizeHost(c.in, out, sizeof out);
+      CHECK(n == (int)strlen(c.want) && strcmp(out, c.want) == 0, "normalizeHost(\"%s\") = \"%s\" (want \"%s\")", c.in, n < 0 ? "<too long>" : out, c.want);
+    }
+    char small[8];
+    CHECK(normalizeHost("a-very-long-name.local", small, sizeof small) == -1, "an address that does not fit is refused, not cut short");
+    CHECK(normalizeHost("1234567", small, sizeof small) == 7 && strcmp(small, "1234567") == 0, "an address that exactly fits is kept");
+    CHECK(normalizeHost(nullptr, small, sizeof small) == -1, "a null address is refused"); }
   { // time-based smoothing: same result however the time is sliced
     CHECK(fabsf(smoothDecay(0.5f, 33.333f, 33.333f) - 0.5f) < 1e-5f, "one reference tick leaves the setting's fraction");
     CHECK(fabsf(smoothDecay(0.5f, 66.667f, 33.333f) - 0.25f) < 1e-5f, "two reference ticks leave its square");

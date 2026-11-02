@@ -5,6 +5,30 @@
 namespace fwb {
 
 // ---------------------------------------------------------------------------
+int normalizeHost(const char* in, char* out, int cap) {
+  if (!in || !out || cap < 1) return -1;
+  auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+  auto lower = [](char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; };
+  auto starts = [&](const char* s, const char* p) {
+    for (; *p; s++, p++) if (lower(*s) != *p) return false;
+    return true;
+  };
+  while (space(*in)) in++;
+  if (starts(in, "http://")) in += 7;
+  else if (starts(in, "https://")) in += 8;
+  int n = 0;
+  for (; *in && *in != '/' && *in != '?' && *in != '#'; in++) {
+    if (n + 1 >= cap) return -1;
+    out[n++] = lower(*in);
+  }
+  while (n > 0 && (space(out[n - 1]) || out[n - 1] == '.')) n--;
+  if (n >= 3 && out[n - 3] == ':' && out[n - 2] == '8' && out[n - 1] == '0') n -= 3;     // the board always talks to port 80
+  while (n > 0 && (space(out[n - 1]) || out[n - 1] == '.')) n--;
+  out[n] = 0;
+  return n;
+}
+
+// ---------------------------------------------------------------------------
 bool decodeFrame(const uint8_t* d, size_t len, uint8_t zones[kZones][3]) {
   if (len < 86 || len > 93) return false;
   if (d[0] != 0x55 || d[1] != 0xAA || d[2] != 0x5A || d[3] != len - 5) return false;

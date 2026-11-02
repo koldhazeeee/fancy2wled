@@ -69,6 +69,22 @@ async function cdp(wsUrl) {
     check('index: Save posts the config', dev.state.cfg.wled.host === '192.0.2.50' && dev.state.cfg.wled.count === 150, JSON.stringify(dev.state.cfg.wled));
     await p.ev("document.getElementById('wFind').click(); 1"); await sleep(500);
     check('index: Find lists devices', (await p.ev("document.getElementById('wList').textContent")).includes('192.0.2.50'));
+    // a WLED can be addressed by name: Find offers the name, a pasted URL is cleaned up, the page says which address the name points to
+    await p.ev("document.getElementById('wList').querySelector('button').click(); 1"); await sleep(400);
+    check('address: picking a found device fills in its name (it keeps working if the IP changes)', (await p.ev("document.getElementById('wHost').value")) === 'wled-test.local', await p.ev("document.getElementById('wHost').value"));
+    await p.ev("document.getElementById('wHost').value='  HTTP://Wled-Ceiling.local/  '; document.getElementById('save').click(); 1"); await sleep(600);
+    check('address: a pasted URL is saved as just the name', dev.state.cfg.wled.host === 'wled-ceiling.local', dev.state.cfg.wled.host);
+    check('address: the box shows the cleaned-up name after saving', (await p.ev("document.getElementById('wHost').value")) === 'wled-ceiling.local', await p.ev("document.getElementById('wHost').value"));
+    await sleep(3000);
+    const resolvedTxt = await p.ev("document.getElementById('wResolved').textContent");
+    check('address: the page says which address the name points to', !(await p.ev("document.getElementById('wResolved').classList.contains('hidden')")) && /wled-ceiling\.local at 192\.0\.2\.51/.test(resolvedTxt), resolvedTxt);
+    dev.state.nameNotFound = true; await sleep(3000);
+    const lookingTxt = await p.ev("document.getElementById('wResolved').textContent");
+    check('address: a name that is not found yet says so', /Looking for wled-ceiling\.local/.test(lookingTxt), lookingTxt);
+    dev.state.nameNotFound = false;
+    await p.ev("document.getElementById('wHost').value='192.0.2.50'; document.getElementById('save').click(); 1"); await sleep(3500);
+    check('address: an IP address needs no explanation line', await p.ev("document.getElementById('wResolved').classList.contains('hidden')"));
+    check('address: back to the IP address for the tests below', dev.state.cfg.wled.host === '192.0.2.50', dev.state.cfg.wled.host);
     // smoothing slider is part of the live preview
     await p.ev("var o=document.getElementById('kOut'); o.value='40'; o.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
     check('index: smooth-beyond-TV slider shows its value', /40%/.test(await p.ev("document.getElementById('kOutV').textContent")));
