@@ -105,7 +105,7 @@ input[type=range].wide{width:100%}
 
 <div class="card">
   <h2>Home Assistant (MQTT)</h2>
-  <p class="small mut">The board connects to your MQTT broker (for example Home Assistant's Mosquitto add-on) and appears in Home Assistant by itself as a <b>Fancy2WLED</b> device: a Sync switch, status sensors and the Look settings. The board connects <i>out</i> to the broker, so your firewall must let it reach the broker (TCP, usually port 1883).</p>
+  <p class="small mut">The board connects to your MQTT broker (for example Home Assistant's Mosquitto add-on) and appears in Home Assistant by itself as a <b>Fancy2WLED</b> device: a Sync light (on/off and brightness), status sensors and the Look settings. The board connects <i>out</i> to the broker, so your firewall must let it reach the broker (TCP, usually port 1883).</p>
   <div class="row"><label for="mqOn">Connect to MQTT</label><input id="mqOn" type="checkbox" style="flex:0 0 auto"></div>
   <div class="row"><label for="mqHost">Broker address</label><input id="mqHost" placeholder="e.g. 192.168.1.10" autocapitalize="none"></div>
   <div class="row"><label for="mqPort">Port</label><input id="mqPort" type="number" min="1" max="65535" value="1883"></div>
@@ -119,6 +119,14 @@ input[type=range].wide{width:100%}
 <div class="sticky">
   <div class="row"><button id="test" class="sec">Start rainbow test</button><button id="save">Save</button><span id="dirty" class="small warn"></span></div>
   <div id="saveMsg" class="small"></div>
+</div>
+
+<div class="card">
+  <h2>Back up / move to another board</h2>
+  <p class="small mut"><b>Export</b> saves your WLED address, LED layout, phone calibration, Look settings and MQTT settings to a file. <b>Import</b> loads such a file onto this board, for example a new ESP32 after you have set up its Wi-Fi. The Wi-Fi name and password are never included (a new board joins your Wi-Fi first, then you import).</p>
+  <div class="row"><label for="exSecrets">Also put the MQTT password in the file</label><input id="exSecrets" type="checkbox" style="flex:0 0 auto"></div>
+  <div class="row"><button id="exportBtn" class="sec">Export config</button><button id="importBtn" class="sec">Import config</button><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div>
+  <div id="bkMsg" class="small"></div>
 </div>
 
 <div class="card">
@@ -399,6 +407,37 @@ input[type=range].wide{width:100%}
     $('wifiMsg').textContent='Connecting...';
     try{await j('/api/wifi',{ssid:$('ssid').value||$('ssidSel').value,pass:$('pass').value});$('wifiMsg').innerHTML='<span class="ok">Saved. The board is restarting; reconnect your phone to your normal Wi-Fi.</span>';}
     catch(e){$('wifiMsg').innerHTML='<span class="err">'+e.message+'</span>';}
+  };
+  /* ------------------------------------------------------- back up / move to another board */
+  function bk(html){$('bkMsg').innerHTML=html;}
+  function esc(s){return String(s).replace(/[<>&"]/g,'');}
+  $('exportBtn').onclick=async function(){
+    try{
+      var d=await j('/api/export',{secrets:$('exSecrets').checked});
+      var blob=new Blob([JSON.stringify(d,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);a.download='fancy2wled-config.json';document.body.appendChild(a);a.click();a.remove();
+      setTimeout(function(){URL.revokeObjectURL(a.href);},3000);
+      bk('<span class="ok">Saved <b>fancy2wled-config.json</b>.</span> Keep it somewhere safe'+($('exSecrets').checked?' (it contains your MQTT password)':'')+'.');
+    }catch(e){bk('<span class="err">'+esc(e.message)+'</span>');}
+  };
+  $('importBtn').onclick=function(){$('importFile').click();};
+  $('importFile').onchange=async function(){
+    var f=this.files&&this.files[0];this.value='';if(!f)return;
+    var doc;
+    try{if(f.size>200000)throw new Error('too big');doc=JSON.parse(await f.text());}catch(e){bk('<span class="err">That file is not a Fancy2WLED config (it is not valid JSON).</span>');return;}
+    if(!doc||doc.format!=='fancy2wled-config'||!doc.config){bk('<span class="err">That file is not a Fancy2WLED config.</span>');return;}
+    var c=doc.config,w=c.wled||{},lay=c.layout||{},mq=c.mqtt||{};
+    var lines=['WLED '+(w.host||'(not set)')+', '+(w.count||0)+' LEDs from LED '+(w.start||0),'Layout: '+(lay.type==='table'?'phone-calibrated':(lay.type==='loop'?'all the way around':'straight run, '+(lay.edge||'top')+' edge')),
+      doc.table?'Includes the phone calibration ('+doc.table.count+' LEDs)':'No phone calibration in the file',
+      'Home Assistant (MQTT): '+(mq.enabled?'on ('+(mq.host||'')+')':'off')];
+    if(!confirm('Replace this board\'s settings with the ones in this file?\n\n'+lines.join('\n')+'\n\nThe Wi-Fi settings stay as they are.'))return;
+    bk('Importing...');
+    try{
+      await j('/api/import',doc);
+      await load();setDirty(false);
+      var warn=(mq.enabled&&mq.pass===undefined)?' <span class="warn">Home Assistant (MQTT) is on but the file has no password: type it again in the MQTT card if your broker needs one.</span>':'';
+      bk('<span class="ok">Imported.</span> Check that WLED shows the LEDs you expect.'+warn);
+    }catch(e){bk('<span class="err">'+esc(e.message)+'</span>');}
   };
   $('reboot').onclick=function(){if(confirm('Restart the board?'))j('/api/reboot',{}).catch(function(){});};
   $('reset').onclick=function(){if(confirm('Erase Wi-Fi and all settings?'))j('/api/reset',{}).catch(function(){});};

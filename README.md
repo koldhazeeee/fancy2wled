@@ -65,9 +65,22 @@ The board's button: **tap it** to turn the sync on / off (the LED flashes green 
 ## Home Assistant
 
 Turn on **Home Assistant (MQTT)** on the setup page and the board appears in Home Assistant by itself as a *Fancy2WLED* device: a **Sync**
-on/off switch, status sensors (Sync Box connected, WLED reachable, state, frame rate, Wi-Fi signal), the Look settings as number entities
+light (on/off pauses the sync, the brightness slider is the brightness), status sensors (Sync Box connected, WLED reachable, state, frame rate, Wi-Fi signal), the Look settings as number entities
 and rainbow-test / restart buttons. The board connects *out* to your MQTT broker, so a firewall only needs to allow **board -> broker
 (TCP 1883)**. Details, entity list, topics and troubleshooting: [docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md).
+
+## Back up, or move to another board
+
+At the bottom of the setup page, **Export config** downloads `fancy2wled-config.json` with your WLED address, LED layout, phone
+calibration, Look settings and MQTT settings. To move to a new ESP32: flash it, join its setup Wi-Fi and enter your Wi-Fi details as
+usual, then open the setup page and press **Import config**. The page shows a summary and asks before it replaces anything.
+
+* The **Wi-Fi name and password are never in the file**, so it is safe to keep; a new board always joins Wi-Fi first.
+* The **MQTT password** is only included if you tick the box before exporting (then treat the file like a password). Without it, type the
+  password again in the MQTT card after importing.
+* An import is all or nothing: a file that is not a Fancy2WLED config, comes from a newer version, or has an invalid value is refused
+  with a message and nothing on the board changes.
+* The file is plain JSON (`format`, `version`, `config`, optional `table`), so you can also keep it in version control or edit it.
 
 ## Settings
 

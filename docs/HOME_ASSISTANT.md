@@ -21,13 +21,13 @@ Give the board a DHCP reservation if you like, but nothing depends on its addres
 
 | Entity | What it does |
 |---|---|
-| **Sync** (switch) | Pause / resume the sync. Paused: nothing is streamed and WLED is handed back to how it was. Same as the board's button (tap) |
+| **Sync** (light) | On / off pauses and resumes the sync (paused: nothing is streamed and WLED is handed back to how it was; same as the board's button tap). The **brightness slider** is the Look brightness, 0-100 % (100 % = copy the box exactly). Moving the slider while it is off turns the sync back on |
 | **State** (sensor) | relaying, waiting for the Sync Box, paused, needs setup, calibrating, showing markers, showing test pattern |
 | **Sync Box** (connectivity) | the board is receiving the Sync Box |
 | **WLED** (connectivity) | WLED was reachable the last time the board talked to it |
 | **Relaying** (running) | colours are being streamed to WLED right now |
 | **Sync Box frame rate**, **Wi-Fi signal**, **Uptime** | sensors (the last two are diagnostic) |
-| **Brightness** (20-150 %), **Gamma**, **Saturation** (0-200 %), **Smoothing over time** (0-90 %), **Smooth beyond the TV** (0-100 %) | the *Look* settings, saved on the board |
+| **Gamma**, **Saturation** (0-200 %), **Smoothing over time** (0-90 %), **Smooth beyond the TV** (0-100 %) | the *Look* settings, saved on the board |
 | **Rainbow test**, **Stop test**, **Restart** (buttons) | the same as the setup page |
 
 The entities go *unavailable* when the board loses its connection to the broker (it announces `offline`, and the broker publishes the
@@ -37,10 +37,10 @@ Layout (where the LEDs are, the run and the TV part) is set on the board's own p
 
 ## Automation ideas
 
-* Turn the sync off when the TV turns off: trigger on your TV's `media_player` going `off`, action `switch.turn_off` on *Fancy2WLED Sync*
+* Turn the sync off when the TV turns off: trigger on your TV's `media_player` going `off`, action `light.turn_off` on *Fancy2WLED Sync*
   (WLED goes back to its own state, e.g. off or a scene).
-* Dim the ambient light in the evening: set *Fancy2WLED Brightness* to 60 after sunset.
-* Start a movie scene: turn *Sync* on and set *Smooth beyond the TV* to 100.
+* Dim the ambient light in the evening: `light.turn_on` on *Fancy2WLED Sync* with `brightness_pct: 60` after sunset.
+* Start a movie scene: `light.turn_on` on *Fancy2WLED Sync* (add `brightness_pct: 100` if you want).
 
 ## Topics (for other tools)
 
@@ -51,7 +51,7 @@ All under `<prefix>` (default `fancy2wled/<last 4 digits of the board id>`, chan
 | `<prefix>/status` | board -> broker (retained, last-will) | `online` / `offline` |
 | `<prefix>/state` | board -> broker | JSON: `state, enabled, box_connected, box_fps, wled_ok, wled_leds, rssi, uptime, brightness, gamma, saturation, smoothing, smooth_out, relaying` |
 | `<prefix>/sync/set` | -> board | `ON` / `OFF` (`1`/`0`, `true`/`false`) |
-| `<prefix>/look/<name>/set` | -> board | a number: `brightness` (20-150), `gamma` (0.6-2.4), `saturation` (0-200), `smoothing` (0-90), `smooth_out` (0-100) |
+| `<prefix>/look/<name>/set` | -> board | a number (the light's brightness slider uses `brightness`): `brightness` (0-100), `gamma` (0.6-2.4), `saturation` (0-200), `smoothing` (0-90), `smooth_out` (0-100) |
 | `<prefix>/button/<name>/press` | -> board | `PRESS` for `rainbow`, `stop_test`, `restart` |
 | `homeassistant/<component>/<id>/<object>/config` | board -> broker (retained) | discovery messages |
 
@@ -64,4 +64,5 @@ messages are complete and that their templates render against the live state.
 * *The broker refused the user name / password* - check them (the password is never shown again; type it again to change it).
 * Connected but no device in Home Assistant - the discovery prefix must match Home Assistant's (default `homeassistant`), and the MQTT
   integration must be set up.
+* Upgrading from an older version: the board removes the old *Sync* switch and *Brightness* number from Home Assistant by itself and adds the *Sync* light (automations that used `switch.fancy2wled_sync` or `number.fancy2wled_brightness` need to use `light.fancy2wled_sync` instead).
 * Entities show old values after you change the topic prefix - delete the old device in Home Assistant (*MQTT -> Fancy2WLED -> Delete*).

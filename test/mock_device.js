@@ -51,7 +51,25 @@ function createDevice(opts) {
         if (p === '/api/config') {
           state.lastConfigPost = d;
           Object.keys(d).forEach(k => { if (k !== 'preview') Object.assign(state.cfg[k] || (state.cfg[k] = {}), d[k]); });
-          if (d.mqtt && d.mqtt.pass !== undefined) { state.cfg.mqtt.passSet = d.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }
+          if (d.mqtt && d.mqtt.pass !== undefined) { state.mqttPass = d.mqtt.pass; state.cfg.mqtt.passSet = d.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }
+          return json(res, 200, state.cfg);
+        }
+        if (p === '/api/export') {     // like the firmware: settings + calibrated table; never Wi-Fi; the MQTT password only on request
+          const cfg = JSON.parse(JSON.stringify(state.cfg)); delete cfg.layout.hasTable; delete cfg.mqtt.passSet;
+          if (d.secrets && state.mqttPass) cfg.mqtt.pass = state.mqttPass;
+          const out = { format: 'fancy2wled-config', version: 1, firmware: 'mock', config: cfg };
+          if (state.map) out.table = { start: state.map.start, count: state.map.count, hex: state.map.hex };
+          return json(res, 200, out);
+        }
+        if (p === '/api/import') {
+          if (d.format !== 'fancy2wled-config') return json(res, 400, { error: 'This is not a Fancy2WLED config file.' });
+          if (!(d.version >= 1)) return json(res, 400, { error: 'This config file has no version number.' });
+          if (d.version > 1) return json(res, 400, { error: 'This config file was made by a newer version of Fancy2WLED. Update this board first.' });
+          if (!d.config) return json(res, 400, { error: 'The config file has no settings in it.' });
+          state.imported = d;
+          if (d.table) { state.map = d.table; state.cfg.layout.hasTable = true; }
+          Object.keys(d.config).forEach(k => Object.assign(state.cfg[k] || (state.cfg[k] = {}), d.config[k]));
+          if (d.config.mqtt && d.config.mqtt.pass !== undefined) { state.mqttPass = d.config.mqtt.pass; state.cfg.mqtt.passSet = d.config.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }
           return json(res, 200, state.cfg);
         }
         if (p === '/api/map') { state.map = d; state.cfg.layout.hasTable = true; state.cfg.layout.type = 'table'; state.cfg.wled.start = d.start; state.cfg.wled.count = d.count; return json(res, 200, { ok: true }); }

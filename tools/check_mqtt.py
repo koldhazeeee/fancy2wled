@@ -37,7 +37,7 @@ def main():
     c.loop_stop()
     c.disconnect()
 
-    disc = [(t, json.loads(p)) for t, p, _ in msgs if t.startswith(a.discovery + "/") and t.endswith("/config") and "fancy2wled" in p]
+    disc = [(t, json.loads(p)) for t, p, _ in msgs if t.startswith(a.discovery + "/") and t.endswith("/config") and "fancy2wled" in p and p.strip()]
     if not disc:
         print("no Fancy2WLED discovery messages found. Is the board connected (setup page -> Home Assistant (MQTT))?")
         return 1
@@ -55,6 +55,7 @@ def main():
 
     problems, ids = [], set()
     need = {"switch": ["command_topic", "state_topic"], "sensor": ["state_topic"], "binary_sensor": ["state_topic"],
+            "light": ["command_topic", "state_topic", "brightness_command_topic", "brightness_state_topic", "brightness_scale"],
             "number": ["command_topic", "state_topic", "min", "max", "step"], "button": ["command_topic"]}
     for topic, d in disc:
         comp, obj = topic.split("/")[1], topic.split("/")[3]
@@ -67,9 +68,19 @@ def main():
         ids.add(d.get("unique_id"))
         if not d.get("device", {}).get("identifiers"):
             problems.append("%s: device has no identifiers" % tag)
-        for k in ("state_topic", "command_topic", "availability_topic"):
+        for k in ("state_topic", "command_topic", "availability_topic", "brightness_state_topic", "brightness_command_topic"):
             if k in d and not d[k].startswith(base + "/"):
                 problems.append("%s: %s is outside the board's prefix" % (tag, k))
+        if env and state is not None and comp == "light":
+            on = env.from_string(d["state_value_template"]).render(value_json=state)
+            if on not in ("ON", "OFF"):
+                problems.append("%s: state template gave %r, expected ON/OFF" % (tag, on))
+            try:
+                v = float(env.from_string(d["brightness_value_template"]).render(value_json=state))
+                if not 0 <= v <= d["brightness_scale"]:
+                    problems.append("%s: brightness %s is outside 0..%s" % (tag, v, d["brightness_scale"]))
+            except ValueError:
+                problems.append("%s: brightness template did not give a number" % tag)
         if env and state is not None and "value_template" in d:
             out = env.from_string(d["value_template"]).render(value_json=state)
             if comp in ("switch", "binary_sensor") and out not in ("ON", "OFF"):

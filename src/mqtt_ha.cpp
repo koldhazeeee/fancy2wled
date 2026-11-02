@@ -57,7 +57,7 @@ static String stateJson(String* keyOut) {
     bri = (int)(gSet.kBri * 100.f + 0.5f); sat = (int)(gSet.kSat * 100.f + 0.5f); smo = (int)(gSet.kSmo * 100.f + 0.5f);
     out = gSet.smoothOut; gam = gSet.kGam; }
   d["enabled"] = en;
-  d["brightness"] = bri;
+  d["brightness"] = bri > 100 ? 100 : bri;      // the Home Assistant control is 0-100 % (the setup page can go higher)
   d["gamma"] = gam;
   d["saturation"] = sat;
   d["smoothing"] = smo;
@@ -125,16 +125,28 @@ static void binary(const char* obj, const char* name, const char* devClass, cons
   discover("binary_sensor", obj, d);
 }
 
+// Entities that earlier versions announced and that no longer exist: an empty retained message makes Home Assistant remove them.
+static void removeOld(const char* comp, const char* obj) {
+  pub(gDisc + "/" + comp + "/" + gId + "/" + obj + "/config", "", true, 1);
+}
+
 static void publishDiscovery() {
-  {  // the pause / resume switch
+  removeOld("switch", "sync");                  // the Sync switch became a light (below)
+  removeOld("number", "brightness");            // ... whose brightness slider replaces the separate Brightness number
+  {  // the sync as a light: on / off pauses and resumes it, the brightness slider is the Look brightness (0-100 %)
     JsonDocument d;
     d["name"] = "Sync";
-    withState(d, "{{ 'ON' if value_json.enabled else 'OFF' }}");
+    d["state_topic"] = T("state");
+    d["state_value_template"] = "{{ 'ON' if value_json.enabled else 'OFF' }}";
     d["command_topic"] = T("sync/set");
     d["payload_on"] = "ON";
     d["payload_off"] = "OFF";
+    d["brightness_state_topic"] = T("state");
+    d["brightness_value_template"] = "{{ value_json.brightness }}";
+    d["brightness_command_topic"] = T("look/brightness/set");
+    d["brightness_scale"] = 100;
     d["icon"] = "mdi:television-ambient-light";
-    discover("switch", "sync", d);
+    discover("light", "sync", d);
   }
   {  // what the relay is doing
     JsonDocument d;
@@ -178,7 +190,6 @@ static void publishDiscovery() {
     d["entity_category"] = "diagnostic";
     discover("sensor", "uptime", d);
   }
-  number("brightness", "Brightness", 20, 150, 5, "%", "{{ value_json.brightness }}");
   number("gamma", "Gamma", 0.6f, 2.4f, 0.05f, "", "{{ value_json.gamma }}");
   number("saturation", "Saturation", 0, 200, 5, "%", "{{ value_json.saturation }}");
   number("smoothing", "Smoothing over time", 0, 90, 5, "%", "{{ value_json.smoothing }}");
@@ -201,13 +212,13 @@ static bool parseNumber(const String& s, float* out) {
   return true;
 }
 
-// Same ranges as the Home Assistant number entities announce; anything outside them is ignored.
+// Same ranges as the Home Assistant entities announce (the light's brightness is 0-100); anything outside them is ignored.
 static bool applyLook(const String& key, const String& payload) {
   float v;
   if (!parseNumber(payload, &v)) return false;
   JsonDocument d;
   JsonObject look = d["look"].to<JsonObject>();
-  if (key == "brightness" && v >= 20.f && v <= 150.f) look["brightness"] = v / 100.f;
+  if (key == "brightness" && v >= 0.f && v <= 100.f) look["brightness"] = v / 100.f;
   else if (key == "gamma" && v >= 0.6f && v <= 2.4f) look["gamma"] = v;
   else if (key == "saturation" && v >= 0.f && v <= 200.f) look["saturation"] = v / 100.f;
   else if (key == "smoothing" && v >= 0.f && v <= 90.f) look["smoothing"] = v / 100.f;

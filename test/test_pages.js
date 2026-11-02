@@ -154,6 +154,40 @@ async function cdp(wsUrl) {
     dev.state.lastConfigPost = null;
     await p.ev("document.getElementById('syncBtn').click(); 1"); await sleep(700);
     check('sync: pressing it pauses and the button turns into Resume', dev.state.lastConfigPost && dev.state.lastConfigPost.relay.enabled === false && (await p.ev("document.getElementById('syncBtn').textContent")) === 'Resume sync', JSON.stringify(dev.state.lastConfigPost));
+    // back up / move to another board: export downloads a file, import loads one
+    await p.send('Page.enable');
+    await p.ev("window.__dl=null; window.__confirms=[]; window.confirm=function(m){window.__confirms.push(m);return window.__ok!==false;}; "
+      + "var oc=HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click=function(){ if(this.download){ var a=this; fetch(a.href).then(function(r){return r.text();}).then(function(t){window.__dl={name:a.download,text:t};}); } else oc.call(this); }; 1");
+    dev.state.map = { start: 0, count: 2, hex: '0005ff000105ff00' }; dev.state.cfg.layout.hasTable = true;
+    await p.ev("document.getElementById('exportBtn').click(); 1"); await sleep(700);
+    const dl = JSON.parse((await p.ev("window.__dl && window.__dl.text")) || 'null');
+    check('backup: Export downloads fancy2wled-config.json', (await p.ev("window.__dl && window.__dl.name")) === 'fancy2wled-config.json');
+    check('backup: the file says what it is and carries settings + calibration', dl && dl.format === 'fancy2wled-config' && dl.version === 1 && dl.config.wled.host === '192.0.2.50' && dl.table && dl.table.count === 2 && dl.table.hex === '0005ff000105ff00', JSON.stringify(dl).slice(0, 200));
+    check('backup: no Wi-Fi details and no MQTT password by default', dl && !JSON.stringify(dl).includes('TestNet') && !('wifi' in dl) && !('pass' in dl.config.mqtt) && !('passSet' in dl.config.mqtt) && !('hasTable' in dl.config.layout), JSON.stringify(dl && dl.config.mqtt));
+    await p.ev("document.getElementById('exSecrets').checked=true; window.__dl=null; document.getElementById('exportBtn').click(); 1"); await sleep(700);
+    const dl2 = JSON.parse((await p.ev("window.__dl && window.__dl.text")) || 'null');
+    check('backup: the MQTT password goes in only when asked for', dl2 && dl2.config.mqtt.pass === 'secret', JSON.stringify(dl2 && dl2.config.mqtt));
+    // import: a valid file (set through a File object, as the file picker would)
+    const importFile = async (obj, ok) => {
+      dev.state.imported = null; await p.ev("window.__ok=" + (ok !== false) + "; window.__confirms=[]; 1");
+      await p.ev("var dt=new DataTransfer(); dt.items.add(new File([" + JSON.stringify(typeof obj === 'string' ? obj : JSON.stringify(obj)) + "],'x.json',{type:'application/json'})); var fi=document.getElementById('importFile'); fi.files=dt.files; fi.dispatchEvent(new Event('change',{bubbles:true})); 1");
+      await sleep(900); return p.ev("document.getElementById('bkMsg').textContent");
+    };
+    const moved = JSON.parse(JSON.stringify(dl)); moved.config.wled.host = '192.0.2.99'; moved.config.layout.spanFirst = 55; moved.config.mqtt.enabled = true;
+    let note = await importFile(moved);
+    check('backup: Import asks first, shows a summary, and says the Wi-Fi is untouched', (await p.ev("window.__confirms.length")) === 1 && /192\.0\.2\.99/.test(await p.ev("window.__confirms[0]")) && /Wi-Fi/.test(await p.ev("window.__confirms[0]")));
+    check('backup: Import sends the file to the board and applies it', dev.state.imported && dev.state.cfg.wled.host === '192.0.2.99' && dev.state.cfg.layout.spanFirst === 55 && dev.state.map.count === 2, note);
+    check('backup: the page shows the imported values and says so', (await p.ev("document.getElementById('wHost').value")) === '192.0.2.99' && /Imported/.test(note), note);
+    check('backup: warns when MQTT is on but the file has no password', /type it again/.test(note), note);
+    note = await importFile(moved, false);
+    check('backup: declining the question changes nothing', dev.state.imported === null, note);
+    note = await importFile('this is not json');
+    check('backup: a file that is not JSON is refused', dev.state.imported === null && /not a Fancy2WLED config/.test(note), note);
+    note = await importFile({ hello: 'world' });
+    check('backup: JSON that is not a Fancy2WLED config is refused', dev.state.imported === null && /not a Fancy2WLED config/.test(note), note);
+    const newer = JSON.parse(JSON.stringify(dl)); newer.version = 2;
+    note = await importFile(newer);
+    check('backup: a file from a newer version is refused with an explanation', dev.state.imported === null && /newer version/.test(note), note);
     check('index: no script errors', p.logs.length === 0, p.logs.join(' | '));
     p.close();
 

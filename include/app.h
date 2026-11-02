@@ -69,6 +69,11 @@ void settingsBegin();                       // create lock, load from flash
 void settingsSave();
 void settingsReset();                       // erase everything incl. Wi-Fi
 void settingsToJson(JsonDocument& d);       // GET /api/config
+// Everything worth moving to another board, as a self-describing document (POST /api/export): the settings, the calibrated
+// table and the MQTT settings. Never the Wi-Fi credentials; the MQTT password only when `secrets` is true.
+void settingsExport(JsonDocument& d, bool secrets);
+// Loads such a document (POST /api/import). Returns "" on success or an error message.
+String settingsImport(JsonVariantConst doc);
 // Partial update from POST /api/config. Returns "" on success or an error message.
 // persist=false is a live preview: used immediately but not written to flash (settingsRevert() drops it).
 String settingsFromJson(JsonVariantConst d, bool persist = true);

@@ -196,6 +196,65 @@ void settingsToJson(JsonDocument& d) {
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+static const char* kExportFormat = "fancy2wled-config";
+static const int kExportVersion = 1;
+
+void settingsExport(JsonDocument& d, bool secrets) {
+  JsonDocument c;
+  settingsToJson(c);
+  d["format"] = kExportFormat;
+  d["version"] = kExportVersion;
+  d["firmware"] = FWB_VERSION;
+  d["config"] = c;
+  d["config"]["layout"].remove("hasTable");           // derived, not a setting
+  d["config"]["mqtt"].remove("passSet");
+  Lock l;
+  if (secrets && gSet.mqttPass.length()) d["config"]["mqtt"]["pass"] = gSet.mqttPass;
+  if (gStoredN > 0) {
+    static const char* kHex = "0123456789abcdef";
+    String hex;
+    hex.reserve((size_t)gStoredN * 8);
+    for (int i = 0; i < gStoredN * 4; i++) { hex += kHex[gStored[i] >> 4]; hex += kHex[gStored[i] & 15]; }
+    d["table"]["start"] = gSet.wStart;
+    d["table"]["count"] = gStoredN;
+    d["table"]["hex"] = hex;
+  }
+}
+
+String settingsImport(JsonVariantConst doc) {
+  if (String(doc["format"] | "") != kExportFormat) return "This is not a Fancy2WLED config file.";
+  const int ver = doc["version"] | 0;
+  if (ver < 1) return "This config file has no version number.";
+  if (ver > kExportVersion) return "This config file was made by a newer version of Fancy2WLED. Update this board first.";
+  JsonVariantConst cfg = doc["config"];
+  if (!cfg.is<JsonObjectConst>()) return "The config file has no settings in it.";
+  JsonVariantConst t = doc["table"];
+  if (t.isNull()) return settingsFromJson(cfg, true);
+
+  // The calibrated table goes in first, so a "table" layout is valid when the settings arrive. Storing it also switches the
+  // layout, so if anything is refused afterwards everything is put back: an import is all or nothing.
+  Lock l;
+  static uint8_t oldStored[fwb::kMaxLeds * 4];
+  const Settings oldSet = gSet;
+  const int oldN = gStoredN;
+  memcpy(oldStored, gStored, (size_t)oldN * 4);
+  const char* hex = t["hex"] | "";
+  String e = tableStoreHex(t["start"] | -1, t["count"] | 0, hex, strlen(hex));
+  if (e.length() == 0) e = settingsFromJson(cfg, true);
+  else e = "The calibration in the file is not valid: " + e;
+  if (e.length()) {                                    // refused: restore the table, the layout and the saved settings
+    memcpy(gStored, oldStored, (size_t)oldN * 4);
+    gStoredN = oldN;
+    if (oldN > 0) prefs.putBytes("tbl4", gStored, (size_t)oldN * 4);
+    else prefs.remove("tbl4");
+    gSet = oldSet;
+    tableRebuild();
+    settingsSave();
+    gPreview = false;
+  }
+  return e;
+}
+
 String settingsFromJson(JsonVariantConst d, bool persist) {
   Lock l;
   Settings n = gSet;          // work on a copy; commit only if everything is valid

@@ -181,6 +181,20 @@ static esp_err_t h_config_post(httpd_req_t* req) {
   return h_config_get(req);
 }
 
+static esp_err_t h_export(httpd_req_t* req) {
+  NEED_JSON(doc);
+  JsonDocument d;
+  settingsExport(d, doc["secrets"] | false);
+  return sendDoc(req, d);
+}
+
+static esp_err_t h_import(httpd_req_t* req) {
+  NEED_JSON(doc);
+  String err = settingsImport(doc.as<JsonVariantConst>());
+  if (err.length()) return sendError(req, "400 Bad Request", err);
+  return h_config_get(req);
+}
+
 static esp_err_t h_map(httpd_req_t* req) {
   NEED_JSON(doc);
   const char* hex = doc["hex"] | "";
@@ -327,6 +341,8 @@ static const Route kRoutes[] = {
     {"/api/config", HTTP_GET, h_config_get},
     {"/api/config", HTTP_POST, h_config_post},
     {"/api/map", HTTP_POST, h_map},
+    {"/api/export", HTTP_POST, h_export},
+    {"/api/import", HTTP_POST, h_import},
     {"/api/test", HTTP_POST, h_test},
     {"/api/zones", HTTP_GET, h_zones},
     {"/api/mark", HTTP_POST, h_mark},
