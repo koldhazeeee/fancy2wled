@@ -135,6 +135,8 @@ static esp_err_t h_status(httpd_req_t* req) {
   b["age"] = s.boxAgeMs == UINT32_MAX ? -1 : (int)s.boxAgeMs;
   b["sender"] = s.boxSender;
   b["problem"] = s.boxProblem;                      // frames arrive but none can be read
+  b["tvOff"] = s.tvOff;                             // the picture has been completely black for the configured time: the TV is off
+  b["blackS"] = s.tvBlackS;                         // seconds it has been black so far (0 = not black)
   JsonObject bf = b["frames"].to<JsonObject>();
   bf["understood"] = s.framesOk;
   bf["newLayout"] = s.framesNewLayout;

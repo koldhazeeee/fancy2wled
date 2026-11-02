@@ -74,6 +74,17 @@ Each zone behaves like an *area average* of its region (a small bright square gi
 the zone), but the regions overlap their neighbours a little - a bright block exactly filling one tile also leaks into
 the next zone.
 
+## TV on / off (CEC)
+
+The box sends **no separate packet** when the TV is switched on or off (tested on one box, FSB3P2.1, firmware Main 3.1.0, by switching the TV off and on
+with its remote, which triggers CEC, while recording UDP ports 19874-19877 and 6666-6667 on a PC and the sync port on the relay). During the ~30 s the TV was off the
+box kept broadcasting at its normal rate with unchanged header, key lengths, checksums and `06 04 06` marker, and every zone exactly `0,0,0`; the colours came back with
+the first frame after the TV was on again. The Tuya announcements on 6667 did not change either. (Anything sent to a satellite privately, or inside the box's encrypted
+local connection, would not have been heard by this test.)
+
+So "TV off" can only be inferred: **all 24 zones are exactly zero for a while**. Normal viewing hardly ever does that (a 240 s capture of real content had only 0.1-0.2 s
+stretches, a 57 s video clip none), but a long black screen does, so the relay waits for a configurable delay (`BlackTracker` / `tvIsOff` in `core.h`, default 15 s).
+
 ## If the protocol changes
 
 The relay classifies every datagram on the port (understood / Sync Box framing with a payload it cannot read / unreadable) and reports it, so a firmware change

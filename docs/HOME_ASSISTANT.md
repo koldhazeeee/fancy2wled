@@ -22,8 +22,9 @@ Give the board a DHCP reservation if you like, but nothing depends on its addres
 | Entity | What it does |
 |---|---|
 | **Sync** (light) | On / off pauses and resumes the sync (paused: nothing is streamed and WLED is handed back to how it was; same as the board's button tap). The **brightness slider** is the Look brightness, 0-100 % (100 % = copy the box exactly). Moving the slider while it is off turns the sync back on |
-| **State** (sensor) | relaying, waiting for the Sync Box, Sync Box frames not understood, paused, needs setup, calibrating, showing markers, showing test pattern |
+| **State** (sensor) | relaying, TV off, waiting for the Sync Box, Sync Box frames not understood, paused, needs setup, calibrating, showing markers, showing test pattern |
 | **Sync Box** (connectivity) | the board is receiving the Sync Box |
+| **TV on** (power) | ON while the Sync Box is streaming and the picture is not black; OFF once the picture has been completely black for the "When the TV is off" delay (15 s by default), or when there is no stream. Inferred from the picture: the box sends no TV-off signal |
 | **Sync Box frames not understood** (problem) | ON when frames arrive from the box but none can be read (its firmware probably changed what it sends); see [RESILIENCE.md](RESILIENCE.md) |
 | **Frames not understood** (diagnostic counter) | datagrams on the Sync Box port that could not be read, since the board started |
 | **WLED** (connectivity) | WLED was reachable the last time the board talked to it |

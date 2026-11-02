@@ -85,6 +85,21 @@ async function cdp(wsUrl) {
     await p.ev("document.getElementById('wHost').value='192.0.2.50'; document.getElementById('save').click(); 1"); await sleep(3500);
     check('address: an IP address needs no explanation line', await p.ev("document.getElementById('wResolved').classList.contains('hidden')"));
     check('address: back to the IP address for the tests below', dev.state.cfg.wled.host === '192.0.2.50', dev.state.cfg.wled.host);
+    // ---- when the TV is off
+    check('tvoff: the card shows the default (hand the WLEDs back after 15 s)', (await p.ev("document.getElementById('tvMode').value")) === 'handback' && (await p.ev("document.getElementById('tvSecs').value")) === '15');
+    check('tvoff: with the TV on the page says so', /The TV is on/.test(await p.ev("document.getElementById('tvNow').textContent")), await p.ev("document.getElementById('tvNow').textContent"));
+    await p.ev("document.getElementById('tvMode').value='off'; document.getElementById('tvSecs').value='30'; document.getElementById('save').click(); 1"); await sleep(600);
+    check('tvoff: Save sends the behaviour and the delay', dev.state.cfg.relay.tvOff.mode === 'off' && dev.state.cfg.relay.tvOff.seconds === 30 && dev.state.cfg.relay.enabled === true, JSON.stringify(dev.state.cfg.relay));
+    dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('tvSecs').value='2'; document.getElementById('save').click(); 1"); await sleep(500);
+    check('tvoff: a delay under 3 seconds is refused before anything is sent', dev.state.lastConfigPost === null && /between 3 and 600/.test(await p.ev("document.getElementById('saveMsg').textContent")), await p.ev("document.getElementById('saveMsg').textContent"));
+    dev.state.blackS = 7; await sleep(3000);
+    check('tvoff: a black picture is reported while the delay runs', /black \(7 s so far\)/.test(await p.ev("document.getElementById('tvNow').textContent")), await p.ev("document.getElementById('tvNow').textContent"));
+    dev.state.tvOff = true; await sleep(3000);
+    check('tvoff: once it counts as off the page says so, with how long', /The TV is off \(the picture has been black for 31 s\)/.test(await p.ev("document.getElementById('tvNow').textContent")), await p.ev("document.getElementById('tvNow').textContent"));
+    dev.state.tvOff = false; dev.state.blackS = 0;
+    await p.ev("document.getElementById('tvMode').value='handback'; document.getElementById('tvSecs').value='15'; document.getElementById('save').click(); 1"); await sleep(600);
+    check('tvoff: back to the defaults for the tests below', dev.state.cfg.relay.tvOff.mode === 'handback' && dev.state.cfg.relay.tvOff.seconds === 15, JSON.stringify(dev.state.cfg.relay));
     // smoothing slider is part of the live preview
     await p.ev("var o=document.getElementById('kOut'); o.value='40'; o.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
     check('index: smooth-beyond-TV slider shows its value', /40%/.test(await p.ev("document.getElementById('kOutV').textContent")));

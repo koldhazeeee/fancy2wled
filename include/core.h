@@ -39,6 +39,21 @@ struct FrameInfo {
 bool frameChecksumOk(const uint8_t* data, size_t len);
 FrameClass classifyFrame(const uint8_t* data, size_t len, uint8_t zones[kZones][3], FrameInfo* info);
 
+// ---- TV off ---------------------------------------------------------------
+// The Sync Box sends no separate packet when the TV is switched off (checked on a real box: CEC power off and on, every port that could be
+// heard). It keeps streaming at the normal rate, with all 24 zones exactly 0,0,0, and the colours come back with the first non-black frame.
+// So "TV off" is inferred: the picture has been completely black for a while. Normal viewing does not do that (a 4 minute capture of real
+// content had only 0.1-0.2 s blips), but a long black screen would, which is why the delay is a setting.
+struct BlackTracker {
+  bool black = false;          // the last frame was completely black
+  uint32_t since = 0;          // millis() when the current run of black frames began
+};
+bool isBlackPicture(const uint8_t zones[kZones][3]);
+void blackFrame(BlackTracker& t, const uint8_t zones[kZones][3], uint32_t nowMs);   // call for every frame that is read
+void blackReset(BlackTracker& t);                                                   // the box went silent: nothing is known any more
+bool tvIsOff(const BlackTracker& t, uint32_t nowMs, uint32_t delayMs);              // black for at least delayMs (wrap-safe)
+uint32_t blackForMs(const BlackTracker& t, uint32_t nowMs);                         // how long it has been black (0 = not black)
+
 // ---- zone -> LED mapping --------------------------------------------------
 // Each LED blends two zones: colour = zone[a] * (1 - f/255) + zone[b] * (f/255).
 // d says how far the LED is beyond the TV along its edge (0 = lined up with the TV): 0..255 = 0..kOutMax picture widths.

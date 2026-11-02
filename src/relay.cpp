@@ -64,6 +64,7 @@ static const uint32_t kKeepaliveMs = 1000;     // resend an unchanged frame this
 static const uint32_t kResolveEveryMs = 60000; // look a WLED's name up again this often (its IP may have changed)
 static const uint32_t kRetryResolveMs = 15000; // ... and this often while the name has not been found yet
 static uint32_t gHouseMs = 0;                  // when the once-a-second housekeeping last ran
+static BlackTracker gBlack;                    // is the picture black, and since when (TV off detection, see core.h); under Lock
 
 // ---- per-target state
 struct Cal {                                   // the LED finder / phone calibration session on this target
@@ -105,6 +106,7 @@ struct Rt {
   uint32_t tryMs = 0, addrGen = 0xFFFFFFFF;    // when a lookup was last requested; the settings generation the host was last compared at
   String hostCache;                            // the host this target was prepared for
   bool restoreCache = true;
+  bool offByTv = false;                        // this WLED was switched off because the TV went off: the next stream switches it on again and keeps its original state
   String snapHost;                             // the host snapOn / snapBri were read from
   bool snapOn = false;
   int snapBri = 128;
@@ -344,6 +346,8 @@ struct WledJob {
   int bri = -1;
   bool explicitSnap = false, snapOn = false;       // restore to these values instead of the ones read when the stream began
   int snapBri = 128;
+  bool forceOff = false;                           // (restore) switch the WLED off instead of putting it back how it was: the TV is off
+  bool keepSnap = false;                           // (prepare) the WLED was switched off by us: keep the state remembered before, not "off"
 };
 static QueueHandle_t gJobs = nullptr;
 
@@ -408,7 +412,10 @@ static void wledWorker(void*) {
         Rt& r = gRt[j->target];
         if (r.hostCache == j->host) {
           r.wledOk = wi.ok;
-          if (wi.ok) { r.wledLeds = wi.leds; r.wledName = wi.name; r.snapHost = j->host; r.snapOn = wi.on; r.snapBri = wi.bri; }
+          if (wi.ok) {
+            r.wledLeds = wi.leds; r.wledName = wi.name;
+            if (!(j->keepSnap && r.snapHost == j->host)) { r.snapHost = j->host; r.snapOn = wi.on; r.snapBri = wi.bri; }   // after "TV off" the WLED reads as off: that is not what to hand back
+          }
         }
       }
       if (wi.ok) {
@@ -433,7 +440,8 @@ static void wledWorker(void*) {
         if (r.snapHost == j->host) { sOn = r.snapOn; sBri = r.snapBri; haveSnap = true; }
       }
       String body = "{\"live\":false";
-      if (j->restore && haveSnap) body += ",\"on\":" + String(sOn ? "true" : "false") + ",\"bri\":" + String(sBri);
+      if (j->forceOff) body += ",\"on\":false";                                  // the TV is off: the lights go off too (brightness untouched)
+      else if (j->restore && haveSnap) body += ",\"on\":" + String(sOn ? "true" : "false") + ",\"bri\":" + String(sBri);
       httpPostJson(addr, "/json/state", body + "}");
     }
     delete j;
@@ -473,24 +481,38 @@ static void requestPrepare(int i, const String& host, bool turnOn, int bri, bool
   r.prepared = true;                              // even if it fails: do not retry on every frame
   r.hostCache = host;
   r.restoreCache = restore;
+  const bool resume = r.offByTv;                  // coming back after "TV off": switch it on whatever the target's setting says
+  r.offByTv = false;
   if (host.length() == 0) return;
   WledJob* j = new WledJob();
-  j->prepare = true; j->target = i; j->host = host; j->turnOn = turnOn; j->bri = bri; j->restore = restore;
+  j->prepare = true; j->target = i; j->host = host; j->turnOn = turnOn || resume; j->bri = bri; j->restore = restore; j->keepSnap = resume;
   postJob(j);
 }
 
-// Stop streaming to a target: hand its WLED back and forget the stream state.
-static void requestRestore(int i) {
+// Stop streaming to a target: hand its WLED back (or, when the TV is off, switch it off) and forget the stream state.
+static void requestRestore(int i, bool switchOff = false) {
   Rt& r = gRt[i];
   if (r.prepared && r.hostCache.length() > 0) {
     WledJob* j = new WledJob();
-    j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache;
+    j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache; j->forceOff = switchOff;
     postJob(j);
+    if (switchOff) r.offByTv = true;
   }
   r.prepared = false;
   r.curValid = false;
   r.converged = false;
   r.lastLen = 0;
+}
+
+// The WLED was switched off because the TV went off, and "hand the WLEDs back" is what is wanted now (the setting was changed while the TV
+// was off): put it back how it was before the stream began.
+static void requestHandBackAfterOff(int i) {
+  Rt& r = gRt[i];
+  r.offByTv = false;
+  if (r.hostCache.length() == 0) return;
+  WledJob* j = new WledJob();
+  j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache;
+  postJob(j);
 }
 
 // ---------------------------------------------------------------- receive
@@ -576,7 +598,8 @@ static bool pollBox() {
       Lock l;
       gStat.ok++;
       if (now - gGoodSampleMs >= 2000 || !gGoodLen) { gGoodLen = (uint8_t)(r < (int)sizeof gGoodSample ? r : sizeof gGoodSample); memcpy(gGoodSample, buf, gGoodLen); gGoodSampleMs = now; }
-      if (now - gLastFrame > 1500) gPrevValid = false;             // the box was silent: do not extrapolate across the gap
+      if (now - gLastFrame > 1500) { gPrevValid = false; blackReset(gBlack); }   // the box was silent: do not extrapolate across the gap, and forget "black since"
+      blackFrame(gBlack, z, now);                                  // TV off detection: black for long enough = the TV is off
       memcpy(gRaw, z, sizeof gRaw);                                // the raw box output (calibration and /api/zones use this)
       gSender = from;
       if (gHave && now - gLastFrame < 2000) gIntervalMs = gIntervalMs == 0 ? (now - gLastFrame) : gIntervalMs * 0.9f + (now - gLastFrame) * 0.1f;
@@ -663,6 +686,8 @@ void relayStatus(RelayStatus& s, bool detail) {
   Lock l;
   const uint32_t now = millis();
   bool fresh = gHave && now - gLastFrame < 2500;
+  s.tvOff = fresh && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);
+  s.tvBlackS = fresh ? (int)(blackForMs(gBlack, now) / 1000u) : 0;
   s.boxFps = (fresh && gIntervalMs > 0) ? 1000.f / gIntervalMs : 0.f;
   s.boxAgeMs = gHave ? now - gLastFrame : UINT32_MAX;
   s.boxSender = (detail && gHave) ? gSender.toString() : String("");
@@ -699,6 +724,7 @@ void relayStatus(RelayStatus& s, bool detail) {
   else if (!anyUsable) s.state = "needs setup";
   else if (!gSet.enabled) s.state = "paused";
   else if (!fresh) s.state = s.boxProblem ? "Sync Box frames not understood" : "waiting for the Sync Box";
+  else if (s.tvOff && gSet.tvMode != 0) s.state = "TV off";
   else s.state = "relaying";
 }
 
@@ -715,13 +741,15 @@ void relayLoop() {
 
   struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; };
   TSnap sn[kMaxTargets];
-  int nT, fps;
-  bool globalOn;
+  int nT, fps, tvMode;
+  bool globalOn, tvOff;
   {
     Lock l;
     nT = gSet.nTargets;
     fps = gSet.fps < 1 ? 30 : gSet.fps;
     globalOn = gSet.enabled;
+    tvMode = gSet.tvMode;
+    tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
       const Target& t = gSet.t[i];
       sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache, t.wStart, t.wCount, t.wBri, t.trim};
@@ -790,14 +818,17 @@ void relayLoop() {
   const uint32_t pf0 = gPerfOn ? micros() : 0;              // performance statistics: time the frame work
   uint32_t sendUs = 0;
   bool sentAny = false, allConverged = true;
-  const bool fresh = globalOn && gHave && now - gLastFrame < kStaleMs;        // paused (Home Assistant) = as if the box were silent
+  // paused (Home Assistant) = as if the box were silent; so is "the TV is off" unless that was set to do nothing
+  const bool tvHold = tvOff && tvMode != 0;
+  const bool fresh = globalOn && gHave && now - gLastFrame < kStaleMs && !tvHold;
   for (int i = 0; i < nT; i++) {
     if (!streaming[i]) continue;
     Rt& r = gRt[i];
     const bool testing = r.testUntil && (int32_t)(r.testUntil - now) > 0;
     if (r.testUntil && !testing) r.testUntil = 0;
-    if (!fresh && !testing) {                                // box gone quiet (or paused): give this WLED back
-      if (r.prepared) requestRestore(i);
+    if (!fresh && !testing) {                                // box gone quiet, paused or TV off: give this WLED back (TV off, mode 2: switch it off)
+      if (r.prepared) requestRestore(i, globalOn && tvHold && tvMode == 2);
+      else if (r.offByTv && globalOn && tvHold && tvMode == 1) requestHandBackAfterOff(i);   // switched off earlier; the setting now says hand back
       continue;
     }
     if (!r.prepared) {

@@ -123,6 +123,10 @@ static void loadFromFlash() {
   s.kSmo = gF("kSmo", 0.5f);
   s.kBoost = gF("kBoost", 0.f);
   s.enabled = gB("enabled", true);
+  s.tvMode = gI("tvMode", 1);
+  if (s.tvMode < 0 || s.tvMode > 2) s.tvMode = 1;
+  s.tvSecs = gI("tvSecs", 15);
+  if (s.tvSecs < 3 || s.tvSecs > 600) s.tvSecs = 15;
   s.mqttOn = gB("mqOn", false);
   s.mqttHost = gS("mqHost", "");
   s.mqttPort = gI("mqPort", 1883);
@@ -165,6 +169,8 @@ void settingsSave() {
   prefs.putFloat("kSmo", s.kSmo);
   prefs.putFloat("kBoost", s.kBoost);
   prefs.putBool("enabled", s.enabled);
+  prefs.putInt("tvMode", s.tvMode);
+  prefs.putInt("tvSecs", s.tvSecs);
   prefs.putBool("mqOn", s.mqttOn);
   prefs.putString("mqHost", s.mqttHost);
   prefs.putInt("mqPort", s.mqttPort);
@@ -274,6 +280,8 @@ void settingsToJson(JsonDocument& d) {
   k["smoothOut"] = s.smoothOut;
   d["box"]["host"] = s.boxHost;
   d["relay"]["enabled"] = s.enabled;
+  d["relay"]["tvOff"]["mode"] = s.tvMode == 0 ? "nothing" : (s.tvMode == 1 ? "handback" : "off");
+  d["relay"]["tvOff"]["seconds"] = s.tvSecs;
   JsonObject mq = d["mqtt"].to<JsonObject>();
   mq["enabled"] = s.mqttOn;
   mq["host"] = s.mqttHost;
@@ -394,6 +402,19 @@ String settingsFromJson(JsonVariantConst d, bool persist) {
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
   if (!b["host"].isNull()) n.boxHost = b["host"].as<String>();
   if (!d["relay"]["enabled"].isNull()) n.enabled = d["relay"]["enabled"].as<bool>();
+  JsonVariantConst tv = d["relay"]["tvOff"];
+  if (!tv["mode"].isNull()) {
+    const String m = tv["mode"].as<String>();
+    if (m == "nothing") n.tvMode = 0;
+    else if (m == "handback") n.tvMode = 1;
+    else if (m == "off") n.tvMode = 2;
+    else return "When the TV is off: choose off, handback or nothing";
+  }
+  if (!tv["seconds"].isNull()) {
+    const int sec = tv["seconds"].as<int>();
+    if (sec < 3 || sec > 600) return "The TV-off delay must be between 3 and 600 seconds";
+    n.tvSecs = sec;
+  }
   bool mqttTouched = false;
   JsonVariantConst mq = d["mqtt"];
   if (persist && !mq.isNull()) {                       // MQTT settings are never a live preview

@@ -310,6 +310,34 @@ int main(int argc, char** argv) {
     CHECK(ut[0] > ut[1] && ut[5] > ut[4] && ut[0] > 40.f, "the corner zones carry the stretch of strip beyond the TV (zone 0: %.1f, zone 1: %.1f)", ut[0], ut[1]);
     CHECK(fabsf(ur[5] - ur[23]) < 2.f && ur[11] > 40.f, "a right-hand strip spreads over its column (zone 5: %.1f, 11: %.1f)", ur[5], ur[11]);
   }
+  { // TV off: the picture has been completely black for a while
+    uint8_t blk[kZones][3] = {}, dim[kZones][3] = {}, one[kZones][3] = {};
+    dim[7][2] = 1;                                                // a single blue count in one zone is not black
+    one[23][0] = 1;
+    CHECK(isBlackPicture(blk) && !isBlackPicture(dim) && !isBlackPicture(one), "a picture is black only when every channel of every zone is 0");
+    BlackTracker t;
+    CHECK(!tvIsOff(t, 5000, 0) && blackForMs(t, 5000) == 0, "nothing seen yet: not off");
+    blackFrame(t, blk, 1000);
+    CHECK(blackForMs(t, 1000) == 0 && !tvIsOff(t, 1000, 15000), "the first black frame starts the clock");
+    blackFrame(t, blk, 8000); blackFrame(t, blk, 15999);
+    CHECK(!tvIsOff(t, 15999, 15000) && blackForMs(t, 15999) == 14999, "14.999 s of black is not yet off (the clock runs from the first black frame)");
+    blackFrame(t, blk, 16000);
+    CHECK(tvIsOff(t, 16000, 15000), "15 s of black = off");
+    blackFrame(t, blk, 16100);
+    CHECK(tvIsOff(t, 16100, 15000) && blackForMs(t, 16100) == 15100, "more black frames do not restart the clock");
+    blackFrame(t, dim, 16200);
+    CHECK(!tvIsOff(t, 16200, 15000) && blackForMs(t, 16200) == 0, "the first frame with any colour switches it back on at once");
+    blackFrame(t, blk, 16300); blackFrame(t, blk, 20000);
+    CHECK(!tvIsOff(t, 20000, 15000) && blackForMs(t, 20000) == 3700, "a new black run starts a new clock");
+    blackReset(t);
+    CHECK(!tvIsOff(t, 90000, 15000), "a silent box resets it: nothing is known");
+    blackFrame(t, blk, 90000);
+    CHECK(blackForMs(t, 90500) == 500 && !tvIsOff(t, 90500, 3000), "after a reset the clock starts again");
+    // millis() wraps after 49.7 days: the arithmetic must not care
+    BlackTracker w;
+    blackFrame(w, blk, 0xFFFFFF00u);
+    CHECK(!tvIsOff(w, 0xFFFFFFF0u, 1000) && tvIsOff(w, 0x00000400u, 1000) && blackForMs(w, 0x00000100u) == 0x200, "a wrap of the millisecond counter does not matter");
+    CHECK(tvIsOff(w, 0xFFFFFF00u, 0), "a delay of 0 means off at the first black frame"); }
   { // the WLED address box: pasted URLs are cleaned up
     struct { const char* in; const char* want; } cases[] = {
       {"wled-ceiling.local", "wled-ceiling.local"},

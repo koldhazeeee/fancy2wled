@@ -73,6 +73,7 @@ void ledStatusLoop() {
   if (s == "relaying") show(0, 14, 0);
   else if (s == "needs setup") show(18, 12, 0);
   else if (s == "paused") show(10, 0, 14);
+  else if (s == "TV off") show(0, 5, 5);                                                   // dim teal: the TV is off, the lights follow it
   else if (s == "Sync Box frames not understood") show(blink ? 30 : 0, 0, 0);          // red blink: the box is talking, we cannot read it
   else if (s == "calibrating" || s == "showing test pattern" || s == "showing markers") show(14, 14, 14);
   else show(0, 0, 14);

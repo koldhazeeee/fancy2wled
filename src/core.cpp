@@ -29,6 +29,24 @@ int normalizeHost(const char* in, char* out, int cap) {
 }
 
 // ---------------------------------------------------------------------------
+bool isBlackPicture(const uint8_t zones[kZones][3]) {
+  for (int z = 0; z < kZones; z++)
+    if (zones[z][0] | zones[z][1] | zones[z][2]) return false;
+  return true;
+}
+
+void blackFrame(BlackTracker& t, const uint8_t zones[kZones][3], uint32_t nowMs) {
+  if (!isBlackPicture(zones)) { t.black = false; return; }                          // any colour at all: the TV is on
+  if (!t.black) { t.black = true; t.since = nowMs; }
+}
+
+void blackReset(BlackTracker& t) { t.black = false; }
+
+uint32_t blackForMs(const BlackTracker& t, uint32_t nowMs) { return t.black ? nowMs - t.since : 0; }
+
+bool tvIsOff(const BlackTracker& t, uint32_t nowMs, uint32_t delayMs) { return t.black && nowMs - t.since >= delayMs; }
+
+// ---------------------------------------------------------------------------
 bool decodeFrame(const uint8_t* d, size_t len, uint8_t zones[kZones][3]) {
   if (len < 86 || len > 93) return false;
   if (d[0] != 0x55 || d[1] != 0xAA || d[2] != 0x5A || d[3] != len - 5) return false;

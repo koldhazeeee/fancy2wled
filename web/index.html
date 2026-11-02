@@ -133,6 +133,17 @@ input[type=range].wide{width:100%}
   reaching it at the end of the strip. 100% = it takes the whole strip, lower = it blends faster, 0 = the end LEDs just repeat the TV's edge colour.</p>
 </div>
 
+<div class="card" id="tvCard">
+  <h2>When the TV is off</h2>
+  <p class="small mut">The Sync Box sends no signal of its own when the TV is switched off (checked with the TV's power button, over CEC): it keeps sending, with a completely black picture. So the board decides the TV is off when the picture has been <i>completely</i> black for a while, and on again with the first colour. A long black screen counts as off too, which is why the delay is a setting.</p>
+  <div class="row"><label for="tvMode">Then</label><select id="tvMode" data-live="1">
+    <option value="handback">Hand the WLEDs back, as they were before sync started</option>
+    <option value="off">Switch the lights off (they come back on with the picture)</option>
+    <option value="nothing">Do nothing (only tell Home Assistant)</option></select></div>
+  <div class="row"><label for="tvSecs">After this many seconds of black</label><input id="tvSecs" type="number" min="3" max="600" step="1" data-live="1"></div>
+  <p class="small" id="tvNow"></p>
+</div>
+
 <div class="card">
   <h2>Home Assistant (MQTT)</h2>
   <p class="small mut">The board connects to your MQTT broker (for example Home Assistant's Mosquitto add-on) and appears in Home Assistant by itself as a <b>Fancy2WLED</b> device: a Sync light (on/off and brightness), status sensors and the Look settings. The board connects <i>out</i> to the broker, so your firewall must let it reach the broker (TCP, usually port 1883).</p>
@@ -246,6 +257,8 @@ input[type=range].wide{width:100%}
       });
       pill('pState','',s.state);
       $('statTxt').textContent=(s.ip||'')+'  |  '+s.hostname+'.local  |  signal '+s.rssi+' dBm  |  firmware '+s.ver+(s.box.sender?'  |  box at '+s.box.sender:'');
+      var bx=s.box||{},tvn=$('tvNow');
+      if(tvn)tvn.textContent=!(bx.fps>0)?'No picture from the Sync Box right now.':(bx.tvOff?'The TV is off (the picture has been black for '+bx.blackS+' s).':(bx.blackS>0?'The picture is black ('+bx.blackS+' s so far).':'The TV is on.'));
       var cur=ts[Math.min(sel,ts.length-1)];
       var byName=!!(cur&&cur.host&&cur.ip!==cur.host);      // a name: say which address it points to now (it is looked up again every minute)
       show('wResolved',byName);
@@ -292,7 +305,8 @@ input[type=range].wide{width:100%}
     return {first:parseInt(a,10)-st,last:parseInt(b,10)-st,set:true};
   }
   function problems(){
-    var st=num('wStart',0),c=num('wCount',0),tot=totalLeds;
+    var st=num('wStart',0),c=num('wCount',0),tot=totalLeds,tvs=num('tvSecs',15);
+    if(tvs<3||tvs>600)return 'The TV-off delay must be between 3 and 600 seconds.';
     if(tot&&st+c>tot)return 'LEDs '+st+' to '+(st+c-1)+' do not all exist: this WLED only has LEDs 0 to '+(tot-1)+'. Lower the first LED or the length of the run.';
     if(linear()){
       var s=tvSpan();
@@ -334,6 +348,7 @@ input[type=range].wide{width:100%}
     var L=T.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
     $('tvFirst').value=L.spanFirst>=0?L.spanFirst+W.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+W.start:'';
     $('lCorner').value=L.corner;$('lDir').value=L.ccw?1:0;for(var i=0;i<4;i++)$('lS'+i).value=L.sides[i]>0?L.sides[i]:'';$('lShift').value=L.shift;
+    var TV=(c.relay&&c.relay.tvOff)||{};$('tvMode').value=TV.mode||'handback';$('tvSecs').value=TV.seconds||15;
     $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;$('kBoost').value=Math.round(100*(c.look.boost||0));
     $('lPlace').querySelector('option[value=table]').disabled=!L.hasTable;
     var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+W.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
@@ -351,6 +366,7 @@ input[type=range].wide{width:100%}
     if(linear())lay.edge=p;
     return {target:sel,name:$('tName').value.trim(),enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
+      relay:{tvOff:{mode:$('tvMode').value,seconds:num('tvSecs',15)}},
       look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,smoothOut:parseInt($('kOut').value,10)}};
   }
   async function load(){try{setCfg(await j('/api/config'));}catch(e){}}

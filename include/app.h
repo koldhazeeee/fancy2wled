@@ -57,6 +57,9 @@ struct Settings {
   int nTargets = 1;
   // relay
   bool enabled = true;                 // false = paused: nothing is streamed and WLED is handed back (Home Assistant switch)
+  // When the TV is off (the picture is completely black for tvSecs seconds; the Sync Box sends no separate signal, see core.h)
+  int tvMode = 1;                      // 0 = do nothing (the "TV on" sensor still works), 1 = hand the WLEDs back (default), 2 = switch the WLEDs off
+  int tvSecs = 15;                     // 3..600
   // look (shared by all targets; each target has its own brightness trim)
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
@@ -111,6 +114,8 @@ String targetRemove(int index);             // removes a target (the later ones 
 // ---------------------------------------------------------------- relay
 struct TargetStatus { bool enabled = true, ok = false; int leds = 0; String name, host, wledName, ip; int ipAgeS = -1; };   // ip: the address in use (a name's current address)
 struct RelayStatus {
+  bool tvOff = false;                       // the picture has been black for the configured time (frames are still arriving)
+  int tvBlackS = 0;                         // how long it has been black so far, in seconds (0 = not black)
   float boxFps = 0;
   uint32_t boxAgeMs = 0;                    // since the last Sync Box frame (UINT32_MAX = never)
   String boxSender;

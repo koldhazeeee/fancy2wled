@@ -36,7 +36,7 @@ function createDevice(opts) {
   const state = {
     cfg: { targets: [newTarget(0)],
       look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, smoothOut: 100 }, box: { host: '' },
-      relay: { enabled: true }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
+      relay: { enabled: true, tvOff: { mode: 'handback', seconds: 15 } }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
     screen: 'idle', calActive: false, maps: {}, test: null, total: opts.total || 600
   };
   // like the firmware, the first target is also available under its old names (wled / layout)
@@ -60,7 +60,7 @@ function createDevice(opts) {
         return json(res, 200, { ver: 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: 'waiting for the Sync Box', https: false, heap: 1e5,
           enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
           features: { phoneCal: opts.phoneCal !== false },
-          box: { fps: state.boxProblem ? 0 : 13.4, age: 50, sender: '192.0.2.20', problem: !!state.boxProblem, frames: { understood: 1200, newLayout: state.boxProblem ? 340 : 0, unreadable: 2 } }, targets, wled: { host: targets[0].host, ok: targets[0].ok, leds: state.total, name: 'WLED' } });
+          box: { fps: state.boxProblem ? 0 : 13.4, age: 50, sender: '192.0.2.20', problem: !!state.boxProblem, tvOff: !!state.tvOff, blackS: state.tvOff ? 31 : (state.blackS || 0), frames: { understood: 1200, newLayout: state.boxProblem ? 340 : 0, unreadable: 2 } }, targets, wled: { host: targets[0].host, ok: targets[0].ok, leds: state.total, name: 'WLED' } });
       }
       if (p === '/api/config') return json(res, 200, state.cfg);
       if (p === '/api/diag') return json(res, 200, { format: 'fancy2wled-diagnostics', version: 1, firmware: 'mock', relay: { frames: { understood: 1200, newLayout: 340, unreadable: 2 }, samples: [{ ageMs: 100, class: 'sync box framing, payload not understood', len: 90, checksumOk: true, hex: '55aa5a55' }] } });
