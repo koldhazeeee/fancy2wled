@@ -7,7 +7,7 @@
  * (1,1) = bottom-right, values outside are allowed -- takes its colour from the border zones along the
  * nearest picture edge. A "table" is one [zoneA, zoneB, f, d] entry per LED: f = 0..255 blends zone A -> B,
  * d = 0..255 is how far the LED is beyond the TV along its edge (0..2 picture widths); LEDs beyond the TV ease
- * toward the average colour of the nearest zones on the device.
+ * toward the colour of their end zone on the device.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -391,8 +391,8 @@
   }
 
   /* ------------------------------------------- smoothing beyond the TV (device side) */
-  // The two tails of a strip (before / after the part lined up with the TV) each ease toward the average colour of the nearest
-  // zones (the half of the picture edge the strip runs along that lies at its end), reaching it at the strip's own end when percent = 100.
+  // The two tails of a strip (before / after the part lined up with the TV) each ease toward the colour of the zone at their end
+  // of the strip (the corner zone; no other zone counts), reaching it at the strip's own end when percent = 100.
   function smoothInfo(table, percent) {
     var n = table.length, firstZero = n, lastZero = -1, i;
     for (i = 0; i < n; i++) if (table[i][3] === 0) { if (firstZero === n) firstZero = i; lastZero = i; }
@@ -402,30 +402,12 @@
       if (percent <= 0 || dmax === 0) return 0;
       return Math.max(MIN_OUT_Q, Math.floor(dmax * percent / 100 + 0.5));
     }
-    // the edge a strip runs along: the first LED over the TV (from that end) that blends two different zones says which
-    function edgeOfRun(lo, hi, fromLow) {
-      for (var k = lo; k <= hi; k++) {
-        var e = table[fromLow ? k : hi - (k - lo)];
-        if (e[0] !== e[1]) {
-          for (var j = 0; j < EDGE_NAMES.length; j++) if (EDGE[EDGE_NAMES[j]].indexOf(e[0]) >= 0 && EDGE[EDGE_NAMES[j]].indexOf(e[1]) >= 0) return j;
-          return -1;
-        }
-      }
-      return -1;
-    }
-    // the zones a tail eases toward: the half of its edge that lies at the strip's end (outer = outermost LED's entry)
-    function tailTarget(edge, outer) {
-      if (edge < 0) return null;
-      var ez = EDGE[EDGE_NAMES[edge]], k = ez.length, zone = outer[2] < 128 ? outer[0] : outer[1], j = ez.indexOf(zone), half = Math.floor(k / 2);
-      var from = (j >= 0 && j * 2 >= k) ? k - half : 0;
-      return ez.slice(from, from + half);
-    }
-    var has = lastZero >= firstZero;
+    // the zone each tail eases toward: just the one the strip's outermost LED shows (the corner zone for a strip along an edge)
+    function outerZone(entry) { return [entry[2] < 128 ? entry[0] : entry[1]]; }
     return { firstZero: firstZero, lastZero: lastZero, lenStart: tail(0, firstZero), lenEnd: tail(lastZero + 1, n),
-             zonesStart: has ? tailTarget(edgeOfRun(firstZero, lastZero, true), table[0]) : null,
-             zonesEnd: has ? tailTarget(edgeOfRun(firstZero, lastZero, false), table[n - 1]) : null };
-  }
-  function smoothstep(x) { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); }
+             zonesStart: (firstZero > 0 && firstZero < n) ? outerZone(table[0]) : null,
+             zonesEnd: (lastZero >= 0 && lastZero < n - 1) ? outerZone(table[n - 1]) : null };
+  }  function smoothstep(x) { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); }
   // Colours for every LED from 24 zone colours [[r,g,b]...] (what the device does each frame; here for tests/previews).
   function applyTable(table, zones, info) {
     function average(idx) {      // average of the given zones (null / missing: all zones)

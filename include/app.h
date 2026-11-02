@@ -40,7 +40,7 @@ struct Settings {
   bool enabled = true;                 // false = paused: nothing is streamed and WLED is handed back (Home Assistant switch)
   // look
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
-  int smoothOut = 100;                 // 0 = off .. 100: LEDs beyond the TV ease to the average of their nearest zones, reaching it at the strip end
+  int smoothOut = 100;                 // 0 = off .. 100: LEDs beyond the TV settle on their end-corner zone colour (softens the hand-over at the TV edge)
   int fps = 30;
   // Home Assistant over MQTT (discovery): the board connects OUT to the broker
   bool mqttOn = false;

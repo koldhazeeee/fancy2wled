@@ -161,42 +161,10 @@ static int tailLength(const Entry* t, int lo, int hi, int percent) {
   return len < kMinOutQ ? kMinOutQ : len;
 }
 
-// Which picture edge a pair of neighbouring zones lies on (-1 when the zones are not neighbours on one edge).
-static int edgeOfPair(int a, int b) {
-  for (int e = 0; e < 4; e++) {
-    int k;
-    const uint8_t* z = edgeZones((Edge)e, &k);
-    bool ha = false, hb = false;
-    for (int j = 0; j < k; j++) { if (z[j] == a) ha = true; if (z[j] == b) hb = true; }
-    if (ha && hb) return e;
-  }
-  return -1;
-}
-
-// The edge a strip runs along, read from the LEDs lined up with the TV: the first one (from the given end) that blends two
-// different zones tells which edge of the picture they belong to.
-static int edgeOfRun(const Entry* t, int lo, int hi, bool fromLow) {
-  for (int n = lo; n <= hi; n++) {
-    const Entry& e = t[fromLow ? n : hi - (n - lo)];
-    if (e.a != e.b) return edgeOfPair(e.a, e.b);
-  }
-  return -1;
-}
-
-// The zones a tail eases toward: the half of its picture edge that lies at the strip's end (bit z = zone z; 0 = unknown).
-static uint32_t tailTarget(const Entry* t, int lo, int hi, bool fromLow, int outer) {
-  const int e = edgeOfRun(t, lo, hi, fromLow);
-  if (e < 0) return 0;
-  int k;
-  const uint8_t* ez = edgeZones((Edge)e, &k);
-  const int zone = t[outer].f < 128 ? t[outer].a : t[outer].b;      // the zone the outermost LED shows
-  int j = -1;
-  for (int q = 0; q < k; q++) if (ez[q] == zone) j = q;
-  const int half = k / 2;
-  const int from = (j >= 0 && j * 2 >= k) ? k - half : 0;
-  uint32_t m = 0;
-  for (int q = from; q < from + half; q++) m |= 1u << ez[q];
-  return m;
+// The zone a tail eases toward: the zone the strip's outermost LED shows (the picture's corner zone when the strip runs along
+// an edge). Only that zone, so colours anywhere else on screen never reach the LEDs beyond the TV.
+static uint32_t tailTarget(const Entry& outer) {
+  return 1u << (outer.f < 128 ? outer.a : outer.b);
 }
 
 SmoothInfo smoothInfo(const Entry* t, int count, int percent) {
@@ -205,13 +173,10 @@ SmoothInfo smoothInfo(const Entry* t, int count, int percent) {
     if (t[i].d == 0) { if (s.firstZero == count) s.firstZero = i; s.lastZero = i; }
   s.lenStart = tailLength(t, 0, s.firstZero, percent);
   s.lenEnd = tailLength(t, s.lastZero + 1, count, percent);
-  if (s.lastZero >= s.firstZero) {
-    s.maskStart = tailTarget(t, s.firstZero, s.lastZero, true, 0);
-    s.maskEnd = tailTarget(t, s.firstZero, s.lastZero, false, count - 1);
-  }
+  if (s.firstZero > 0 && s.firstZero < count) s.maskStart = tailTarget(t[0]);
+  if (s.lastZero >= 0 && s.lastZero < count - 1) s.maskEnd = tailTarget(t[count - 1]);
   return s;
 }
-
 static inline float smoothstep01(float x) {
   x = x < 0.f ? 0.f : (x > 1.f ? 1.f : x);
   return x * x * (3.f - 2.f * x);

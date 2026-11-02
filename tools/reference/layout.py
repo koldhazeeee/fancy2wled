@@ -7,7 +7,7 @@ A *table* has one entry per LED: ``[zone_a, zone_b, f, d]``
 
 A LED at picture position (u, v) -- (0,0) top-left of the picture, (1,1) bottom-right, values outside are allowed --
 takes its colour from the border zones along the nearest picture edge. LEDs beyond the TV's extent are blended toward the
-average colour of the nearest zones so they "smooth out" instead of repeating the edge colour (see apply_table).
+colour of their end zone so they "smooth out" instead of repeating the edge colour (see apply_table).
 """
 import math
 
@@ -136,7 +136,7 @@ def smooth_info(table, percent):
     Returns (first_zero, last_zero, len_start, len_end, zones_start, zones_end): the LEDs before first_zero ease over
     len_start (in d units), the LEDs after last_zero over len_end, each reaching its target colour at the end of the strip
     when percent = 100. A length of 0 means no smoothing. zones_start / zones_end are the zone indexes each tail eases
-    toward: the half of the picture edge the strip runs along that lies at that end of the strip (None = unknown: all zones)."""
+    toward: just the zone the strip's outermost LED shows (the corner zone for a strip along an edge); None if there is no tail."""
     n = len(table)
     zeros = [i for i, e in enumerate(table) if e[3] == 0]
     first_zero = zeros[0] if zeros else n
@@ -147,43 +147,18 @@ def smooth_info(table, percent):
         if percent <= 0 or dmax == 0:
             return 0
         return max(MIN_OUT_Q, int(math.floor(dmax * percent / 100.0 + 0.5)))
-    zones_start = zones_end = None
-    if last_zero >= first_zero:
-        run = table[first_zero:last_zero + 1]
-        zones_start = _tail_target(_edge_of_run(run), table[0])
-        zones_end = _tail_target(_edge_of_run(run[::-1]), table[-1])
+
+    def outer_zone(entry):
+        return (entry[0] if entry[2] < 128 else entry[1],)
+    zones_start = outer_zone(table[0]) if 0 < first_zero < n else None
+    zones_end = outer_zone(table[-1]) if 0 <= last_zero < n - 1 else None
     return first_zero, last_zero, tail(0, first_zero), tail(last_zero + 1, n), zones_start, zones_end
-
-
-def _tail_target(edge, outer):
-    """Zones a tail eases toward: the half of its edge that lies at the strip's end (outer = the outermost LED's entry)."""
-    if edge is None:
-        return None
-    ez = EDGE_ZONES[edge]
-    k = len(ez)
-    zone = outer[0] if outer[2] < 128 else outer[1]
-    j = ez.index(zone) if zone in ez else -1
-    half = k // 2
-    start = k - half if (j >= 0 and j * 2 >= k) else 0
-    return tuple(ez[start:start + half])
-
-
-def _edge_of_run(entries):
-    """The edge a strip runs along: the first entry that blends two different zones tells which edge they are on."""
-    for a, b, _f, _d in entries:
-        if a != b:
-            for name in ("top", "right", "bottom", "left"):
-                if a in EDGE_ZONES[name] and b in EDGE_ZONES[name]:
-                    return name
-            return None
-    return None
-
 
 def apply_table(table, zones, info):
     """Colours for every LED given 24 zone colours (each a 3-sequence of floats 0..255).
 
-    LEDs beyond the TV (d > 0) ease toward the average of the zones nearest to them (the half of the picture edge the strip runs
-    along that lies at their end of the strip; all 24 zones if that is unknown), reaching it at the end of the strip."""
+    LEDs beyond the TV (d > 0) ease toward the colour of the zone at their end of the strip (the corner zone), reaching it at the
+    end of the strip. Colours from any other zone never reach them."""
     first_zero, last_zero, len_start, len_end, zones_start, zones_end = info
 
     def average(idx):

@@ -4,7 +4,7 @@ The board works out **which LEDs it controls and exactly where they are relative
 phone. Everything happens on your phone and the board; nothing is uploaded anywhere and no camera image ever leaves your phone.
 
 The goal: **LEDs along the width of the TV are exact** (each follows the part of the picture right next to it), and **LEDs
-past the edge of the TV smooth out** toward the average colour of the nearest part of the picture edge they run along, reaching it at the end of the strip, instead of
+past the edge of the TV show the colour of the corner zone at their end of the strip** (the top-left zone on the left, the top-right zone on the right, for a ceiling strip) instead of
 repeating the edge colour for metres.
 
 ## What you do
@@ -41,10 +41,7 @@ repeating the edge colour for metres.
 ## Smoothing beyond the TV
 
 The board treats the two ends of the strip separately: the LEDs before the part lined up with the TV, and the LEDs after it.
-Each end eases (smoothstep) from the TV's edge colour toward the **average colour of the nearest half of the picture edge the strip runs along**: for a ceiling strip the left tail uses zones 0-2 (left half of the top row) and the right tail zones 3-5; under the TV it is zones 18-20 / 21-23; a side strip uses the two nearest zones of its column. Colours on the other sides of the picture, or in the far corner of the same edge, never leak in. Each tail reaches it at the end
-of its own tail. The setup page's **Smooth beyond the TV** slider sets how far that takes: 100% = the whole tail, 50% = twice as
-fast, 0% = off (the end LEDs just repeat the edge colour). It is a live setting; you don't need to re-calibrate to change it.
-A strip that hugs the TV (a loop around it) has no tail and is never smeared.
+Beyond the TV, each end of the strip shows the colour of the **corner zone at that end** (for a ceiling strip: zone 0 on the left, zone 5 on the right; under the TV zones 18 / 23; a side strip uses the corner at the end of its column). Only that one zone counts, so a colour anywhere else on screen, on another side or even in the middle of the same edge, never reaches the LEDs beyond the TV; it only appears there once it is in the corner zone. The *Smooth beyond the TV* setting just softens the hand-over right at the TV's edge.
 
 ## Tips
 

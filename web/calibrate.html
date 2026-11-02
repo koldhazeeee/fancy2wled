@@ -127,7 +127,7 @@ ol{padding-left:1.2rem}li{margin:.3rem 0}
   }
   function show(res){
     $('msg').className='';
-    var span=res.tvSpan?'<p>LEDs <b>'+res.tvSpan[0]+' to '+res.tvSpan[1]+'</b> are lined up with the width of the TV and follow the picture exactly. '+(res.beyond.max>0?'The LEDs beyond that fade smoothly toward the average colour of the nearest part of that picture edge (you can change how far on the setup page, under <i>Smooth beyond the TV</i>).':''):'';
+    var span=res.tvSpan?'<p>LEDs <b>'+res.tvSpan[0]+' to '+res.tvSpan[1]+'</b> are lined up with the width of the TV and follow the picture exactly. '+(res.beyond.max>0?'The LEDs beyond that show the colour of the corner zone at their end (you can change how far on the setup page, under <i>Smooth beyond the TV</i>).':''):'';
     var w=res.warnings.map(function(x){return '<li class="warn">'+esc(x)+'</li>';}).join('');
     $('res').innerHTML='<h2>Result</h2><p><b>'+res.count+' LEDs</b> starting at LED <b>'+res.start+'</b>. '+esc(describe(res.summary,res.count))+
       '</p>'+span+'<p class="small mut">Green outline and squares: the TV I measured ('+esc(res.tv.method)+'). Orange dots: where the LED groups were seen. It took '+res.stats.seconds+' s.</p>'+(w?'<ul>'+w+'</ul>':'')+
