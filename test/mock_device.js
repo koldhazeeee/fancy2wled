@@ -9,10 +9,25 @@ const WEB = path.join(__dirname, '..', 'web');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript', '.css': 'text/css' };
 const ROUTES = { '/': 'index.html', '/calibrate': 'calibrate.html', '/screen': 'screen.html', '/analysis.js': 'analysis.js', '/calibration.js': 'calibration.js', '/style.css': 'style.css' };
 
+const A = require('../web/analysis.js');       // the mapping code that is checked against the Python reference and the firmware
+
+// How many of a target's LEDs follow each of the 24 zones (what the firmware's zoneUsage() reports).
+function usageOf(wled, layout) {
+  const n = wled.count | 0, out = new Array(24).fill(0);
+  if (n <= 0 || n > 1000) return out;
+  let tbl = null;
+  if (layout.type === 'loop') tbl = A.tableLoop(n, layout.corner | 0, !!layout.ccw, (layout.sides && layout.sides[0] > 0) ? layout.sides : null, layout.shift | 0, 16, 9);
+  if (!tbl) tbl = A.tableLinear(n, !!layout.led0Right, layout.spanFirst, layout.spanLast, layout.edge || 'top');
+  tbl.forEach(e => { out[e[0]] += 1 - e[2] / 255; out[e[1]] += e[2] / 255; });
+  return out.map(v => Math.round(v * 10) / 10);
+}
+
 function newTarget(i) {
-  return { name: 'Target ' + (i + 1), enabled: true, trim: 1,
+  const t = { name: 'Target ' + (i + 1), enabled: true, trim: 1,
     wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
     layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false } };
+  Object.defineProperty(t, 'usage', { enumerable: true, get() { return usageOf(this.wled, this.layout); } });   // like the firmware, derived from the settings
+  return t;
 }
 
 function createDevice(opts) {
@@ -87,9 +102,17 @@ function createDevice(opts) {
           alias();
           return json(res, 200, state.cfg);
         }
+        if (p === '/api/usage') {         // the picture map for settings that are being edited: nothing is stored
+          state.lastUsagePost = d;
+          const T = state.cfg.targets[d.target || 0];
+          if (!T) return json(res, 400, { error: 'There is no target ' + ((d.target || 0) + 1) });
+          const w = Object.assign({}, T.wled, d.wled || {}), l = Object.assign({}, T.layout, d.layout || {});
+          if (w.count > 1000) return json(res, 400, { error: 'A target can have at most 1000 LEDs' });
+          return json(res, 200, { leds: w.count | 0, zones: usageOf(w, l) });
+        }
         if (p === '/api/export') {     // like the firmware: settings + calibrated tables; never Wi-Fi; the MQTT password only on request
           const cfg = JSON.parse(JSON.stringify(state.cfg)); delete cfg.wled; delete cfg.layout; delete cfg.mqtt.passSet;
-          cfg.targets.forEach(t => delete t.layout.hasTable);
+          cfg.targets.forEach(t => { delete t.layout.hasTable; delete t.usage; });
           if (d.secrets && state.mqttPass) cfg.mqtt.pass = state.mqttPass;
           const tables = Object.keys(state.maps).map(k => ({ target: +k, start: state.maps[k].start, count: state.maps[k].count, hex: state.maps[k].hex }));
           return json(res, 200, { format: 'fancy2wled-config', version: 2, firmware: 'mock', config: cfg, tables });

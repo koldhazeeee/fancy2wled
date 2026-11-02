@@ -188,6 +188,19 @@ void settingsReset() {
 }
 
 // ---------------------------------------------------------------- per-LED tables
+// The per-LED table of a target from its layout settings (n = its LED count, out has room for n entries).
+static void buildTable(const Target& t, int idx, fwb::Entry* out, int n) {
+  if (t.lType == LAYOUT_TABLE && gStoredN[idx] == n) {
+    for (int k = 0; k < n; k++) out[k] = fwb::Entry{gStored[idx][k * 4], gStored[idx][k * 4 + 1], gStored[idx][k * 4 + 2], gStored[idx][k * 4 + 3]};
+  } else if (t.lType == LAYOUT_LOOP) {
+    const bool custom = t.sides[0] > 0;
+    if (!fwb::tableLoop(out, n, t.corner, t.ccw, custom ? t.sides : nullptr, t.shift, t.aw, t.ah))
+      fwb::tableLinear(out, n, t.led0Right, t.spanFirst, t.spanLast, t.linEdge);
+  } else {   // linear (also the fallback when a calibrated table does not match the LED count)
+    fwb::tableLinear(out, n, t.led0Right, t.spanFirst, t.spanLast, t.linEdge);
+  }
+}
+
 void tableRebuild() {
   Lock l;
   const Settings& s = gSet;
@@ -207,16 +220,7 @@ void tableRebuild() {
       gTableCap[i] = gTable[i] ? n : 0;
       if (!gTable[i]) continue;
     }
-    fwb::Entry* out = gTable[i];
-    if (t.lType == LAYOUT_TABLE && gStoredN[i] == n) {
-      for (int k = 0; k < n; k++) out[k] = fwb::Entry{gStored[i][k * 4], gStored[i][k * 4 + 1], gStored[i][k * 4 + 2], gStored[i][k * 4 + 3]};
-    } else if (t.lType == LAYOUT_LOOP) {
-      const bool custom = t.sides[0] > 0;
-      if (!fwb::tableLoop(out, n, t.corner, t.ccw, custom ? t.sides : nullptr, t.shift, t.aw, t.ah))
-        fwb::tableLinear(out, n, t.led0Right, t.spanFirst, t.spanLast, t.linEdge);
-    } else {   // linear (also the fallback when a calibrated table does not match the LED count)
-      fwb::tableLinear(out, n, t.led0Right, t.spanFirst, t.spanLast, t.linEdge);
-    }
+    buildTable(t, i, gTable[i], n);
     gTableN[i] = n;
   }
   gSettingsGen++;
@@ -248,6 +252,10 @@ static void targetToJson(const Target& t, int i, JsonObject o) {
   for (int s = 0; s < 4; s++) sides.add(t.sides[s]);
   l2["shift"] = t.shift;
   l2["hasTable"] = gStoredN[i] > 0;
+  JsonArray ua = o["usage"].to<JsonArray>();                 // how many of its LEDs follow each picture zone (the setup page's picture map)
+  float u[fwb::kZones] = {};
+  if (gTable[i] && gTableN[i] > 0) fwb::zoneUsage(gTable[i], gTableN[i], u);
+  for (int z = 0; z < fwb::kZones; z++) ua.add(((int)(u[z] * 10.f + 0.5f)) / 10.f);
 }
 
 void settingsToJson(JsonDocument& d) {
@@ -418,6 +426,29 @@ String settingsFromJson(JsonVariantConst d, bool persist) {
   return "";
 }
 
+// The picture map for a target: how many of its LEDs follow each of the 24 zones. `req` holds an unsaved edit (the "wled" / "layout"
+// parts of a settings request); it is validated like a real one but nothing is stored. A null `req` means the saved settings.
+String targetUsage(int idx, JsonVariantConst req, float out[fwb::kZones], int* leds) {
+  Lock l;
+  for (int z = 0; z < fwb::kZones; z++) out[z] = 0.f;
+  *leds = 0;
+  if (idx < 0 || idx >= gSet.nTargets) return "There is no target " + String(idx + 1);
+  Target t = gSet.t[idx];
+  if (!req.isNull()) {
+    String e = applyTargetJson(t, idx, req, req["wled"], req["layout"]);
+    if (e.length()) return e;
+  }
+  const int n = t.wCount;
+  *leds = n;
+  if (n <= 0 || n > fwb::kMaxLeds) return "";
+  fwb::Entry* tb = (fwb::Entry*)malloc(sizeof(fwb::Entry) * n);
+  if (!tb) return "Out of memory";
+  buildTable(t, idx, tb, n);
+  fwb::zoneUsage(tb, n, out);
+  free(tb);
+  return "";
+}
+
 // ---------------------------------------------------------------- calibrated tables
 static int hexv(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -517,7 +548,7 @@ void settingsExport(JsonDocument& d, bool secrets) {
   d["config"] = c;
   d["config"].remove("wled");                         // only the list of targets is exported (the old names are just aliases of target 0)
   d["config"].remove("layout");
-  for (JsonObject tg : d["config"]["targets"].as<JsonArray>()) tg["layout"].remove("hasTable");   // derived, not a setting
+  for (JsonObject tg : d["config"]["targets"].as<JsonArray>()) { tg["layout"].remove("hasTable"); tg.remove("usage"); }   // derived, not settings
   d["config"]["mqtt"].remove("passSet");
   Lock l;
   if (secrets && gSet.mqttPass.length()) d["config"]["mqtt"]["pass"] = gSet.mqttPass;

@@ -241,6 +241,15 @@ void applyTable(const Entry* t, int count, const float zones[kZones][3], float* 
   }
 }
 // ---------------------------------------------------------------------------
+void zoneUsage(const Entry* t, int count, float out[kZones]) {
+  for (int z = 0; z < kZones; z++) out[z] = 0.f;
+  for (int i = 0; i < count; i++) {
+    const float w = t[i].f / 255.f;
+    out[t[i].a] += 1.f - w;
+    out[t[i].b] += w;
+  }
+}
+
 float leadBoost(float y, float yPrev, float boost) {
   const float b = boost < 0.f ? 0.f : (boost > 1.f ? 1.f : boost);
   const float v = y + b * kBoxLead * (y - yPrev);

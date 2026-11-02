@@ -11,6 +11,9 @@
 input[type=range].wide{width:100%}
 .sticky{position:sticky;bottom:0;background:var(--bg);padding:8px 0;border-top:1px solid var(--line);margin-top:12px}
 .sec h3{font-size:.95rem;margin:1rem 0 .3rem}
+.legend{display:flex;gap:6px 16px;flex-wrap:wrap;margin:.3rem 0}
+.chip{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:14px;border-radius:4px;display:inline-block;flex:0 0 auto}
 </style></head><body><main>
 <h1>Fancy2WLED</h1>
 
@@ -44,6 +47,13 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="tName">Name</label><input id="tName" maxlength="24" data-live="1"></div>
   <div class="row"><label for="tOn">Stream to this target</label><input id="tOn" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
   <div class="row"><label for="tTrim">This target's brightness compared with the others <span id="tTrimV"></span></label><input id="tTrim" type="range" min="0" max="1.5" step="0.05" data-live="1"></div>
+</div>
+
+<div class="card" id="mapCard">
+  <h2>Picture map</h2>
+  <p class="small mut">Which part of the picture each target follows. The grid is the Sync Box's 6 by 4 zones. A coloured block means that target's LEDs follow that zone; the darker the block, the more of its LEDs follow it (the corners usually come out darkest, because the stretch of strip past the TV holds the corner colour). The faded middle zones are never used: the box only drives the edges. Hover or tap a block for the numbers. The map follows your changes before you save them.</p>
+  <div id="mapLegend" class="legend small"></div>
+  <svg id="mapSvg" viewBox="0 0 500 312" role="img" aria-label="Which zones of the picture each target follows" style="width:100%;max-width:560px;display:block;margin:8px auto"></svg>
 </div>
 
 <div class="card">
@@ -170,6 +180,51 @@ input[type=range].wide{width:100%}
   function num(id,def){var v=parseInt($(id).value,10);return isNaN(v)?def:v;}
   function msg(html){$('saveMsg').innerHTML=html;}
 
+  /* ---------------------------------------------------------------- picture map */
+  var usage=[],usageTimer=null,COLORS=['#3b82f6','#f59e0b','#22c55e','#d946ef'],NS='http://www.w3.org/2000/svg';
+  function svgEl(name,attrs,parent){var e=document.createElementNS(NS,name);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+  function tview(i){                       // a target as the page shows it: the one being edited comes from the form (so unsaved changes count)
+    var t=(cfg&&cfg.targets&&cfg.targets[i])||{name:'WLED',enabled:true};
+    if(i===sel)return {name:$('tName').value||t.name,enabled:$('tOn').checked};
+    return {name:t.name,enabled:t.enabled!==false};
+  }
+  function drawMap(){
+    var svg=$('mapSvg'),n=(cfg&&cfg.targets)?cfg.targets.length:1,leg=$('mapLegend');
+    while(svg.firstChild)svg.removeChild(svg.firstChild);leg.innerHTML='';
+    var X=14,Y=14,W=472,H=262,cw=W/6,ch=H/4,tot=[],mx=[],i,z;
+    for(i=0;i<n;i++){var u=usage[i]||[],s=0,m=0;for(z=0;z<24;z++){var v=u[z]||0;s+=v;if(v>m)m=v;}tot[i]=s;mx[i]=m;}
+    svgEl('rect',{x:4,y:4,width:492,height:282,rx:14,fill:'none',stroke:'var(--mut)','stroke-width':3},svg);          // the TV
+    svgEl('path',{d:'M200 292 H300 M250 286 V292',stroke:'var(--mut)','stroke-width':3,fill:'none','stroke-linecap':'round'},svg);
+    for(z=0;z<24;z++){
+      var r=(z/6)|0,c=z%6,x=X+c*cw,y=Y+r*ch,inner=(r===1||r===2)&&c>=1&&c<=4;
+      var g=svgEl('g',{'data-zone':z,opacity:inner?0.4:1},svg);
+      svgEl('rect',{x:x,y:y,width:cw,height:ch,fill:'var(--bg)',stroke:'var(--line)'},g);
+      var users=[];for(i=0;i<n;i++)if((usage[i]||[])[z]>0.05)users.push(i);
+      users.forEach(function(ti,k){
+        var v=usage[ti][z],a=(0.2+0.8*v/mx[ti])*(tview(ti).enabled?1:0.35),sh=ch/users.length;
+        var rc=svgEl('rect',{x:x+1,y:y+1+k*sh,width:cw-2,height:Math.max(1,sh-2),fill:COLORS[ti%COLORS.length],'fill-opacity':a.toFixed(2),'data-t':ti,'data-z':z,
+          stroke:ti===sel?'var(--fg)':'none','stroke-opacity':0.8,'stroke-width':1.2},g);
+        svgEl('title',{},rc).textContent=tview(ti).name+': '+(Math.round(v*10)/10)+' LEDs ('+Math.round(100*v/tot[ti])+'% of its '+Math.round(tot[ti])+')'+(tview(ti).enabled?'':' - switched off');
+      });
+      var tx=svgEl('text',{x:x+5,y:y+13,'font-size':10,fill:'var(--fg)',opacity:0.75,stroke:'var(--bg)','stroke-width':3,'paint-order':'stroke'},g);tx.textContent=z;
+    }
+    for(i=0;i<n;i++){
+      var tv=tview(i),chip=document.createElement('span'),sw=document.createElement('i'),b=document.createElement('b');
+      chip.className='chip';sw.className='sw';sw.style.background=COLORS[i%COLORS.length];if(!tv.enabled)sw.style.opacity=0.35;
+      b.textContent=tv.name;if(i===sel)b.style.textDecoration='underline';
+      chip.appendChild(sw);chip.appendChild(b);chip.appendChild(document.createTextNode(tv.enabled?(tot[i]>0?' '+Math.round(tot[i])+' LEDs':' (no LEDs set)'):' (off)'));
+      leg.appendChild(chip);
+    }
+  }
+  function scheduleUsage(){                // ask the board how the unsaved settings would map (it uses the same code that drives the lights)
+    clearTimeout(usageTimer);
+    usageTimer=setTimeout(async function(){
+      if(problems())return;
+      var b=gather();
+      try{var r=await j('/api/usage',{target:sel,wled:b.wled,layout:b.layout});usage[sel]=r.zones;drawMap();}catch(e){}
+    },250);
+  }
+
   /* ---------------------------------------------------------------- status */
   async function status(){
     try{
@@ -280,7 +335,8 @@ input[type=range].wide{width:100%}
     var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+W.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
     $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';$('mqPerf').checked=!!M.perf;
-    vals();labels();info();setDirty(false);
+    usage=list.map(function(t){return t.usage||[];});
+    vals();labels();info();setDirty(false);drawMap();
   }
   function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
@@ -297,7 +353,7 @@ input[type=range].wide{width:100%}
 
   /* ---------------------------------------------------- live preview (unsaved) */
   function changed(){
-    vals();labels();info();setDirty(true);
+    vals();labels();info();setDirty(true);drawMap();scheduleUsage();
     clearTimeout(timer);
     timer=setTimeout(async function(){
       if(!testing)return;                       // only push changes live while the rainbow test is running

@@ -8,6 +8,8 @@ your lights and no PC has to stay on.
 * **Set up from your phone**: join the board's Wi-Fi, pick your network, find your WLED. Done.
 * **Up to four targets**: a strip behind the TV, a cabinet light, a second WLED. Each has its own LEDs, its own part of the picture
   to follow (the top, bottom, left or right edge, or all the way around) and its own brightness. One WLED can serve several targets.
+* **See what each target follows**: a *picture map* on the setup page shows the TV as the Sync Box's 6 by 4 grid with the zones every target pulls
+  from, each target in its own colour and shaded by how many of its LEDs use the zone. It redraws as you edit, before you save.
 * **Find your LEDs by sight**: a block of lit LEDs you slide along the strip, and red / blue markers that show where the run and the TV
   part start and end.
 * Streams ~30 fps to WLED over DDP, with smoothing, brightness/gamma/saturation and a **reaction boost** that cuts the delay
@@ -39,7 +41,7 @@ your lights and no PC has to stay on.
 3. **Open the setup page.** From any device on that network: **`http://fancy2wled.local`** (or the IP your router shows).
 4. **WLED:** press **Find** (or type its address), then **Check this WLED**. The **Targets** card at the top picks which target you are
    editing; press **Add a target** for each further strip or WLED (up to four) and give it a name.
-5. **Your LEDs** (for the target you picked): say *where* they are (above the TV, below it, left, right, or all the way around), how long the run is (first LED +
+5. **Your LEDs** (for the target you picked; the **Picture map** above shows which part of the screen each target will follow): say *where* they are (above the TV, below it, left, right, or all the way around), how long the run is (first LED +
    number of LEDs; e.g. the first 210 LEDs of the strip: first LED 0, length 210) and which part of the run covers the TV (e.g. LEDs
    83 to 163). Above the TV uses the *top* of the picture's colour map, below uses the *bottom*, left/right use that edge. Not sure
    where things are? Press **Find my LEDs** and drag the slider: a block of white LEDs lights up wherever you put it, with buttons to use
@@ -94,6 +96,7 @@ usual, then open the setup page and press **Import config**. The page shows a su
 | Setting | Meaning |
 |---|---|
 | WLED address | IP or `name.local` of your WLED |
+| Picture map | not a setting: the TV as a 6 by 4 grid with the zones each target follows highlighted in its colour, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`) |
 | Targets | up to four runs of LEDs, each on a WLED of its own or sharing one. Each has a name, an on/off switch, its WLED, its run, where it is (which edge of the picture it follows) and a brightness trim. The Look settings below are shared |
 | Where the LEDs are | above the TV (uses the top row of the picture's colour map), below it (bottom row), left or right of it (that column), all the way around it, or the phone-measured layout |
 | First LED / length of the run | the part of the WLED strip that belongs to the TV lighting (the rest is left alone) |

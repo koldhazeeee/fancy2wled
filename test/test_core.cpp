@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[200000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -110,6 +110,38 @@ int main(int argc, char** argv) {
         }
       }
       nClassify++;
+    } else if (k == "USAGE") {
+      // USAGE LINEAR count right first last edge z0..z23   |   USAGE LOOP count corner ccw z0..z23
+      char type[8];
+      int n0 = 0, count = 0;
+      sscanf(rest, "%7s%n", type, &n0);
+      const char* p = rest + n0;
+      std::vector<Entry> tbl;
+      int n = 0;
+      if (strcmp(type, "LINEAR") == 0) {
+        int right, sf, sl, edge;
+        sscanf(p, "%d %d %d %d %d%n", &count, &right, &sf, &sl, &edge, &n);
+        tbl.resize(count);
+        tableLinear(tbl.data(), count, right != 0, sf, sl, edge);
+      } else {
+        int corner, ccw;
+        sscanf(p, "%d %d %d%n", &count, &corner, &ccw, &n);
+        tbl.resize(count);
+        tableLoop(tbl.data(), count, corner, ccw != 0, nullptr, 0, 16, 9);
+      }
+      p += n;
+      float got[kZones], sum = 0.f, worst = 0.f;
+      zoneUsage(tbl.data(), count, got);
+      for (int z = 0; z < kZones; z++) {
+        char* e;
+        const float want = strtof(p, &e);
+        p = e;
+        sum += got[z];
+        worst = fmaxf(worst, fabsf(got[z] - want));
+      }
+      CHECK(fabsf(sum - count) < 0.01f * count + 0.01f, "usage %s n=%d: the zones add up to %.2f, not %d", type, count, sum, count);
+      CHECK(worst < 0.5f + 0.01f * count, "usage %s n=%d: worst zone differs from the reference by %.3f", type, count, worst);
+      nUsage++;
     } else if (k == "UV") {
       float u, v; int a, b, ff, dd;
       if (sscanf(rest, "%f %f %d,%d,%d,%d", &u, &v, &a, &b, &ff, &dd) == 6) {
@@ -260,6 +292,24 @@ int main(int argc, char** argv) {
     Entry l[180]; tableLinear(l, 180, false, 50, 130, 3);
     const SmoothInfo sl = smoothInfo(l, 180, 100);
     CHECK(sl.maskStart == (1u << 0) && sl.maskEnd == (1u << 18), "a left strip uses its corner zones (0 / 18): %x %x", sl.maskStart, sl.maskEnd); }
+  { // the picture map: which zones a strip follows (independent of the Python reference)
+    Entry top[210], right[266];
+    tableLinear(top, 210, false, 82, 172, 0);
+    tableLinear(right, 266, false, -1, -1, 1);
+    float ut[kZones], ur[kZones];
+    zoneUsage(top, 210, ut);
+    zoneUsage(right, 266, ur);
+    bool topOnly = true, rightOnly = true, interiorUnused = true;
+    for (int z = 0; z < kZones; z++) {
+      if (z > 5 && ut[z] > 0.001f) topOnly = false;                                     // a ceiling strip only follows the top row, zones 0-5
+      if (z != 5 && z != 11 && z != 17 && z != 23 && ur[z] > 0.001f) rightOnly = false;   // a strip on the right only follows that column
+      if ((z % 6 >= 1 && z % 6 <= 4 && z / 6 >= 1 && z / 6 <= 2) && (ut[z] > 0.001f || ur[z] > 0.001f)) interiorUnused = false;
+    }
+    CHECK(topOnly && rightOnly, "a ceiling strip follows only zones 0-5, a right-hand strip only the right column");
+    CHECK(interiorUnused, "the 8 inner zones are never used");
+    CHECK(ut[0] > ut[1] && ut[5] > ut[4] && ut[0] > 40.f, "the corner zones carry the stretch of strip beyond the TV (zone 0: %.1f, zone 1: %.1f)", ut[0], ut[1]);
+    CHECK(fabsf(ur[5] - ur[23]) < 2.f && ur[11] > 40.f, "a right-hand strip spreads over its column (zone 5: %.1f, 11: %.1f)", ur[5], ur[11]);
+  }
   { // time-based smoothing: same result however the time is sliced
     CHECK(fabsf(smoothDecay(0.5f, 33.333f, 33.333f) - 0.5f) < 1e-5f, "one reference tick leaves the setting's fraction");
     CHECK(fabsf(smoothDecay(0.5f, 66.667f, 33.333f) - 0.25f) < 1e-5f, "two reference ticks leave its square");
@@ -299,8 +349,8 @@ int main(int argc, char** argv) {
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }
 
-  printf("decode %d, classify %d, uv %d, linear %d, loop %d, apply %d, ddp %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUv, nLin, nLoop, nApply, nDdp, g_pass, g_fail);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

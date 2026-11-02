@@ -125,6 +125,15 @@ def table_loop(count, start_corner="top-left", direction="clockwise", sides=None
     return out
 
 
+def zone_usage(table):
+    """How many LEDs follow each of the 24 zones (an LED adds 1 - f/255 to zone a and f/255 to zone b). Mirrors zoneUsage() in src/core.cpp."""
+    out = [0.0] * 24
+    for a, b, f, _d in table:
+        out[a] += 1.0 - f / 255.0
+        out[b] += f / 255.0
+    return out
+
+
 def smoothstep(x):
     x = min(max(x, 0.0), 1.0)
     return x * x * (3.0 - 2.0 * x)

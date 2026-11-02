@@ -171,6 +171,33 @@ async function cdp(wsUrl) {
     await p.ev("document.getElementById('tDel').click(); 1"); await sleep(800);
     check('targets: Remove deletes the selected target and goes back to the first', dev.state.lastTargetsPost.action === 'remove' && dev.state.lastTargetsPost.index === 1 && dev.state.cfg.targets.length === 1 &&
       (await p.ev("document.getElementById('tSel').options.length")) === 1 && (await p.ev("document.getElementById('wHost').value")) === '192.0.2.50');
+    // the picture map: which zones each target follows, drawn from the settings (also unsaved ones)
+    {
+      const zonesOf = t => p.ev("JSON.stringify([...new Set(Array.from(document.querySelectorAll('#mapSvg rect[data-t=\"" + t + "\"]')).map(r => +r.getAttribute('data-z')))].sort((a,b)=>a-b))");
+      const alphaOf = (t, z) => p.ev("+document.querySelector('#mapSvg rect[data-t=\"" + t + "\"][data-z=\"" + z + "\"]').getAttribute('fill-opacity')");
+      check('map: a 6 by 4 grid is drawn', (await p.ev("document.querySelectorAll('#mapSvg g[data-zone]').length")) === 24);
+      check('map: a ceiling strip highlights the top row (zones 0-5) and nothing else', (await zonesOf(0)) === '[0,1,2,3,4,5]', await zonesOf(0));
+      check('map: the 8 middle zones are faded (never used)', (await p.ev("document.querySelector('#mapSvg g[data-zone=\"7\"]').getAttribute('opacity')")) === '0.4' && (await p.ev("document.querySelector('#mapSvg g[data-zone=\"0\"]').getAttribute('opacity')")) === '1');
+      check('map: the zone with the stretch past the TV is shaded darker than a middle one', (await alphaOf(0, 0)) > (await alphaOf(0, 2)), (await alphaOf(0, 0)) + ' vs ' + (await alphaOf(0, 2)));
+      check('map: hovering a block tells how many LEDs follow it', /Target 1: [0-9.]+ LEDs \(\d+% of its 210\)/.test(await p.ev("document.querySelector('#mapSvg rect[data-t=\"0\"][data-z=\"0\"] title').textContent")), await p.ev("document.querySelector('#mapSvg rect[data-t=\"0\"][data-z=\"0\"] title').textContent"));
+      dev.state.lastUsagePost = null;
+      await setv('lPlace', 'right', 'change'); await sleep(900);
+      check('map: moving the LEDs to the right edge (unsaved) redraws the right column', (await zonesOf(0)) === '[5,11,17,23]' && dev.state.lastUsagePost && dev.state.lastUsagePost.target === 0 && dev.state.lastUsagePost.layout.edge === 'right', await zonesOf(0));
+      await setv('lPlace', 'bottom', 'change'); await sleep(900);
+      check('map: the bottom edge highlights the bottom row (zones 18-23)', (await zonesOf(0)) === '[18,19,20,21,22,23]', await zonesOf(0));
+      await setv('lPlace', 'top', 'change'); await sleep(900);
+      await p.ev("document.getElementById('tOn').checked=false; document.getElementById('tOn').dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300);
+      check('map: switching a target off dims it and says so', (await alphaOf(0, 0)) < 0.5 && /\(off\)/.test(await p.ev("document.getElementById('mapLegend').textContent")), await p.ev("document.getElementById('mapLegend').textContent"));
+      await p.ev("document.getElementById('tOn').checked=true; document.getElementById('tOn').dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300);
+      // two targets: each in its own colour, and a zone both use is split between them
+      await p.ev("document.getElementById('tAdd').click(); 1"); await sleep(800);
+      await p.ev("var s=document.getElementById('tName'); s.value='Cabinet'; s.dispatchEvent(new Event('input',{bubbles:true})); 1");
+      await setv('wCount', 266); await setv('lPlace', 'right', 'change'); await sleep(900);
+      check('map: a second target gets its own colour and a legend entry', (await zonesOf(1)) === '[5,11,17,23]' && (await p.ev("document.getElementById('mapLegend').children.length")) === 2 && /Cabinet/.test(await p.ev("document.getElementById('mapLegend').textContent")) && (await p.ev("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('fill')")) !== (await p.ev("document.querySelector('#mapSvg rect[data-t=\"1\"]').getAttribute('fill')")), await p.ev("document.getElementById('mapLegend').textContent"));
+      check('map: a zone used by both targets (the top-right corner) is shared between them', (await p.ev("document.querySelectorAll('#mapSvg rect[data-z=\"5\"]').length")) === 2 && (await p.ev("document.querySelectorAll('#mapSvg rect[data-z=\"11\"]').length")) === 1);
+      await p.ev("document.getElementById('tDel').click(); 1"); await sleep(800);
+      check('map: removing the target removes its colour', (await p.ev("document.getElementById('mapLegend').children.length")) === 1 && (await zonesOf(1)) === '[]');
+    }
     // finder: a block of LEDs that can be moved, and used to set the run and the TV part
     dev.calls.length = 0;
     await p.ev("document.getElementById('fOpen').click(); 1"); await sleep(500);

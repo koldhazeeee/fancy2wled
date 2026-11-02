@@ -103,6 +103,8 @@ void settingsRevert();
 String tableStoreHex(int target, int start, int count, const char* hex, size_t hexLen);
 void tableRebuild();                        // regenerate every gTable from the layout settings
 bool tableHasStored(int target);
+// The picture map of a target: how many of its LEDs follow each zone (for an unsaved edit in `req`, or the saved settings when req is null).
+String targetUsage(int target, JsonVariantConst req, float out[fwb::kZones], int* leds);
 String targetAdd(int* index);               // new empty target at the end; "" or an error
 String targetRemove(int index);             // removes a target (the later ones move up); "" or an error
 

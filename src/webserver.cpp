@@ -261,6 +261,20 @@ static esp_err_t h_targets(httpd_req_t* req) {
   return h_config_get(req);
 }
 
+// The picture map for settings that are being edited but not saved: nothing is stored.
+static esp_err_t h_usage(httpd_req_t* req) {
+  NEED_JSON(doc);
+  float u[fwb::kZones];
+  int leds = 0;
+  String err = targetUsage(doc["target"] | 0, doc.as<JsonVariantConst>(), u, &leds);
+  if (err.length()) return sendError(req, "400 Bad Request", err);
+  JsonDocument d;
+  d["leds"] = leds;
+  JsonArray a = d["zones"].to<JsonArray>();
+  for (int z = 0; z < fwb::kZones; z++) a.add(((int)(u[z] * 10.f + 0.5f)) / 10.f);
+  return sendDoc(req, d);
+}
+
 static esp_err_t h_test(httpd_req_t* req) {
   NEED_JSON(doc);
   String p = doc["pattern"] | "off";
@@ -419,6 +433,7 @@ static const Route kRoutes[] = {
     {"/api/cal/led", HTTP_POST, h_cal_led},
     {"/api/cal/end", HTTP_POST, h_cal_end},
     {"/api/targets", HTTP_POST, h_targets},
+    {"/api/usage", HTTP_POST, h_usage},
     {"/api/wled/discover", HTTP_GET, h_wled_discover},
     {"/api/wled/info", HTTP_GET, h_wled_info},
     {"/api/wifi/scan", HTTP_GET, h_wifi_scan},

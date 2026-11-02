@@ -87,6 +87,11 @@ float smoothDecay(float smoothing, float dtMs, float refMs);
 constexpr float kBoxLead = 1.5f;
 float leadBoost(float y, float yPrev, float boost);
 
+// How many LEDs follow each picture zone: an LED adds (1 - f/255) to zone a and f/255 to zone b of its table entry, so the 24 numbers add
+// up to `count`. The setup page draws this as the "picture map" (which part of the screen each target pulls from). LEDs past the ends of the
+// TV hold the corner zone, so the corners usually come out highest.
+void zoneUsage(const Entry* table, int count, float out[kZones]);
+
 // out[i*3 + c] = colour of LED i.
 void applyTable(const Entry* table, int count, const float zones[kZones][3], float* out, const SmoothInfo& smooth);
 

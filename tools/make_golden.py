@@ -117,6 +117,17 @@ def main():
     e = layout.table_loop(142, "bottom-right", "counterclockwise", (46, 25, 46, 25), 0, (16, 9))
     lines.append("LOOP 142 2 1 46,25,46,25 0 16 9 %s" % ent(e))
 
+    # --- which zones a target follows (the picture map) ---------------------------------
+    for count, side, span, edge in [(150, "left", None, "top"), (210, "left", (82, 172), "top"), (266, "left", None, "right"), (100, "right", (20, 80), "bottom"),
+                                    (180, "left", (30, 120), "left"), (7, "left", None, "top")]:
+        tbl = layout.table_linear(count, side, span, edge=edge)
+        u = layout.zone_usage(tbl)
+        lines.append("USAGE LINEAR %d %d %d %d %d %s" % (count, side == "right", span[0] if span else -1, span[1] if span else -1, edges.index(edge), " ".join("%.3f" % x for x in u)))
+    for count, corner, direction in [(142, "top-left", "clockwise"), (200, "bottom-right", "counterclockwise")]:
+        tbl = layout.table_loop(count, corner, direction, None, 0, (16, 9))
+        u = layout.zone_usage(tbl)
+        lines.append("USAGE LOOP %d %d %d %s" % (count, ["top-left", "top-right", "bottom-right", "bottom-left"].index(corner), direction == "counterclockwise", " ".join("%.3f" % x for x in u)))
+
     # --- applying a table to zone colours, with smoothing beyond the TV ---------------
     for case in range(8):
         zones = [[float(rnd.randrange(256)) for _ in range(3)] for _ in range(24)]
