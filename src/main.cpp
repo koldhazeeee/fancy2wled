@@ -1,0 +1,29 @@
+// Fancy2WLED: Sync Box -> WLED relay for the M5Stack AtomS3 Lite (ESP32-S3).
+// Receives the Sync Box's UDP broadcast, maps its 24 picture zones onto your LEDs and sends them to WLED (DDP).
+#include <Arduino.h>
+#include <WiFi.h>
+
+#include "app.h"
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+  Serial.printf("\n" FWB_NAME " %s\n", FWB_VERSION);
+  settingsBegin();
+  ledStatusBegin();
+  wifiBegin();
+  if (!wifiIsAp()) relayBegin();
+  webBegin();
+  mqttBegin();
+}
+
+void loop() {
+  wifiLoop();
+  if (!wifiIsAp() && WiFi.status() == WL_CONNECTED) { relayLoop(); mqttLoop(); }
+  ledStatusLoop();
+  if (restartDue()) {
+    delay(100);
+    ESP.restart();
+  }
+  delay(1);
+}

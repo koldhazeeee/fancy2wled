@@ -1,0 +1,14 @@
+.pio/
+.vscode/
+__pycache__/
+*.pyc
+*.exe
+node_modules/
+# local captures and private notes never belong in the repo
+captures/
+*.pcapng
+*.etl
+config.json
+*.pdb
+*.lib
+*.ilk

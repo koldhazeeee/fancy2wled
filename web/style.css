@@ -1,0 +1,21 @@
+:root{--bg:#0f1115;--fg:#e8eaf0;--mut:#9aa3b2;--card:#181b22;--line:#2a2f3a;--acc:#4da3ff;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#f5b942}
+@media (prefers-color-scheme:light){:root{--bg:#f4f5f8;--fg:#14171c;--mut:#566070;--card:#fff;--line:#d9dde5;--acc:#1668d6;--ok:#17915f;--bad:#c93030;--warn:#a96d00}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px 16px 48px}
+h1{font-size:1.35rem;margin:.2rem 0 .8rem}h2{font-size:1.05rem;margin:0 0 .6rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:.5rem 0}
+.row>label{flex:1 1 150px;color:var(--mut);font-size:.9rem}
+input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;flex:2 1 160px}
+input[type=range]{padding:0}
+button,.btn{font:inherit;color:#fff;background:var(--acc);border:0;border-radius:10px;padding:10px 16px;cursor:pointer;text-decoration:none;display:inline-block}
+button.sec,.btn.sec{background:transparent;color:var(--fg);border:1px solid var(--line)}
+button.bad{background:var(--bad)}button:disabled{opacity:.5;cursor:default}
+.pill{display:inline-block;border-radius:99px;padding:2px 10px;font-size:.82rem;border:1px solid var(--line);color:var(--mut)}
+.pill.ok{color:var(--ok);border-color:var(--ok)}.pill.bad{color:var(--bad);border-color:var(--bad)}.pill.warn{color:var(--warn);border-color:var(--warn)}
+.mut{color:var(--mut)}.small{font-size:.85rem}.err{color:var(--bad)}.ok{color:var(--ok)}.warn{color:var(--warn)}
+.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden}.bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+code{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+ul{margin:.3rem 0 .3rem 1.2rem;padding:0}
+.hidden{display:none!important}

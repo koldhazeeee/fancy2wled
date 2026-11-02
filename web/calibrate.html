@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Auto-calibrate</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+.stage{position:relative;background:#000;border-radius:10px;overflow:hidden;line-height:0}
+.stage video{width:100%;height:auto;max-height:60vh;object-fit:contain;background:#000}
+.stage canvas{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+ol{padding-left:1.2rem}li{margin:.3rem 0}
+</style></head><body><main>
+<h1>Auto-calibrate with your phone</h1>
+<p class="mut"><a href="/">&larr; Setup</a></p>
+
+<div id="insecure" class="card hidden">
+  <h2>This page needs a secure connection for the camera</h2>
+  <p>Browsers only allow camera access on HTTPS. Open <a id="httpsLink" href="#">the HTTPS version of this page</a>.
+  Your phone will warn that the connection is not private, because the relay makes its own certificate. That is expected on your own network:
+  tap <b>Advanced</b> (Android) or <b>Show Details &rarr; visit this website</b> (iPhone) to continue.</p>
+</div>
+
+<div id="prep" class="card">
+  <h2>Before you start</h2>
+  <ol>
+    <li>On the device that feeds the TV (the one connected to the Sync Box), open <code id="scrUrl"></code> and make it full screen. It turns the TV black and white by itself.</li>
+    <li>Dim the room lights. The LEDs and TV must be much brighter than the room.</li>
+    <li>Stand in front of the TV, 2&ndash;4&nbsp;m away, holding the phone upright and steady (a stand or shelf is best). Keep the <b>whole TV and the LEDs</b> in view.</li>
+    <li>The TV will show nine small squares, then go white. They are used to measure the TV exactly, so nothing else bright should be in view.</li>
+  </ol>
+  <div class="row"><label for="rng">LED range</label>
+    <select id="rng"><option value="auto">Find it automatically</option><option value="manual">I know the range</option></select></div>
+  <div id="rngBox" class="row hidden"><label>First LED / how many</label>
+    <input id="rs" type="number" min="0" value="0" placeholder="first LED"><input id="rc" type="number" min="2" value="100" placeholder="count"></div>
+  <p class="small mut">Automatic mode lights the whole strip once to find which LEDs the camera can see. Give a range if some of your LEDs are out of view.
+  It then measures the part next to the TV more finely, so the whole thing takes about 2&ndash;3 minutes.</p>
+  <button id="cam">Start camera</button> <span id="camErr" class="err small"></span>
+</div>
+
+<div id="view" class="card hidden">
+  <div class="stage"><video id="v" playsinline muted autoplay></video><canvas id="ov"></canvas></div>
+  <div class="bar" style="margin:12px 0 6px"><i id="pb"></i></div>
+  <div id="msg">Aim the camera, then press Start.</div>
+  <div class="row"><button id="go">Start calibration</button><button id="again" class="sec hidden">Run again</button></div>
+</div>
+
+<div id="res" class="card hidden"></div>
+
+<script src="/analysis.js"></script>
+<script src="/calibration.js"></script>
+<script>
+(function(){
+  var $=function(i){return document.getElementById(i);};
+  var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
+  $('scrUrl').textContent='http://'+location.host+'/screen';
+  if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    $('insecure').classList.remove('hidden');$('httpsLink').href='https://'+location.host+'/calibrate';$('cam').disabled=true;
+  }
+  $('rng').onchange=function(){$('rngBox').classList.toggle('hidden',$('rng').value!=='manual');};
+
+  async function j(path,body){
+    var opt=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+    var r=await fetch(path,opt),t=await r.text(),d={};try{d=JSON.parse(t);}catch(e){}
+    if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;
+  }
+  var api={
+    prepare:async function(){var d=await j('/api/cal/begin',{});return{total:d.total};},
+    restore:async function(){try{await j('/api/cal/end',{});}catch(e){}},
+    release:async function(){},
+    led:function(s,c){return j('/api/cal/led',{start:s,count:c});},
+    screen:function(m){return j('/api/cal/screen',{mode:m});},
+    zones:function(){return j('/api/zones');}
+  };
+
+  var vid=$('v'),W=256,cvs=document.createElement('canvas'),ctx=cvs.getContext('2d',{willReadFrequently:true}),stream=null,wake=null,last=null;
+  function frame(){
+    var vw=vid.videoWidth,vh=vid.videoHeight;if(!vw)throw new Error('The camera is not delivering video yet.');
+    var H=Math.round(W*vh/vw);cvs.width=W;cvs.height=H;ctx.drawImage(vid,0,0,W,H);
+    var d=ctx.getImageData(0,0,W,H).data,img=FWB.newImg(W,H);
+    for(var i=0,n=W*H;i<n;i++)img.d[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+    return img;
+  }
+  var camera={grab:async function(n,gap){var f=[];for(var i=0;i<n;i++){await sleep(gap);f.push(frame());}last=f[f.length-1];return FWB.meanImgs(f);}};
+
+  $('cam').onclick=async function(){
+    $('camErr').textContent='';
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+      vid.srcObject=stream;await vid.play();
+      try{if(navigator.wakeLock)wake=await navigator.wakeLock.request('screen');}catch(e){}
+      $('prep').classList.add('hidden');$('view').classList.remove('hidden');
+    }catch(e){$('camErr').textContent='Camera error: '+(e&&e.message?e.message:e)+'. Allow camera access for this site and try again.';}
+  };
+
+  function progress(text,f){$('msg').textContent=text;$('pb').style.width=Math.round(f*100)+'%';}
+  function describe(s,count){
+    var tot=s.top+s.right+s.bottom+s.left,parts=[];
+    ['top','right','bottom','left'].forEach(function(k){if(s[k]>0.08*tot)parts.push(k+' ('+s[k]+')');});
+    if(parts.length===1)return 'The LEDs run along the '+parts[0].split(' ')[0]+' of the TV.';
+    return 'The LEDs go around the TV: '+parts.join(', ')+'.';
+  }
+  function draw(res){
+    var ov=$('ov'),st=ov.parentNode,bw=st.clientWidth,bh=st.clientHeight;ov.width=bw;ov.height=bh;
+    var c=ov.getContext('2d');c.clearRect(0,0,bw,bh);
+    var vw=vid.videoWidth,vh=vid.videoHeight,sc=Math.min(bw/vw,bh/vh),ox=(bw-vw*sc)/2,oy=(bh-vh*sc)/2,k=sc*vw/res.size[0];
+    function X(x){return ox+x*k;}function Y(y){return oy+y*k;}
+    c.lineWidth=3;c.strokeStyle='#3ecf8e';c.beginPath();
+    res.quad.forEach(function(p,i){i?c.lineTo(X(p[0]),Y(p[1])):c.moveTo(X(p[0]),Y(p[1]));});c.closePath();c.stroke();
+    c.fillStyle='#ffb020';res.samples.forEach(function(s){c.beginPath();c.arc(X(s.x),Y(s.y),3.5,0,7);c.fill();});
+    c.strokeStyle='#3ecf8e';c.lineWidth=2;(res.squares||[]).forEach(function(s){c.strokeRect(X(s.x)-5,Y(s.y)-5,10,10);});
+  }
+  function esc(s){return String(s).replace(/[&<>]/g,function(m){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[m];});}
+
+  async function run(){
+    $('go').disabled=true;$('again').classList.add('hidden');$('res').classList.add('hidden');$('ov').getContext('2d').clearRect(0,0,9999,9999);
+    var opts=null;
+    if($('rng').value==='manual')opts={range:[parseInt($('rs').value,10)||0,parseInt($('rc').value,10)||2]};
+    var t=Date.now();
+    try{
+      var res=await FWBCal.runCalibration({api:api,camera:camera,sleep:sleep,progress:progress,opts:opts});
+      progress('Done in '+Math.round((Date.now()-t)/1000)+' s',1);draw(res);show(res);
+    }catch(e){
+      progress(e&&e.userMessage?e.userMessage:'Something went wrong: '+(e&&e.message?e.message:e),0);
+      $('msg').className='err';
+      $('go').disabled=false;
+    }
+    $('again').classList.remove('hidden');
+  }
+  function show(res){
+    $('msg').className='';
+    var span=res.tvSpan?'<p>LEDs <b>'+res.tvSpan[0]+' to '+res.tvSpan[1]+'</b> are lined up with the width of the TV and follow the picture exactly. '+(res.beyond.max>0?'The LEDs beyond that fade smoothly toward the picture\'s average colour (you can change how far on the setup page, under <i>Smooth beyond the TV</i>).':''):'';
+    var w=res.warnings.map(function(x){return '<li class="warn">'+esc(x)+'</li>';}).join('');
+    $('res').innerHTML='<h2>Result</h2><p><b>'+res.count+' LEDs</b> starting at LED <b>'+res.start+'</b>. '+esc(describe(res.summary,res.count))+
+      '</p>'+span+'<p class="small mut">Green outline and squares: the TV I measured ('+esc(res.tv.method)+'). Orange dots: where the LED groups were seen. It took '+res.stats.seconds+' s.</p>'+(w?'<ul>'+w+'</ul>':'')+
+      '<div class="row"><button id="save">Save</button><button id="prev" class="sec hidden">Preview rainbow</button></div><div id="saved" class="small"></div>';
+    $('res').classList.remove('hidden');
+    $('save').onclick=async function(){
+      $('save').disabled=true;
+      try{
+        await j('/api/map',{start:res.start,count:res.count,hex:res.hex});
+        $('saved').innerHTML='<span class="ok">Saved. The relay is using this layout now.</span> <a href="/">Back to setup</a>';
+        $('prev').classList.remove('hidden');
+      }catch(e){$('saved').innerHTML='<span class="err">Could not save: '+esc(e.message)+'</span>';$('save').disabled=false;}
+    };
+    $('prev').onclick=function(){j('/api/test',{pattern:'rainbow',seconds:20}).then(function(){$('saved').innerHTML+=' <span class="mut">Showing a rainbow across the picture for 20 s: red on the left edge of the TV to violet on the right.</span>';});};
+  }
+  $('go').onclick=run;$('again').onclick=run;
+  window.addEventListener('beforeunload',function(){
+    if(navigator.sendBeacon)navigator.sendBeacon('/api/cal/end',new Blob(['{}'],{type:'application/json'}));});
+})();
+</script></main></body></html>

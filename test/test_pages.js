@@ -1,0 +1,210 @@
+// Loads the real web pages in headless Edge/Chrome (with a fake camera) against test/mock_device.js and checks they work.
+//   node test/test_pages.js        (needs Microsoft Edge or Google Chrome installed; skipped if neither is found)
+'use strict';
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawn } = require('child_process');
+const { createDevice } = require('./mock_device.js');
+
+const CANDIDATES = [
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  'C:/Program Files/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'];
+const exe = CANDIDATES.find(p => fs.existsSync(p));
+if (!exe) { console.log('no Chromium-based browser found; skipping page tests'); process.exit(0); }
+
+let pass = 0, fail = 0;
+const check = (n, c, x) => { if (c) pass++; else { fail++; console.log('FAIL: ' + n + (x !== undefined ? '  ' + x : '')); } };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function cdp(wsUrl) {
+  const ws = new WebSocket(wsUrl);
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  let id = 0; const waiting = {}; const logs = [];
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.id && waiting[m.id]) { waiting[m.id](m); delete waiting[m.id]; }
+    if (m.method === 'Runtime.exceptionThrown') logs.push('EXC ' + JSON.stringify(m.params.exceptionDetails.exception && m.params.exceptionDetails.exception.description || m.params.exceptionDetails.text));
+    if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') logs.push('console.error ' + m.params.args.map(a => a.value || a.description).join(' '));
+  };
+  const send = (method, params) => new Promise(r => { const i = ++id; waiting[i] = r; ws.send(JSON.stringify({ id: i, method, params: params || {} })); });
+  const ev = async expr => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); return r.result.result ? r.result.result.value : undefined; };
+  await send('Runtime.enable');
+  return { send, ev, logs, close: () => ws.close() };
+}
+
+(async function main() {
+  const dev = createDevice();
+  await new Promise(r => dev.server.listen(0, r));
+  const base = 'http://localhost:' + dev.server.address().port;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fwb-edge-'));
+  const proc = spawn(exe, ['--headless=new', '--remote-debugging-port=9333', '--user-data-dir=' + dir, '--no-first-run', '--no-default-browser-check',
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-gpu', 'about:blank'], { stdio: 'ignore' });
+  let targets = null;
+  for (let i = 0; i < 40 && !targets; i++) { try { targets = await (await fetch('http://127.0.0.1:9333/json')).json(); } catch (e) { await sleep(250); } }
+  if (!targets) { console.log('could not start the browser'); proc.kill(); process.exit(1); }
+  const newTab = async url => { const t = await (await fetch('http://127.0.0.1:9333/json/new?' + encodeURIComponent(url), { method: 'PUT' })).json(); return cdp(t.webSocketDebuggerUrl); };
+  try {
+    // ---- setup page
+    let p = await newTab(base + '/');
+    await sleep(1800);
+    check('index: loads status pills', (await p.ev("document.getElementById('pBox').textContent")).includes('13'), await p.ev("document.getElementById('pBox').textContent"));
+    check('index: main panel visible', await p.ev("!document.getElementById('main').classList.contains('hidden')"));
+    await p.ev("document.getElementById('wHost').value='192.0.2.50'; document.getElementById('wCount').value='150'; document.getElementById('lPlace').value='top'; document.getElementById('save').click(); 1");
+    await sleep(600);
+    check('index: Save posts the config', dev.state.cfg.wled.host === '192.0.2.50' && dev.state.cfg.wled.count === 150, JSON.stringify(dev.state.cfg.wled));
+    await p.ev("document.getElementById('wFind').click(); 1"); await sleep(500);
+    check('index: Find lists devices', (await p.ev("document.getElementById('wList').textContent")).includes('192.0.2.50'));
+    // smoothing slider is part of the live preview
+    await p.ev("var o=document.getElementById('kOut'); o.value='40'; o.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
+    check('index: smooth-beyond-TV slider shows its value', /40%/.test(await p.ev("document.getElementById('kOutV').textContent")));
+    // nudge buttons + range check
+    check('index: nudge buttons are built', (await p.ev("document.querySelectorAll('.nudge button').length")) >= 24);
+    await p.ev("document.getElementById('wStart').value='0'; document.querySelector('[data-nudge=wStart] button:last-child').click(); 1");
+    check('index: +10 nudge works', (await p.ev("document.getElementById('wStart').value")) === '10');
+    await p.ev("document.getElementById('wCount').value='595'; document.getElementById('wCount').dispatchEvent(new Event('input',{bubbles:true})); 1");
+    await sleep(200);
+    check('index: warns when the LED range does not exist', /do not all exist/.test(await p.ev("document.getElementById('rangeNote').textContent")), await p.ev("document.getElementById('rangeNote').textContent"));
+    // where the LEDs are -> which part of the colour map, and the page's LED numbers are the strip's own numbers
+    const setv = (id, v, ev) => p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('" + (ev || 'input') + "',{bubbles:true})); 1");
+    await setv('wStart', 100); await setv('wCount', 210); await setv('lPlace', 'top', 'change');
+    await setv('tvFirst', 150); await setv('tvLast', 230);
+    check('index: shows how much of the run the TV covers', /81 LEDs/.test(await p.ev("document.getElementById('tvNote').textContent")), await p.ev("document.getElementById('tvNote').textContent"));
+    check('index: ceiling explains it uses the top of the picture', /TOP of the picture/.test(await p.ev("document.getElementById('placeNote').textContent")));
+    dev.state.lastConfigPost = null; dev.state.test = null;
+    await p.ev("document.getElementById('test').click(); 1"); await sleep(700);
+    const post1 = dev.state.lastConfigPost && dev.state.lastConfigPost.layout;
+    check('index: LEDs above the TV -> straight run on the top edge, TV part sent relative to the run', post1 && post1.type === 'linear' && post1.edge === 'top' && post1.spanFirst === 50 && post1.spanLast === 130, JSON.stringify(post1));
+    check('index: the run itself is sent as first LED + length', dev.state.lastConfigPost.wled.start === 100 && dev.state.lastConfigPost.wled.count === 210);
+    check('index: rainbow test starts (preview config + test request)', dev.state.test && dev.state.test.pattern === 'rainbow' && dev.state.lastConfigPost.preview === true, JSON.stringify(dev.state.test));
+    dev.state.lastConfigPost = null;
+    await setv('lPlace', 'bottom', 'change'); await sleep(800);
+    check('index: LEDs below the TV -> bottom edge (live preview)', dev.state.lastConfigPost && dev.state.lastConfigPost.layout.edge === 'bottom' && dev.state.lastConfigPost.preview === true, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.layout));
+    dev.state.lastConfigPost = null;
+    await setv('lPlace', 'left', 'change'); await sleep(800);
+    check('index: vertical strip on the left -> left edge; direction reads top/bottom', dev.state.lastConfigPost && dev.state.lastConfigPost.layout.edge === 'left' &&
+      /top to bottom/.test(await p.ev("document.getElementById('lSide').options[0].textContent")), JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.layout));
+    await setv('lPlace', 'loop', 'change'); await sleep(200);
+    check('index: all the way around shows the loop controls, not the TV-part ones', await p.ev("document.getElementById('lLinear').classList.contains('hidden') && !document.getElementById('lLoop').classList.contains('hidden')"));
+    await setv('lPlace', 'top', 'change'); await sleep(200);
+    // markers: changing the run / TV part lights red + blue blocks on the strip
+    dev.state.mark = null;
+    await setv('tvFirst', 160); await sleep(700);
+    const mk = dev.state.mark && dev.state.mark.blocks;
+    const reds = mk && mk.filter(b => b.color[0] === 255 && b.color[1] === 0).map(b => b.start + '+' + b.count);
+    const blues = mk && mk.filter(b => b.color[2] === 255).map(b => b.start + '+' + b.count);
+    check('markers: red blocks at the TV part start (160) and end (230, last 3 LEDs = 228)', reds && reds.join(',') === '160+3,228+3', JSON.stringify(mk));
+    check('markers: blue blocks at the run start (100) and end (last 3 LEDs = 307)', blues && blues.join(',') === '100+3,307+3', JSON.stringify(mk));
+    check('markers: shown for 8 seconds after a change', dev.state.mark && dev.state.mark.seconds === 8);
+    dev.state.mark = null;
+    await p.ev("document.getElementById('markBtn').click(); 1"); await sleep(500);
+    check('markers: the button shows them for 30 seconds', dev.state.mark && dev.state.mark.seconds === 30, JSON.stringify(dev.state.mark));
+    // the TV part must lie inside the run
+    dev.state.lastConfigPost = null;
+    await setv('tvFirst', 50); await sleep(700);
+    dev.state.mark = null;
+    check('index: a TV part that starts before the run is refused with an explanation', /before the run begins/.test(await p.ev("document.getElementById('tvNote').textContent")) && dev.state.lastConfigPost === null, await p.ev("document.getElementById('tvNote').textContent"));
+    await setv('tvFirst', 150); await sleep(200);
+    // slide the TV part along the run, stopping at the ends of the run
+    dev.state.lastConfigPost = null;
+    await p.ev("document.querySelectorAll('#mover button')[2].click(); 1"); await sleep(900);
+    check('index: sliding the TV part previews live (+1)', dev.state.lastConfigPost && dev.state.lastConfigPost.layout.spanFirst === 51 && dev.state.lastConfigPost.layout.spanLast === 131, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.layout));
+    await p.ev("for(var k=0;k<20;k++)document.querySelectorAll('#mover button')[3].click(); 1"); await sleep(200);
+    check('index: the TV part stops at the end of the run (LED 309)', (await p.ev("document.getElementById('tvLast').value")) === '309', await p.ev("document.getElementById('tvFirst').value + ',' + document.getElementById('tvLast').value"));
+    check('index: unsaved changes are flagged', /Not saved/.test(await p.ev("document.getElementById('dirty').textContent")));
+    await p.ev("document.getElementById('test').click(); 1"); await sleep(300);
+    check('index: stopping the test sends pattern off', dev.state.test && dev.state.test.pattern === 'off', JSON.stringify(dev.state.test));
+    // Save sends the whole thing (not a preview)
+    await setv('tvFirst', 150); await setv('tvLast', 230); dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+    check('index: Save stores it (no preview flag)', dev.state.lastConfigPost && !dev.state.lastConfigPost.preview && dev.state.lastConfigPost.layout.spanFirst === 50, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.layout));
+    // finder: a block of LEDs that can be moved, and used to set the run and the TV part
+    dev.calls.length = 0;
+    await p.ev("document.getElementById('fOpen').click(); 1"); await sleep(500);
+    check('finder: opens a session', dev.calls.some(c => c.startsWith('POST /api/cal/begin')) && (await p.ev("!document.getElementById('fBox').classList.contains('hidden')")));
+    await setv('fPos', 150); await sleep(400);
+    check('finder: slider lights a block', dev.calls.some(c => c.includes('/api/cal/led') && c.includes('"start":150')), dev.calls.join(' ; '));
+    await setv('wStart', 0); await setv('wCount', 300);
+    await p.ev("document.getElementById('fFirst').click(); 1");
+    check('finder: "Run starts here" moves the start and keeps the end', (await p.ev("document.getElementById('wStart').value")) === '150' && (await p.ev("document.getElementById('wCount').value")) === '150', await p.ev("document.getElementById('wStart').value + '/' + document.getElementById('wCount').value"));
+    await setv('fPos', 199);
+    await p.ev("document.getElementById('fLast').click(); 1");
+    check('finder: "Run ends here" sets the length (block 199..208 -> 59 LEDs)', (await p.ev("document.getElementById('wCount').value")) === '59', await p.ev("document.getElementById('wCount').value"));
+    await setv('fPos', 160); await p.ev("document.getElementById('fTvFirst').click(); 1");
+    check('finder: "TV starts here"', (await p.ev("document.getElementById('tvFirst').value")) === '160');
+    await setv('fPos', 190); await p.ev("document.getElementById('fTvLast').click(); 1");
+    check('finder: "TV ends here" (end of the lit block)', (await p.ev("document.getElementById('tvLast').value")) === '199', await p.ev("document.getElementById('tvLast').value"));
+    await p.ev("document.getElementById('fClose').click(); 1"); await sleep(400);
+    check('finder: Done ends the session', dev.calls.some(c => c.startsWith('POST /api/cal/end')) && (await p.ev("document.getElementById('fBox').classList.contains('hidden')")));
+    // Home Assistant (MQTT) card + pause/resume
+    await setv('mqHost', '192.0.2.8'); await setv('mqUser', 'ha'); await setv('mqPass', 'secret');
+    await p.ev("document.getElementById('mqOn').checked=true; 1");
+    dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('mqSave').click(); 1"); await sleep(600);
+    const mq = dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt;
+    check('mqtt: Save sends the broker settings (and the password only because one was typed)', mq && mq.enabled === true && mq.host === '192.0.2.8' && mq.port === 1883 && mq.user === 'ha' && mq.pass === 'secret' && !('relay' in dev.state.lastConfigPost), JSON.stringify(mq));
+    check('mqtt: the password field is cleared after saving', (await p.ev("document.getElementById('mqPass').value")) === '');
+    dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('mqSave').click(); 1"); await sleep(500);
+    check('mqtt: saving again without typing a password leaves it unchanged (not sent)', dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt && !('pass' in dev.state.lastConfigPost.mqtt), JSON.stringify(dev.state.lastConfigPost));
+    await sleep(3300);
+    check('mqtt: shows when it is connected', /Connected to the broker/.test(await p.ev("document.getElementById('mqStatus').textContent")), await p.ev("document.getElementById('mqStatus').textContent"));
+    check('sync: pause button is shown', await p.ev("!document.getElementById('syncBtn').classList.contains('hidden') && document.getElementById('syncBtn').textContent === 'Pause sync'"));
+    dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('syncBtn').click(); 1"); await sleep(700);
+    check('sync: pressing it pauses and the button turns into Resume', dev.state.lastConfigPost && dev.state.lastConfigPost.relay.enabled === false && (await p.ev("document.getElementById('syncBtn').textContent")) === 'Resume sync', JSON.stringify(dev.state.lastConfigPost));
+    check('index: no script errors', p.logs.length === 0, p.logs.join(' | '));
+    p.close();
+
+    // ---- screen page follows the device
+    p = await newTab(base + '/screen');
+    await sleep(700);
+    dev.state.calActive = true; dev.state.screen = 'white'; await sleep(700);
+    check('screen: turns white', (await p.ev("document.body.className")).includes('white'), await p.ev("document.body.className"));
+    dev.state.screen = 'black'; await sleep(600);
+    check('screen: turns black', (await p.ev("document.body.className")) === 'run');
+    dev.state.screen = 'squares'; await sleep(700);
+    check('screen: squares mode', (await p.ev("document.body.className")) === 'run squares', await p.ev("document.body.className"));
+    const probe = `(function(){var c=document.getElementById("sq"),g=c.getContext("2d"),W=c.width,H=c.height;
+      function at(u,v){return g.getImageData(Math.round(u*W),Math.round(v*H),1,1).data[0];}
+      var us=[0.08,0.5,0.92],vs=[0.12,0.5,0.88],on=0,between=0;
+      for(var i=0;i<3;i++)for(var j=0;j<3;j++){if(at(us[i],vs[j])>200)on++;}
+      if(at(0.3,0.3)>50)between++;if(at(0.7,0.7)>50)between++;if(at(0.5,0.3)>50)between++;
+      return on+","+between+","+W+"x"+H;})()`;
+    const px = await p.ev(probe);
+    check('screen: nine white squares at the expected places, black in between', /^9,0,/.test(px), px);
+    dev.state.calActive = false; await sleep(600);
+    check('screen: back to idle', (await p.ev("document.body.className")) === '');
+    check('screen: no script errors', p.logs.length === 0, p.logs.join(' | '));
+    p.close();
+
+    // ---- calibration page, fake camera (a test pattern that does not react to the LEDs/TV, so it must fail politely)
+    dev.calls.length = 0;
+    p = await newTab(base + '/calibrate');
+    await sleep(1200);
+    check('calibrate: secure (localhost) so no HTTPS banner', await p.ev("document.getElementById('insecure').classList.contains('hidden')"));
+    await p.ev("document.getElementById('cam').click(); 1");
+    await sleep(2500);
+    check('calibrate: camera started', await p.ev("!document.getElementById('view').classList.contains('hidden') && document.getElementById('v').videoWidth > 0"), await p.ev("document.getElementById('camErr').textContent"));
+    await p.ev("document.getElementById('go').click(); 1");
+    let msg = '';
+    for (let i = 0; i < 60; i++) { await sleep(500); msg = await p.ev("document.getElementById('msg').textContent"); if (/did not see|could only find|too small|could not|Something went wrong/.test(msg)) break; }
+    check('calibrate: fails politely when the TV does not change', /did not see|could only find/.test(msg), msg);
+    const seq = dev.calls.filter(c => c.startsWith('POST /api/cal/')).map(c => c.split(' ')[1]);
+    check('calibrate: the TV is shown the squares first', dev.calls.some(c => c.indexOf('"mode":"squares"') > 0), dev.calls.join(' ; '));
+    check('calibrate: begin first, led off, screen black then white, end last', seq[0] === '/api/cal/begin' && seq.includes('/api/cal/screen') && seq[seq.length - 1] === '/api/cal/end', seq.join(' '));
+    check('calibrate: device left idle', dev.state.calActive === false && dev.state.screen === 'idle');
+    check('calibrate: no script errors', p.logs.length === 0, p.logs.join(' | '));
+    p.close();
+  } catch (e) {
+    check('page tests ran without crashing', false, e && e.stack);
+  } finally {
+    proc.kill();
+    dev.server.close();
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  }
+  console.log(pass + ' checks passed, ' + fail + ' failed');
+  console.log(fail ? 'SOME FAILED' : 'ALL PASSED');
+  process.exit(fail ? 1 : 0);
+})();

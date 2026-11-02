@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calibration screen</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font:20px/1.4 system-ui,sans-serif;color:#555}
+#m{display:flex;height:100%;align-items:center;justify-content:center;text-align:center;padding:24px}
+body.run{cursor:none}body.white{background:#fff}
+body.run #m{visibility:hidden}
+#sq{display:none;position:fixed;left:0;top:0;width:100%;height:100%;background:#000}
+body.squares #sq{display:block}
+#fs{color:#777;border:1px solid #333;background:none;border-radius:10px;padding:10px 18px;font:inherit;cursor:pointer;margin-top:14px}
+</style></head><body>
+<div id="m"><div>
+  <div>Fancy2WLED calibration screen</div>
+  <div style="font-size:.8em;margin-top:8px">Show this page <b>full screen on the device that feeds the TV</b> (the one connected to the Sync Box).<br>It turns black / white / squares by itself during calibration.</div>
+  <div id="st" style="font-size:.8em;margin-top:8px"></div>
+  <button id="fs">Go full screen</button>
+</div></div>
+<canvas id="sq"></canvas>
+<script>
+(function(){
+  /* Nine squares used to measure the TV exactly. Centres in picture coordinates; side = fraction of the picture WIDTH.
+     Keep in sync with SQUARES in analysis.js (a test checks this). */
+  var SQ={us:[0.08,0.5,0.92],vs:[0.12,0.5,0.88],side:0.06};
+  var mode='idle',fails=0,st=document.getElementById('st'),cv=document.getElementById('sq');
+  function drawSquares(){
+    var W=window.innerWidth,H=window.innerHeight;cv.width=W;cv.height=H;
+    var g=cv.getContext('2d'),s=SQ.side*W;
+    g.fillStyle='#000';g.fillRect(0,0,W,H);g.fillStyle='#fff';
+    for(var r=0;r<3;r++)for(var c=0;c<3;c++)g.fillRect(Math.round(SQ.us[c]*W-s/2),Math.round(SQ.vs[r]*H-s/2),Math.round(s),Math.round(s));
+  }
+  function apply(m){
+    if(m===mode)return;mode=m;
+    document.body.className=m==='white'?'run white':(m==='black'?'run':(m==='squares'?'run squares':''));
+    if(m==='squares')drawSquares();
+  }
+  window.addEventListener('resize',function(){if(mode==='squares')drawSquares();});
+  function poll(){
+    var x=new XMLHttpRequest();x.open('GET','/api/screen');x.timeout=2000;
+    x.onload=function(){try{apply(JSON.parse(x.responseText).mode);fails=0;st.textContent='Connected to the relay.';}catch(e){}setTimeout(poll,120);};
+    x.onerror=x.ontimeout=function(){fails++;if(fails>3){apply('idle');st.textContent='Cannot reach the relay ('+location.host+').';}setTimeout(poll,500);};
+    x.send();
+  }
+  document.getElementById('fs').onclick=function(){var e=document.documentElement;(e.requestFullscreen||e.webkitRequestFullscreen||function(){}).call(e);};
+  poll();
+})();
+</script></body></html>
