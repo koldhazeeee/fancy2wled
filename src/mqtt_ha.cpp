@@ -39,9 +39,14 @@ static void pub(const String& topic, const String& payload, bool retain, int qos
 }
 
 // ------------------------------------------------------------------ state
-static String stateJson(String* keyOut) {
-  RelayStatus s;
-  relayStatus(s);
+// What makes the published state change: cheap to build, compared 5 times a second.
+static String stateKey(const RelayStatus& s) {
+  Lock l;
+  return String(s.state) + (s.boxFps > 0.f ? "1" : "0") + (s.wledOk ? "1" : "0") + (gSet.enabled ? "1" : "0") + (int)(gSet.kBri * 100.f + 0.5f) + "," + gSet.kGam + "," +
+         (int)(gSet.kSat * 100.f + 0.5f) + "," + (int)(gSet.kSmo * 100.f + 0.5f) + "," + gSet.smoothOut + "," + (int)(gSet.kBoost * 100.f + 0.5f);
+}
+
+static String stateJson(const RelayStatus& s) {
   JsonDocument d;
   d["state"] = s.state;
   d["box_connected"] = s.boxFps > 0.f;
@@ -50,21 +55,21 @@ static String stateJson(String* keyOut) {
   d["wled_leds"] = s.wledLeds;
   d["rssi"] = WiFi.RSSI();
   d["uptime"] = (uint32_t)(millis() / 1000);
-  int bri, sat, smo, out;
+  int bri, sat, smo, out, boo;
   float gam;
   bool en;
   { Lock l;
     en = gSet.enabled;
-    bri = (int)(gSet.kBri * 100.f + 0.5f); sat = (int)(gSet.kSat * 100.f + 0.5f); smo = (int)(gSet.kSmo * 100.f + 0.5f);
+    bri = (int)(gSet.kBri * 100.f + 0.5f); sat = (int)(gSet.kSat * 100.f + 0.5f); smo = (int)(gSet.kSmo * 100.f + 0.5f); boo = (int)(gSet.kBoost * 100.f + 0.5f);
     out = gSet.smoothOut; gam = gSet.kGam; }
   d["enabled"] = en;
   d["brightness"] = bri > 100 ? 100 : bri;      // the Home Assistant control is 0-100 % (the setup page can go higher)
   d["gamma"] = gam;
   d["saturation"] = sat;
   d["smoothing"] = smo;
+  d["boost"] = boo;
   d["smooth_out"] = out;
   d["relaying"] = String(s.state) == "relaying";
-  if (keyOut) *keyOut = String(s.state) + (s.boxFps > 0.f ? "1" : "0") + (s.wledOk ? "1" : "0") + (en ? "1" : "0") + bri + "," + gam + "," + sat + "," + smo + "," + out;
   String o;
   serializeJson(d, o);
   return o;
@@ -141,6 +146,9 @@ static const PerfEnt kPerf[] = {
     {"perf_frame_avg", "Frame work (average)", "ms", "frame_avg_ms", nullptr},
     {"perf_frame_max", "Frame work (longest)", "ms", "frame_max_ms", nullptr},
     {"perf_out_fps", "Frames sent to WLED", "fps", "out_fps", nullptr},
+    {"perf_age_avg", "Delay to WLED (average)", "ms", "age_avg_ms", nullptr},
+    {"perf_age_max", "Delay to WLED (longest)", "ms", "age_max_ms", nullptr},
+    {"perf_box_gap_max", "Sync Box frame gap (longest)", "ms", "box_gap_max_ms", nullptr},
     {"perf_heap_free", "Free memory", "B", "heap_free", "data_size"},
     {"perf_heap_min", "Lowest free memory since boot", "B", "heap_min", "data_size"},
     {"perf_heap_big", "Largest free memory block", "B", "heap_big", "data_size"},
@@ -175,6 +183,16 @@ static String perfJson(const PerfSnapshot& p) {
   d["frame_avg_ms"] = r3(p.frameAvgMs);
   d["frame_max_ms"] = r3(p.frameMaxMs);
   d["out_fps"] = r1(p.outFps);
+  d["age_avg_ms"] = r1(p.ageAvgMs);
+  d["age_max_ms"] = r1(p.ageMaxMs);
+  d["box_gap_avg_ms"] = r1(p.boxGapAvgMs);
+  d["box_gap_max_ms"] = r1(p.boxGapMaxMs);
+  d["send_avg_ms"] = r3(p.sendAvgMs);
+  d["send_max_ms"] = r3(p.sendMaxMs);
+  JsonArray gh = d["gap_hist"].to<JsonArray>();
+  for (int i = 0; i < 11; i++) gh.add(p.gapHist[i]);
+  d["skipped"] = p.skipped;
+  d["send_fails"] = p.sendFails;
   d["heap_free"] = p.heapFree;
   d["heap_min"] = p.heapMin;
   d["heap_big"] = p.heapBig;
@@ -252,6 +270,7 @@ static void publishDiscovery() {
   number("gamma", "Gamma", 0.6f, 2.4f, 0.05f, "", "{{ value_json.gamma }}");
   number("saturation", "Saturation", 0, 200, 5, "%", "{{ value_json.saturation }}");
   number("smoothing", "Smoothing over time", 0, 90, 5, "%", "{{ value_json.smoothing }}");
+  number("boost", "Reaction boost", 0, 100, 5, "%", "{{ value_json.boost }}");
   number("smooth_out", "Smooth beyond the TV", 0, 100, 5, "%", "{{ value_json.smooth_out }}");
   button("rainbow", "Rainbow test", "mdi:looks", nullptr, false);
   button("stop_test", "Stop test", "mdi:stop", nullptr, false);
@@ -281,6 +300,7 @@ static bool applyLook(const String& key, const String& payload) {
   else if (key == "gamma" && v >= 0.6f && v <= 2.4f) look["gamma"] = v;
   else if (key == "saturation" && v >= 0.f && v <= 200.f) look["saturation"] = v / 100.f;
   else if (key == "smoothing" && v >= 0.f && v <= 90.f) look["smoothing"] = v / 100.f;
+  else if (key == "boost" && v >= 0.f && v <= 100.f) look["boost"] = v / 100.f;
   else if (key == "smooth_out" && v >= 0.f && v <= 100.f) look["smoothOut"] = v;
   else return false;
   return settingsFromJson(d.as<JsonVariantConst>(), true).length() == 0;
@@ -426,11 +446,12 @@ void mqttLoop() {
   }
   if (now - gLastCheck < 200) return;                     // look for a change 5 times a second (building the state JSON is not free)
   gLastCheck = now;
-  String key;
-  String json = stateJson(&key);
+  RelayStatus rs;
+  relayStatus(rs);
+  const String key = stateKey(rs);
   const bool changed = key != gLastKey;
   if (gForce || changed || now - gLastForce > 10000) {
-    pub(T("state"), json, false, 0);
+    pub(T("state"), stateJson(rs), false, 0);
     gLastKey = key;
     gLastForce = now;
     gForce = false;

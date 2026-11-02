@@ -27,7 +27,7 @@ Give the board a DHCP reservation if you like, but nothing depends on its addres
 | **WLED** (connectivity) | WLED was reachable the last time the board talked to it |
 | **Relaying** (running) | colours are being streamed to WLED right now |
 | **Sync Box frame rate**, **Wi-Fi signal**, **Uptime** | sensors (the last two are diagnostic) |
-| **Gamma**, **Saturation** (0-200 %), **Smoothing over time** (0-90 %), **Smooth beyond the TV** (0-100 %) | the *Look* settings, saved on the board |
+| **Gamma**, **Saturation** (0-200 %), **Smoothing over time** (0-90 %), **Reaction boost** (0-100 %, see [LATENCY.md](LATENCY.md)), **Smooth beyond the TV** (0-100 %) | the *Look* settings, saved on the board |
 | **Rainbow test**, **Stop test**, **Restart** (buttons) | the same as the setup page |
 
 The entities go *unavailable* when the board loses its connection to the broker (it announces `offline`, and the broker publishes the
@@ -45,12 +45,14 @@ board is working. Every 5 seconds it publishes to `<prefix>/perf` and Home Assis
 | **CPU core 0 / core 1 load** | % of the time each core was busy (core 0 mostly runs Wi-Fi; core 1 the relay loop) |
 | **Main loop busy / longest pass** | % of the time the relay loop spends working, and its slowest single pass in the window (a stall detector) |
 | **Frame work (average / longest)** | time to mix, smooth and send one frame to WLED |
-| **Frames sent to WLED** | frames per second actually sent |
+| **Frames sent to WLED** | frames per second actually sent (a still picture sends only a keep-alive each second) |
+| **Delay to WLED (average / longest)** | time from a Sync Box frame arriving to the first packet carrying it leaving for WLED |
+| **Sync Box frame gap (longest)** | the longest time between two Sync Box frames in the window (the `gap_hist` field of the `perf` message shows the whole spread) |
 | **Free memory / Lowest free memory since boot / Largest free memory block** | heap; the lowest value shows the worst moment since boot, the largest block shows fragmentation |
 | **Main task / MQTT task stack left** | stack bytes those tasks have never used (a small number would mean a risk of overflow) |
 
-Typical values on an AtomS3 Lite relaying a Sync Box to 210 LEDs at 30 fps: core 0 about 4 %, core 1 about 10 %, frame work about
-1.1 ms, about 150 KB of free memory.
+Typical values on an AtomS3 Lite relaying a Sync Box to 210 LEDs: core 0 about 4 %, core 1 about 9 %, main loop busy about 6 %, frame work
+about 1.1 ms, delay to WLED about 3 ms, about 155 KB of free memory.
 
 **Switched off, nothing is measured.** The CPU sampling timers are stopped, the counters do not run, nothing is published to `<prefix>/perf`,
 and the sensors are removed from Home Assistant again. While on it costs a little CPU (two small timer interrupts about 1400 times a second),
@@ -72,7 +74,7 @@ All under `<prefix>` (default `fancy2wled/<last 4 digits of the board id>`, chan
 | `<prefix>/status` | board -> broker (retained, last-will) | `online` / `offline` |
 | `<prefix>/state` | board -> broker | JSON: `state, enabled, box_connected, box_fps, wled_ok, wled_leds, rssi, uptime, brightness, gamma, saturation, smoothing, smooth_out, relaying` |
 | `<prefix>/sync/set` | -> board | `ON` / `OFF` (`1`/`0`, `true`/`false`) |
-| `<prefix>/look/<name>/set` | -> board | a number (the light's brightness slider uses `brightness`): `brightness` (0-100), `gamma` (0.6-2.4), `saturation` (0-200), `smoothing` (0-90), `smooth_out` (0-100) |
+| `<prefix>/look/<name>/set` | -> board | a number (the light's brightness slider uses `brightness`): `brightness` (0-100), `gamma` (0.6-2.4), `saturation` (0-200), `smoothing` (0-90), `boost` (0-100), `smooth_out` (0-100) |
 | `<prefix>/button/<name>/press` | -> board | `PRESS` for `rainbow`, `stop_test`, `restart` |
 | `homeassistant/<component>/<id>/<object>/config` | board -> broker (retained) | discovery messages |
 

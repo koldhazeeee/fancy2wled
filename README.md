@@ -96,9 +96,14 @@ usual, then open the setup page and press **Import config**. The page shows a su
 | Layout | calibrated table, a straight line, or around the TV |
 | Brightness / gamma / saturation | 1.0 = copy the box exactly. The box tops out around 200/255 for white; raise brightness if you want full white |
 | Smoothing over time | 0 = instant, 0.9 = slow fades (the box itself already smooths ~0.3 s) |
+| Reaction boost | 0 = follow the box exactly (default), 100 = undo the box's own smoothing so the lights react as fast as the picture. Try 50-70. See [docs/LATENCY.md](docs/LATENCY.md) |
 | Smooth beyond the TV | LEDs lined up with the TV follow the picture exactly; LEDs past its edges hold the colour of the corner zone at their end of the strip (for a ceiling strip: the top-left zone on the left, the top-right zone on the right), so a colour elsewhere on screen never reaches them. This setting only softens the hand-over right next to the TV's edge 100% = the whole tail, 0 = repeat the edge colour |
 
 ## Troubleshooting
+
+**The lights lag behind the picture.** Most of that delay is the Sync Box smoothing its own colours, then the Wi-Fi network delivering
+its broadcast in bursts. Turn up **Reaction boost** (Look) and see [docs/LATENCY.md](docs/LATENCY.md) for where the time goes, what to change
+on your network, and how to measure it (`tools/latency_test.py`).
 
 **"Sync Box: nothing yet".** The box broadcasts to the local subnet. The relay must be on the same Wi-Fi *and* the same
 subnet/VLAN. Broadcasts do not cross routers, and some access points / "client isolation" / "multicast-to-unicast" settings
@@ -140,11 +145,11 @@ pio run -e atoms3                 # compile the firmware
 
 * `web/` - the UI (setup, phone calibration, TV screen), compiled into the firmware.
 * `src/core.cpp` - frame decoding, zone -> LED mapping, DDP packets (no Arduino dependencies, tested on a PC).
-* `src/relay.cpp` - UDP in, smoothing, DDP out, WLED on/off handling, calibration and test pattern states.
+* `src/relay.cpp` - UDP in (sleeps until a packet arrives), reaction boost, time-based smoothing, DDP out (identical frames are not resent), WLED on/off handling, calibration and test pattern states.
 * `src/webserver.cpp` - HTTP on :80 and HTTPS on :443 (self-signed key generated on first boot), JSON API.
 * `src/mqtt_ha.cpp` - Home Assistant over MQTT (discovery, state, commands), runs in its own task.
 * `src/perf.cpp` - optional performance statistics (CPU load per core, memory, frame timing), only active when switched on.
-* `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator and `check_mqtt.py` (checks the board's MQTT discovery).
+* `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator, `check_mqtt.py` (checks the board's MQTT discovery) and `latency_test.py` (measures how fast the output follows a step).
 
 The image analysis for calibration runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only
 lights LEDs on request and stores the resulting table.

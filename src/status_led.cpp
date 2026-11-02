@@ -22,7 +22,12 @@ static RelayStatus gSt;
 
 void ledStatusBegin() { pinMode(kButtonPin, INPUT_PULLUP); }
 
-static void show(uint8_t r, uint8_t g, uint8_t b) { neopixelWrite(kLedPin, r, g, b); }
+static uint8_t gShown[3] = {255, 255, 255};
+static void show(uint8_t r, uint8_t g, uint8_t b) {        // the LED only needs telling when its colour changes
+  if (r == gShown[0] && g == gShown[1] && b == gShown[2]) return;
+  gShown[0] = r; gShown[1] = g; gShown[2] = b;
+  neopixelWrite(kLedPin, r, g, b);
+}
 
 // Tap: flip the sync on / off (saved, so it survives a restart; Home Assistant sees the change too).
 static void toggleSync() {

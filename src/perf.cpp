@@ -28,6 +28,11 @@ static uint32_t gPrevBusy[2], gPrevTotal[2];
 static uint32_t gWinStart = 0;
 static uint32_t gLoopT0 = 0, gLoopWork = 0, gLoopMax = 0;
 static uint32_t gFrameSum = 0, gFrameMax = 0, gFrameN = 0;
+static uint32_t gSendSum = 0, gSendMax = 0;
+static uint32_t gAgeSum = 0, gAgeMax = 0, gAgeN = 0;
+static uint32_t gGapSum = 0, gGapMax = 0, gGapN = 0, gPrevBox = 0;
+static uint32_t gSkipped = 0, gSendFails = 0;
+static uint16_t gGapHist[11];
 
 static void IRAM_ATTR sampleCore(int core) {
   gTotal[core]++;
@@ -75,6 +80,9 @@ void perfSync(bool wanted) {
     for (int c = 0; c < 2; c++) { gBusy[c] = gTotal[c] = 0; gPrevBusy[c] = gPrevTotal[c] = 0; }
     gLoopT0 = gLoopWork = gLoopMax = 0;
     gFrameSum = gFrameMax = gFrameN = 0;
+    gSendSum = gSendMax = gAgeSum = gAgeMax = gAgeN = gGapSum = gGapMax = gGapN = gPrevBox = 0;
+    gSkipped = gSendFails = 0;
+    memset(gGapHist, 0, sizeof gGapHist);
     gWinStart = micros();
     runOnCore(0, true);
     runOnCore(1, true);
@@ -94,10 +102,32 @@ void perfLoopEnd() {
   gLoopWork += d;
   if (d > gLoopMax) gLoopMax = d;
 }
-void perfFrame(uint32_t us) {
-  gFrameSum += us;
+void perfFrame(uint32_t workUs, uint32_t sendUs, uint32_t ageUs, bool firstOfBoxFrame) {
+  gFrameSum += workUs;
   gFrameN++;
-  if (us > gFrameMax) gFrameMax = us;
+  if (workUs > gFrameMax) gFrameMax = workUs;
+  gSendSum += sendUs;
+  if (sendUs > gSendMax) gSendMax = sendUs;
+  if (firstOfBoxFrame) {
+    gAgeSum += ageUs;
+    gAgeN++;
+    if (ageUs > gAgeMax) gAgeMax = ageUs;
+  }
+}
+void perfSkip() { gSkipped++; }
+void perfSendFail() { gSendFails++; }
+void perfBoxFrame(uint32_t nowUs) {
+  if (gPrevBox) {
+    const uint32_t gap = nowUs - gPrevBox;
+    gGapSum += gap;
+    gGapN++;
+    if (gap > gGapMax) gGapMax = gap;
+    static const uint32_t kEdgeUs[10] = {5000, 20000, 40000, 60000, 80000, 100000, 120000, 160000, 200000, 300000};
+    int b = 0;
+    while (b < 10 && gap >= kEdgeUs[b]) b++;
+    gGapHist[b]++;
+  }
+  gPrevBox = nowUs;
 }
 
 void perfTake(PerfSnapshot& p) {
@@ -116,6 +146,16 @@ void perfTake(PerfSnapshot& p) {
   p.frameAvgMs = gFrameN ? gFrameSum / 1000.f / gFrameN : 0.f;
   p.frameMaxMs = gFrameMax / 1000.f;
   p.outFps = p.windowS > 0.f ? gFrameN / p.windowS : 0.f;
+  p.boxGapAvgMs = gGapN ? gGapSum / 1000.f / gGapN : 0.f;
+  p.boxGapMaxMs = gGapMax / 1000.f;
+  p.sendAvgMs = gFrameN ? gSendSum / 1000.f / gFrameN : 0.f;
+  p.sendMaxMs = gSendMax / 1000.f;
+  p.ageAvgMs = gAgeN ? gAgeSum / 1000.f / gAgeN : 0.f;
+  p.ageMaxMs = gAgeMax / 1000.f;
+  memcpy(p.gapHist, gGapHist, sizeof gGapHist);
+  memset(gGapHist, 0, sizeof gGapHist);
+  p.skipped = gSkipped;
+  p.sendFails = gSendFails;
   p.heapFree = esp_get_free_heap_size();
   p.heapMin = esp_get_minimum_free_heap_size();
   p.heapBig = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
@@ -125,4 +165,6 @@ void perfTake(PerfSnapshot& p) {
   gWinStart = now;
   gLoopWork = gLoopMax = 0;
   gFrameSum = gFrameMax = gFrameN = 0;
+  gSendSum = gSendMax = gAgeSum = gAgeMax = gAgeN = gGapSum = gGapMax = gGapN = 0;
+  gSkipped = gSendFails = 0;
 }

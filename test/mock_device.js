@@ -15,7 +15,7 @@ function createDevice(opts) {
   const state = {
     cfg: { wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
       layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false },
-      look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, smoothOut: 100 }, box: { host: '' },
+      look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, smoothOut: 100 }, box: { host: '' },
       relay: { enabled: true }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
     screen: 'idle', calActive: false, map: null, test: null, total: opts.total || 600
   };

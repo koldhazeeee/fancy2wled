@@ -39,12 +39,25 @@ async function cdp(wsUrl) {
   await new Promise(r => dev.server.listen(0, r));
   const base = 'http://localhost:' + dev.server.address().port;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fwb-edge-'));
+  // The fake camera shows a flat grey picture that never changes (a Y4M file, looped). Chromium's own fake pattern has a moving dot and
+  // a clock, and now and then it fooled the calibration into "finding" a TV, which made this test nondeterministic.
+  const y4m = path.join(dir, 'flat-grey.y4m');
+  { const w = 320, h = 240, frame = Buffer.concat([Buffer.from('FRAME\n'), Buffer.alloc(w * h, 100), Buffer.alloc(w * h / 2, 128)]);
+    fs.writeFileSync(y4m, Buffer.concat([Buffer.from('YUV4MPEG2 W' + w + ' H' + h + ' F10:1 Ip A1:1 C420jpeg\n'), ...Array(10).fill(frame)])); }
   const proc = spawn(exe, ['--headless=new', '--remote-debugging-port=9333', '--user-data-dir=' + dir, '--no-first-run', '--no-default-browser-check',
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-gpu', 'about:blank'], { stdio: 'ignore' });
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--use-file-for-fake-video-capture=' + y4m, '--disable-gpu', 'about:blank'], { stdio: 'ignore' });
   let targets = null;
   for (let i = 0; i < 40 && !targets; i++) { try { targets = await (await fetch('http://127.0.0.1:9333/json')).json(); } catch (e) { await sleep(250); } }
   if (!targets) { console.log('could not start the browser'); proc.kill(); process.exit(1); }
-  const newTab = async url => { const t = await (await fetch('http://127.0.0.1:9333/json/new?' + encodeURIComponent(url), { method: 'PUT' })).json(); return cdp(t.webSocketDebuggerUrl); };
+  // A tab the browser thinks is hidden gets its timers throttled to one a second, which turns the 8 s calibration run into minutes
+  // (and made this test flaky), so every new tab is brought to the front and made to look focused.
+  const newTab = async url => {
+    const t = await (await fetch('http://127.0.0.1:9333/json/new?' + encodeURIComponent(url), { method: 'PUT' })).json();
+    const c = await cdp(t.webSocketDebuggerUrl);
+    await c.send('Page.enable'); await c.send('Page.bringToFront'); await c.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    await fetch('http://127.0.0.1:9333/json/activate/' + t.id);
+    return c;
+  };
   try {
     // ---- setup page
     let p = await newTab(base + '/');
@@ -59,6 +72,13 @@ async function cdp(wsUrl) {
     // smoothing slider is part of the live preview
     await p.ev("var o=document.getElementById('kOut'); o.value='40'; o.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
     check('index: smooth-beyond-TV slider shows its value', /40%/.test(await p.ev("document.getElementById('kOutV').textContent")));
+    check('index: reaction boost starts at 0 (off)', (await p.ev("document.getElementById('kBoost').value")) === '0' && /0%/.test(await p.ev("document.getElementById('kBoostV').textContent")));
+    await p.ev("var b=document.getElementById('kBoost'); b.value='60'; b.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
+    check('index: reaction boost slider shows its value', /60%/.test(await p.ev("document.getElementById('kBoostV').textContent")));
+    dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+    check('index: Save sends the boost as a fraction (0.6)', dev.state.lastConfigPost && dev.state.lastConfigPost.look && Math.abs(dev.state.lastConfigPost.look.boost - 0.6) < 1e-9, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+    await p.ev("var b=document.getElementById('kBoost'); b.value='0'; b.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(500);
     // nudge buttons + range check
     check('index: nudge buttons are built', (await p.ev("document.querySelectorAll('.nudge button').length")) >= 24);
     await p.ev("document.getElementById('wStart').value='0'; document.querySelector('[data-nudge=wStart] button:last-child').click(); 1");
@@ -227,8 +247,18 @@ async function cdp(wsUrl) {
     await sleep(2500);
     check('calibrate: camera started', await p.ev("!document.getElementById('view').classList.contains('hidden') && document.getElementById('v').videoWidth > 0"), await p.ev("document.getElementById('camErr').textContent"));
     await p.ev("document.getElementById('go').click(); 1");
-    let msg = '';
-    for (let i = 0; i < 60; i++) { await sleep(500); msg = await p.ev("document.getElementById('msg').textContent"); if (/did not see|could only find|too small|could not|Something went wrong/.test(msg)) break; }
+    let msg = ''; const calT0 = Date.now();
+    for (let i = 0; i < 240; i++) { await sleep(500); msg = await p.ev("document.getElementById('msg').textContent"); if (/did not see|could only find|too small|could not|Something went wrong|^Done in/.test(msg)) break; }   // up to 2 minutes: the fake-camera scan takes 15-40 s depending on how busy the machine is
+    if (process.env.PAGE_TEST_TIMING) console.log('calibration page run took ' + ((Date.now() - calT0) / 1000).toFixed(1) + ' s');
+    if (process.env.PAGE_TEST_DIAG && Date.now() - calT0 > 40000) {
+      console.log('DIAG msg: ' + msg);
+      console.log('DIAG last calls: ' + dev.calls.slice(-6).join(' ; '));
+      console.log('DIAG visibility: ' + await p.ev('document.visibilityState + " hasFocus=" + document.hasFocus()'));
+      console.log('DIAG video: ' + await p.ev('(function(){var v=document.getElementById("v");return v.readyState+" paused="+v.paused+" t="+v.currentTime.toFixed(2)+" "+v.videoWidth+"x"+v.videoHeight;})()'));
+      const t1 = await p.ev('document.getElementById("v").currentTime'); await sleep(1500); const t2 = await p.ev('document.getElementById("v").currentTime');
+      console.log('DIAG video clock advancing: ' + (t2 > t1) + ' (' + t1 + ' -> ' + t2 + ')');
+      console.log('DIAG page logs: ' + p.logs.join(' | '));
+    }
     check('calibrate: fails politely when the TV does not change', /did not see|could only find/.test(msg), msg);
     const seq = dev.calls.filter(c => c.startsWith('POST /api/cal/')).map(c => c.split(' ')[1]);
     check('calibrate: the TV is shown the squares first', dev.calls.some(c => c.indexOf('"mode":"squares"') > 0), dev.calls.join(' ; '));

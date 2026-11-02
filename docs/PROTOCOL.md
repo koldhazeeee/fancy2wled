@@ -60,6 +60,12 @@ Each zone behaves like an *area average* of its region (a small bright square gi
 the zone), but the regions overlap their neighbours a little - a bright block exactly filling one tile also leaks into
 the next zone.
 
+## Delivery
+
+The box sends a frame about 14 times a second to `255.255.255.255` / the subnet broadcast address. Through an access point they do not
+necessarily arrive evenly: on the measured network most arrived back-to-back or about 102 ms apart (the beacon interval), see
+[LATENCY.md](LATENCY.md). A receiver should use the newest frame and not assume a steady cadence.
+
 ## Colour processing in the box
 
 What comes out is not the raw picture:
@@ -68,7 +74,11 @@ What comes out is not the raw picture:
 * The maximum is about 200/255 for white and mixed colours (pure red/blue reach ~250).
 * Green is yellowish: full-screen green arrived as about `(117, 195, 11)`.
 * All 24 zones have identical gain and are neutral to within ~2 %.
-* Temporal smoothing of roughly 300 ms (10-90 % rise/fall).
+* Temporal smoothing: each frame the output moves 40 % of the way to the target, `y = 0.6 * previous y + 0.4 * target`, at about 14
+  frames a second (about 140 ms to half way, 350 ms to 90 %; 10-90 % rise is roughly 300 ms). Measured on a Sync Box FSB3P2.1 from 8,400
+  pairs of consecutive same-direction changes in a 60 s capture: the ratio `d[n+1] / d[n]` peaks sharply at 0.6 (median 0.59), which is
+  what a first-order filter gives while its input is constant. Undoing it needs only the previous frame:
+  `target = y + 1.5 * (y - previous y)`; see [LATENCY.md](LATENCY.md).
 
 The relay copies these values as they are, so the WLED strip mimics what the box's own strip would show. The
 brightness / gamma / saturation settings are there if you prefer something closer to the screen.

@@ -47,6 +47,7 @@ static void loadFromFlash() {
   s.kGam = gF("kGam", 1.f);
   s.kSat = gF("kSat", 1.f);
   s.kSmo = gF("kSmo", 0.5f);
+  s.kBoost = gF("kBoost", 0.f);
   s.enabled = gB("enabled", true);
   s.mqttOn = gB("mqOn", false);
   s.mqttHost = gS("mqHost", "");
@@ -108,6 +109,7 @@ void settingsSave() {
   prefs.putFloat("kGam", s.kGam);
   prefs.putFloat("kSat", s.kSat);
   prefs.putFloat("kSmo", s.kSmo);
+  prefs.putFloat("kBoost", s.kBoost);
   prefs.putBool("enabled", s.enabled);
   prefs.putBool("mqOn", s.mqttOn);
   prefs.putString("mqHost", s.mqttHost);
@@ -183,6 +185,7 @@ void settingsToJson(JsonDocument& d) {
   k["gamma"] = s.kGam;
   k["saturation"] = s.kSat;
   k["smoothing"] = s.kSmo;
+  k["boost"] = s.kBoost;
   k["smoothOut"] = s.smoothOut;
   d["box"]["host"] = s.boxHost;
   d["relay"]["enabled"] = s.enabled;
@@ -320,6 +323,7 @@ String settingsFromJson(JsonVariantConst d, bool persist) {
   if (!k["gamma"].isNull()) n.kGam = clampf(k["gamma"].as<float>(), 0.3f, 4.f);
   if (!k["saturation"].isNull()) n.kSat = clampf(k["saturation"].as<float>(), 0.f, 3.f);
   if (!k["smoothing"].isNull()) n.kSmo = clampf(k["smoothing"].as<float>(), 0.f, 0.95f);
+  if (!k["boost"].isNull()) n.kBoost = clampf(k["boost"].as<float>(), 0.f, 1.f);
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
   if (!b["host"].isNull()) n.boxHost = b["host"].as<String>();
   if (!d["relay"]["enabled"].isNull()) n.enabled = d["relay"]["enabled"].as<bool>();

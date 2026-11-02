@@ -27,5 +27,5 @@ void loop() {
     ESP.restart();
   }
   if (gPerfOn) perfLoopEnd();
-  delay(1);
+  relayWait(10);                     // sleeps until a Sync Box packet arrives or the relay has something to do (at most 10 ms)
 }

@@ -213,6 +213,19 @@ void applyTable(const Entry* t, int count, const float zones[kZones][3], float* 
   }
 }
 // ---------------------------------------------------------------------------
+float leadBoost(float y, float yPrev, float boost) {
+  const float b = boost < 0.f ? 0.f : (boost > 1.f ? 1.f : boost);
+  const float v = y + b * kBoxLead * (y - yPrev);
+  return v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+}
+
+float smoothDecay(float smoothing, float dtMs, float refMs) {
+  const float s = smoothing < 0.f ? 0.f : (smoothing > 0.95f ? 0.95f : smoothing);
+  if (dtMs <= 0.f) return 1.f;          // no time has passed: nothing moves
+  if (s <= 0.f || refMs <= 0.f) return 0.f;   // no smoothing: jump straight to the target
+  return powf(s, dtMs / refMs);
+}
+
 void ddpHeader(uint8_t* o, uint8_t seq, uint8_t dataType, uint32_t byteOffset, uint16_t length, bool push) {
   o[0] = 0x40 | (push ? 0x01 : 0x00);  // version 1, PUSH flag
   o[1] = seq;

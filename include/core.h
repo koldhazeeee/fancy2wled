@@ -58,6 +58,19 @@ struct SmoothInfo {
 };
 SmoothInfo smoothInfo(const Entry* table, int count, int percent);   // percent: 0 = off, 100 = reach the average at the strip end
 
+// Temporal smoothing that does not depend on how often it runs. `smoothing` is the setting (0 = none .. 0.95 = very slow) and
+// is the fraction of the remaining distance to the target that is left after one reference tick (refMs, e.g. 33 ms at 30 fps).
+// Returns the fraction left after dtMs: cur = target + (cur - target) * smoothDecay(...). Applying it in many small steps gives
+// the same result as one big step, so an extra frame in between ticks does not change how the lights feel.
+float smoothDecay(float smoothing, float dtMs, float refMs);
+
+// The Sync Box smooths its own output before broadcasting it: each frame it moves 40 % of the way to the new colour
+// (y = 0.6 * previous y + 0.4 * target; measured on a real box, see docs/PROTOCOL.md). That is most of the delay between the picture and
+// the lights. Undoing it needs only the previous frame: target = y + k * (y - previous y) with k = 0.6 / 0.4 = 1.5. `boost` blends
+// between the box's own (smoothed) value (0) and the reconstructed target (1). The result is clamped to a valid colour.
+constexpr float kBoxLead = 1.5f;
+float leadBoost(float y, float yPrev, float boost);
+
 // out[i*3 + c] = colour of LED i.
 void applyTable(const Entry* table, int count, const float zones[kZones][3], float* out, const SmoothInfo& smooth);
 

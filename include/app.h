@@ -40,6 +40,7 @@ struct Settings {
   bool enabled = true;                 // false = paused: nothing is streamed and WLED is handed back (Home Assistant switch)
   // look
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
+  float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
   int smoothOut = 100;                 // 0 = off .. 100: LEDs beyond the TV settle on their end-corner zone colour (softens the hand-over at the TV edge)
   int fps = 30;
   // Home Assistant over MQTT (discovery): the board connects OUT to the broker
@@ -96,6 +97,7 @@ struct RelayStatus {
 };
 
 void relayBegin();
+void relayWait(uint32_t maxMs);              // sleep until a Sync Box packet arrives or the relay needs to act (max maxMs)
 void relayLoop();
 void relayStatus(RelayStatus& s);
 bool relayZones(uint8_t zones[fwb::kZones][3], uint32_t* ageMs);   // latest decoded frame
@@ -125,6 +127,11 @@ struct PerfSnapshot {
   float loopBusy = 0, loopMaxMs = 0;       // % of the time the main loop spends working; its longest pass (ms)
   float frameAvgMs = 0, frameMaxMs = 0;    // time to build and send one frame to WLED
   float outFps = 0, windowS = 0;           // frames sent per second; length of the measuring window
+  float boxGapAvgMs = 0, boxGapMaxMs = 0;  // time between Sync Box frames (source cadence and Wi-Fi jitter)
+  float sendAvgMs = 0, sendMaxMs = 0;      // time to hand one frame to the network stack
+  float ageAvgMs = 0, ageMaxMs = 0;        // delay from reading a Sync Box frame to the first packet to WLED that carries it
+  uint16_t gapHist[11] = {0};              // Sync Box frame gaps: <5, <20, <40, <60, <80, <100, <120, <160, <200, <300, >=300 ms
+  uint32_t skipped = 0, sendFails = 0;     // output frames not sent because they were identical to the last; packets the stack refused
   uint32_t heapFree = 0, heapMin = 0, heapBig = 0;   // bytes: free now, lowest since boot, largest free block
   uint32_t stackLoop = 0, stackMqtt = 0;   // bytes of stack the main task / MQTT task have never used
 };
@@ -132,7 +139,10 @@ extern volatile bool gPerfOn;              // true while statistics are being co
 void perfSync(bool wanted);                // start / stop collecting (starts or stops the sampling timers)
 void perfLoopBegin();                      // call only when gPerfOn
 void perfLoopEnd();
-void perfFrame(uint32_t us);
+void perfFrame(uint32_t workUs, uint32_t sendUs, uint32_t ageUs, bool firstOfBoxFrame);
+void perfBoxFrame(uint32_t nowUs);         // a Sync Box frame was read
+void perfSkip();                           // an output frame identical to the last one was not sent
+void perfSendFail();                       // the network stack refused a packet
 void perfTake(PerfSnapshot& p);            // statistics since the last call; starts a new window
 
 String mqttBaseTopic();                     // the configured topic prefix, or the default

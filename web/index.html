@@ -98,6 +98,8 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="kGam">Gamma <span id="kGamV"></span></label><input id="kGam" type="range" min="0.6" max="2.4" step="0.05" data-live="1"></div>
   <div class="row"><label for="kSat">Saturation <span id="kSatV"></span></label><input id="kSat" type="range" min="0" max="2" step="0.05" data-live="1"></div>
   <div class="row"><label for="kSmo">Smoothing over time <span id="kSmoV"></span></label><input id="kSmo" type="range" min="0" max="0.9" step="0.05" data-live="1"></div>
+  <div class="row"><label for="kBoost">Reaction boost <span id="kBoostV"></span></label><input id="kBoost" type="range" min="0" max="100" step="5" data-live="1"></div>
+  <p class="small mut">The Sync Box smooths its own colours (about 0.14 s per step), which is most of the delay between the picture and the lights. <b>Reaction boost</b> undoes that smoothing: 0 follows the box exactly, 100 reacts straight away. At high values fast flashes look sharper and a dark scene can flick to black a little early.</p>
   <div class="row"><label for="kOut">Smooth beyond the TV <span id="kOutV"></span></label><input id="kOut" type="range" min="0" max="100" step="5" data-live="1"></div>
   <p class="small mut">LEDs along the TV follow the picture exactly. LEDs past the edge of the TV show the colour of the corner zone at their end of the strip (for LEDs on the ceiling: the top-left zone at the left end, the top-right zone at the right end),
   reaching it at the end of the strip. 100% = it takes the whole strip, lower = it blends faster, 0 = the end LEDs just repeat the TV's edge colour.</p>
@@ -237,14 +239,14 @@ input[type=range].wide{width:100%}
     var L=c.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
     $('tvFirst').value=L.spanFirst>=0?L.spanFirst+c.wled.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+c.wled.start:'';
     $('lCorner').value=L.corner;$('lDir').value=L.ccw?1:0;for(var i=0;i<4;i++)$('lS'+i).value=L.sides[i]>0?L.sides[i]:'';$('lShift').value=L.shift;
-    $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;
+    $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;$('kBoost').value=Math.round(100*(c.look.boost||0));
     $('lPlace').querySelector('option[value=table]').disabled=!L.hasTable;
     var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+c.wled.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
     $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';$('mqPerf').checked=!!M.perf;
     vals();labels();info();setDirty(false);
   }
-  function vals(){['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';}
+  function vals(){['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
   function gather(){
     var p=place(),s=tvSpan(),lay;
@@ -253,7 +255,7 @@ input[type=range].wide{width:100%}
     if(linear())lay.edge=p;
     return {wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
-      look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),smoothOut:parseInt($('kOut').value,10)}};
+      look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,smoothOut:parseInt($('kOut').value,10)}};
   }
   async function load(){try{setCfg(await j('/api/config'));}catch(e){}}
 

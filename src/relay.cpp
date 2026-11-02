@@ -3,7 +3,8 @@
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
-#include <WiFiUdp.h>
+#include <errno.h>
+#include <lwip/sockets.h>
 
 #include "app.h"
 
@@ -13,13 +14,18 @@ static const int kCalMaxLeds = 2000;
 static const uint32_t kStaleMs = 4000;        // box silent this long = stop relaying
 static const uint32_t kCalWatchdogMs = 30000; // phone vanished mid-calibration
 
-static WiFiUDP udp;
-static bool udpUp = false;
+// Plain UDP sockets: one receives the Sync Box broadcast (blocking wait, no polling), one sends DDP to WLED. (The Arduino
+// WiFiUDP class allocates and frees a 1.4 KB buffer for every packet and can only be polled.)
+static int gRx = -1, gTx = -1;
 
 // ---- latest Sync Box frame
 static uint8_t gRaw[kZones][3];
 static bool gHave = false;
 static uint32_t gLastFrame = 0, gFrames = 0;
+static float gPrevY[kZones][3];                 // the previous Sync Box frame (reaction boost undoes the box's smoothing with it)
+static bool gPrevValid = false;
+static uint32_t gLastFrameUs = 0;              // micros() when the newest Sync Box frame was read (latency statistics)
+static uint32_t gAgeFrames = 0;                // the gFrames value the last sent output frame was built from
 static float gIntervalMs = 0;                  // smoothed time between frames
 static IPAddress gSender;
 static IPAddress gBoxFilter;                   // 0.0.0.0 = accept anyone
@@ -34,7 +40,20 @@ static bool gCurValid = false;
 static uint8_t gPayload[kCalMaxLeds * 4];
 static uint8_t gDbuf[kDdpHeader + kDdpMaxData];
 static uint8_t gSeq = 0;
-static uint32_t gLastTick = 0;
+static uint32_t gLastTick = 0;                 // when the last output frame was produced (a new Sync Box frame or the smoothing tick)
+static uint32_t gSmoothUs = 0;                 // micros() of the last smoothing step (smoothing is time based)
+static bool gNewPending = false;               // a Sync Box frame arrived that has not been sent on yet
+static bool gConverged = false;                // the lights have reached the target: nothing to smooth until the next frame
+static bool gWasTesting = false;
+static uint32_t gComputedGen = 0xFFFFFFFF;     // gSettingsGen the target was computed with
+static uint32_t gWaitHintMs = 10;              // how long the main loop may sleep before the relay needs to act again
+static uint8_t gLastSent[kMaxLeds * 4];        // the last frame sent to WLED: identical frames are not sent again
+static size_t gLastLen = 0;                    // 0 = nothing valid (the next frame is always sent)
+static int gLastStart = 0;
+static bool gLastRgbw = false;
+static uint32_t gLastSendMs = 0;
+static const uint32_t kMinGapMs = 6;           // never produce two output frames closer than this
+static const uint32_t kKeepaliveMs = 1000;     // resend an unchanged frame this often so WLED does not leave realtime mode (2.5 s)
 static bool gPrepared = false;                 // WLED switched on / brightness set for streaming
 static bool gSnapOn = false;
 static int gSnapBri = 128;
@@ -149,9 +168,12 @@ static bool resolveWled(const String& host, IPAddress& out) {
   return WiFi.hostByName(host.c_str(), out) == 1;
 }
 
+static uint32_t gWledGen = 0xFFFFFFFF;           // gSettingsGen the cached WLED address was checked against
 static bool wledAddress(IPAddress& ip) {
+  if (gWledGen == gSettingsGen && (uint32_t)gWledIp != 0) { ip = gWledIp; return true; }    // fast path: once per frame, no allocation
   String host;
   { Lock l; host = gSet.wHost; }
+  gWledGen = gSettingsGen;
   if (host != gWledResolved) { gWledResolved = host; gWledTry = 0; gWledIp = IPAddress((uint32_t)0); }
   if ((uint32_t)gWledIp != 0) { ip = gWledIp; return true; }
   if (millis() - gWledTry < 15000 && gWledTry != 0) return false;   // do not hammer name resolution
@@ -160,10 +182,36 @@ static bool wledAddress(IPAddress& ip) {
   return false;
 }
 
-// ---------------------------------------------------------------- DDP
+// ---------------------------------------------------------------- sockets + DDP
+static bool openSockets() {
+  if (gRx < 0) {
+    int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s >= 0) {
+      int one = 1;
+      setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+      sockaddr_in a = {};
+      a.sin_family = AF_INET;
+      a.sin_port = htons(kBoxPort);
+      a.sin_addr.s_addr = htonl(INADDR_ANY);
+      if (bind(s, (sockaddr*)&a, sizeof a) == 0) {
+        fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK);
+        gRx = s;
+      } else {
+        close(s);
+      }
+    }
+  }
+  if (gTx < 0) gTx = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  return gRx >= 0 && gTx >= 0;
+}
+
 static void ddpSend(const uint8_t* payload, size_t len, int ledStart, bool rgbw) {
   IPAddress ip;
-  if (!wledAddress(ip)) return;
+  if (gTx < 0 || !wledAddress(ip)) return;
+  sockaddr_in to = {};
+  to.sin_family = AF_INET;
+  to.sin_port = htons(4048);
+  to.sin_addr.s_addr = (uint32_t)ip;
   const int per = rgbw ? 4 : 3;
   const uint32_t base = (uint32_t)ledStart * per;
   const size_t step = kDdpMaxData - (kDdpMaxData % per);
@@ -173,17 +221,15 @@ static void ddpSend(const uint8_t* payload, size_t len, int ledStart, bool rgbw)
     bool last = off + step >= len;
     ddpHeader(gDbuf, gSeq, rgbw ? 0x1B : 0x0B, base + (uint32_t)off, (uint16_t)chunk, last);
     memcpy(gDbuf + kDdpHeader, payload + off, chunk);
-    udp.beginPacket(ip, 4048);
-    udp.write(gDbuf, kDdpHeader + chunk);
-    udp.endPacket();
+    if (sendto(gTx, gDbuf, kDdpHeader + chunk, 0, (sockaddr*)&to, sizeof to) < 0) { if (gPerfOn) perfSendFail(); break; }   // out of buffers: drop this frame
     if (last) break;
   }
 }
-
 // ---------------------------------------------------------------- relay
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-static void adjustZones(const uint8_t raw[kZones][3]) {
+// Brightness / gamma / saturation applied to 24 zone colours given as 0..255 floats (the box's value or the boosted one).
+static void adjustZonesF(const float raw[kZones][3]) {
   float br, gm, sat;
   { Lock l; br = gSet.kBri; gm = gSet.kGam; sat = gSet.kSat; }
   for (int z = 0; z < kZones; z++) {
@@ -195,6 +241,13 @@ static void adjustZones(const uint8_t raw[kZones][3]) {
     if (gm != 1.f) for (int k = 0; k < 3; k++) c[k] = powf(c[k], gm);
     for (int k = 0; k < 3; k++) gAdj[z][k] = clampf(c[k] * br * 255.f, 0.f, 255.f);
   }
+}
+
+static void adjustZones(const uint8_t raw[kZones][3]) {
+  float f[kZones][3];
+  for (int z = 0; z < kZones; z++)
+    for (int c = 0; c < 3; c++) f[z][c] = raw[z][c];
+  adjustZonesF(f);
 }
 
 static void rainbowZones(uint8_t z[kZones][3]) {
@@ -245,41 +298,58 @@ static void wledRestore() {
   bool restore; String host;
   { Lock l; restore = gSet.wRestore; host = gSet.wHost; }
   gPrepared = false;
+  gLastLen = 0;
   if (host.length() == 0) return;
   String body = "{\"live\":false";
   if (restore) body += ",\"on\":" + String(gSnapOn ? "true" : "false") + ",\"bri\":" + String(gSnapBri);
   httpPostJson(host, "/json/state", body + "}");
 }
 
-static void pollBox() {
-  if (!udpUp) return;
+// Reads every queued Sync Box packet; true if at least one valid frame arrived.
+static bool pollBox() {
+  if (gRx < 0) return false;
   if (gFilterGen != gSettingsGen) {
     gFilterGen = gSettingsGen;
     String h; { Lock l; h = gSet.boxHost; }
     if (!gBoxFilter.fromString(h)) gBoxFilter = IPAddress((uint32_t)0);
   }
+  bool got = false;
+  float boost;
+  { Lock l; boost = gSet.kBoost; }
   uint8_t buf[160];
-  int n;
-  while ((n = udp.parsePacket()) > 0) {
-    IPAddress from = udp.remoteIP();
-    if (n > (int)sizeof buf) { udp.flush(); continue; }
-    int r = udp.read(buf, sizeof buf);
+  for (int guard = 0; guard < 16; guard++) {
+    sockaddr_in sa;
+    socklen_t sl = sizeof sa;
+    const int r = recvfrom(gRx, buf, sizeof buf, 0, (sockaddr*)&sa, &sl);
+    if (r <= 0) break;                                   // nothing queued (the socket is non-blocking)
+    const IPAddress from((uint32_t)sa.sin_addr.s_addr);
     if ((uint32_t)gBoxFilter != 0 && from != gBoxFilter) continue;
     uint8_t z[kZones][3];
-    if (r > 0 && decodeFrame(buf, (size_t)r, z)) {
+    if (decodeFrame(buf, (size_t)r, z)) {                // frames are 86-93 bytes; anything longer was cut at 160 and fails here
       uint32_t now = millis();
       Lock l;
-      memcpy(gRaw, z, sizeof gRaw);
+      if (now - gLastFrame > 1500) gPrevValid = false;             // the box was silent: do not extrapolate across the gap
+      memcpy(gRaw, z, sizeof gRaw);                                // the raw box output (calibration and /api/zones use this)
       gSender = from;
       if (gHave && now - gLastFrame < 2000) gIntervalMs = gIntervalMs == 0 ? (now - gLastFrame) : gIntervalMs * 0.9f + (now - gLastFrame) * 0.1f;
       gLastFrame = now;
+      gLastFrameUs = micros();
+      if (gPerfOn) perfBoxFrame(gLastFrameUs);
       gHave = true;
       gFrames++;
-      adjustZones(z);
+      float f[kZones][3];                                          // what the lights should follow: the box's value, or (boost) the colour it is aiming at
+      for (int q = 0; q < kZones; q++)
+        for (int c = 0; c < 3; c++) {
+          f[q][c] = (boost > 0.f && gPrevValid) ? leadBoost(z[q][c], gPrevY[q][c], boost) : (float)z[q][c];
+          gPrevY[q][c] = z[q][c];
+        }
+      gPrevValid = true;
+      adjustZonesF(f);
+      got = true;
     }
   }
+  return got;
 }
-
 static void finishCal();
 
 static void markSendFrame() {
@@ -293,6 +363,7 @@ static void markSendFrame() {
     gMark.dirty = false;
     gMark.lastSend = millis();
   }
+  gLastLen = 0;
   if (cnt <= 0 || cnt > kMaxLeds) return;
   const int per = whiteMin ? 4 : 3;
   memset(gPayload, 0, (size_t)cnt * per);                      // the whole run dark, only the markers lit
@@ -310,15 +381,14 @@ static void markSendFrame() {
 static void calSendFrame() {
   int total, start, count;
   { Lock l; total = gCal.total; start = gCal.start; count = gCal.count; gCal.dirty = false; gCal.lastSend = millis(); }
+  gLastLen = 0;
   if (total <= 0) return;
   memset(gPayload, 0, (size_t)total * 3);
   for (int i = start; i < start + count && i < total; i++) { gPayload[i * 3] = gPayload[i * 3 + 1] = gPayload[i * 3 + 2] = 255; }
   ddpSend(gPayload, (size_t)total * 3, 0, false);
 }
 
-void relayBegin() {
-  if (!udpUp) udpUp = udp.begin(kBoxPort);
-}
+void relayBegin() { openSockets(); }
 
 bool relayZones(uint8_t zones[kZones][3], uint32_t* ageMs) {
   Lock l;
@@ -346,9 +416,15 @@ void relayStatus(RelayStatus& s) {
   else s.state = "relaying";
 }
 
+// How the output works: a new Sync Box frame is turned into LED colours and sent to WLED the moment it arrives (not at the next
+// tick), then a tick every 1000/fps ms keeps the temporal smoothing moving until the lights reach the target. The smoothing is
+// based on elapsed time (smoothDecay), so the extra frame does not change how it feels. A frame identical to the last one sent
+// is not sent again (a keep-alive every second stops WLED leaving realtime mode).
 void relayLoop() {
-  pollBox();
+  const bool gotNew = pollBox();
+  if (gotNew) { gNewPending = true; gConverged = false; }
   const uint32_t now = millis();
+  gWaitHintMs = 10;
 
   // ---- calibration has priority (all DDP sending happens in this task only)
   bool calActive, endPending;
@@ -375,37 +451,91 @@ void relayLoop() {
     }
   }
 
-  int fps, n, start; float smo; bool whiteMin, testing;
+  int fps, n, start; float smo; bool whiteMin, testing, fresh;
   {
     Lock l;
     fps = gSet.fps < 1 ? 30 : gSet.fps; n = gTableN; start = gSet.wStart; smo = gSet.kSmo; whiteMin = gSet.whiteMin;
     testing = gTestUntil && (int32_t)(gTestUntil - now) > 0;
     if (gTestUntil && !testing) gTestUntil = 0;
+    fresh = gSet.enabled && gHave && now - gLastFrame < kStaleMs;        // paused (Home Assistant) = as if the box were silent
   }
-  if (now - gLastTick < (uint32_t)(1000 / fps)) return;
-  gLastTick = now;
   if (n <= 0) return;
-
-  bool fresh;
-  { Lock l; fresh = gSet.enabled && gHave && now - gLastFrame < kStaleMs; }     // paused (Home Assistant) = as if the box were silent
   if (!fresh && !testing) {
     if (gPrepared) { wledRestore(); gCurValid = false; }      // box gone quiet: give WLED back
+    gNewPending = false;
     return;
   }
+  if (testing != gWasTesting) { gWasTesting = testing; gConverged = false; }
+  const uint32_t tickMs = 1000u / (uint32_t)fps;
+  const uint32_t since = now - gLastTick;
+  const bool settingsChanged = gComputedGen != gSettingsGen;
+  const bool eventDue = gNewPending && since >= kMinGapMs;           // a new picture: send it right away
+  const bool tickDue = since >= tickMs && (!gConverged || !gCurValid || settingsChanged);   // keep smoothing toward the target
+  if (!eventDue && !tickDue) {
+    if (gLastLen && now - gLastSendMs >= kKeepaliveMs) { ddpSend(gLastSent, gLastLen, gLastStart, gLastRgbw); gLastSendMs = now; }
+    if (gNewPending) gWaitHintMs = since >= kMinGapMs ? 1 : kMinGapMs - since;
+    else if (!gConverged || !gCurValid || settingsChanged) gWaitHintMs = since >= tickMs ? 1 : tickMs - since;
+    return;
+  }
+  gLastTick = now;
+  gNewPending = false;
   if (!gPrepared) wledPrepare();
 
   const uint32_t pf0 = gPerfOn ? micros() : 0;              // performance statistics: time the frame work
   { Lock l; if (testing) { uint8_t z[kZones][3]; rainbowZones(z); adjustZones(z); }
     if (gSmoothGen != gSettingsGen) { gSmooth = smoothInfo(gTable, n, gSet.smoothOut); gSmoothGen = gSettingsGen; }
-    applyTable(gTable, n, gAdj, gTgt, gSmooth); }
-  const float alpha = 1.f - clampf(smo, 0.f, 0.95f);
-  if (!gCurValid) { memcpy(gCur, gTgt, sizeof(float) * n * 3); gCurValid = true; }
-  else for (int i = 0; i < n * 3; i++) gCur[i] += (gTgt[i] - gCur[i]) * alpha;
-  size_t len = packColours(gCur, n, whiteMin);
-  ddpSend(gPayload, len, start, whiteMin);
-  if (gPerfOn && pf0) perfFrame(micros() - pf0);
+    applyTable(gTable, n, gAdj, gTgt, gSmooth);
+    gComputedGen = gSettingsGen; }
+  const uint32_t nowUs = micros();
+  if (!gCurValid) {
+    memcpy(gCur, gTgt, sizeof(float) * n * 3);
+    gCurValid = true;
+    gConverged = true;
+  } else {
+    const float decay = smoothDecay(smo, (nowUs - gSmoothUs) / 1000.f, (float)tickMs);
+    float worst = 0.f;
+    for (int i = 0; i < n * 3; i++) {
+      const float d = gTgt[i] - gCur[i];
+      gCur[i] += d * (1.f - decay);
+      const float left = d * decay;
+      if (left > worst) worst = left; else if (-left > worst) worst = -left;
+    }
+    gConverged = worst < 0.5f;                              // less than half a colour step away: nothing visible left to smooth
+  }
+  gSmoothUs = nowUs;
+  const size_t len = packColours(gCur, n, whiteMin);
+  const bool same = len == gLastLen && start == gLastStart && whiteMin == gLastRgbw && memcmp(gPayload, gLastSent, len) == 0;
+  if (same && now - gLastSendMs < kKeepaliveMs) {
+    if (gPerfOn) perfSkip();
+  } else {
+    const uint32_t ps0 = gPerfOn ? micros() : 0;
+    ddpSend(gPayload, len, start, whiteMin);
+    if (gPerfOn && pf0) {
+      const uint32_t t1 = micros();
+      const bool first = gFrames != gAgeFrames;
+      perfFrame(t1 - pf0, t1 - ps0, t1 - gLastFrameUs, first);
+    }
+    memcpy(gLastSent, gPayload, len);
+    gLastLen = len; gLastStart = start; gLastRgbw = whiteMin; gLastSendMs = now;
+  }
+  gAgeFrames = gFrames;
+  if (!gConverged) gWaitHintMs = tickMs;
 }
 
+// Called by the main loop instead of a fixed delay: sleeps until a Sync Box packet arrives (wakes at once) or the relay has
+// something to do again, at most maxMs.
+void relayWait(uint32_t maxMs) {
+  if (gRx < 0 || WiFi.status() != WL_CONNECTED) { delay(1); return; }
+  uint32_t ms = gWaitHintMs < maxMs ? gWaitHintMs : maxMs;
+  if (ms < 1) ms = 1;
+  fd_set rf;
+  FD_ZERO(&rf);
+  FD_SET(gRx, &rf);
+  timeval tv;
+  tv.tv_sec = ms / 1000;
+  tv.tv_usec = (ms % 1000) * 1000;
+  select(gRx + 1, &rf, nullptr, nullptr, &tv);
+}
 // ---------------------------------------------------------------- calibration API
 String calBegin(int* total) {
   String host; { Lock l; host = gSet.wHost; }
@@ -478,6 +608,7 @@ static void finishCal() {
   httpPostJson(host, "/json/state", "{\"live\":false,\"on\":" + String(snapOn ? "true" : "false") + ",\"bri\":" + String(snapBri) + "}");
   gCurValid = false;
   gPrepared = false;
+  gLastLen = 0;
 }
 void testPattern(int seconds) {
   Lock l;

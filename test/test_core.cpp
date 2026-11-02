@@ -239,6 +239,41 @@ int main(int argc, char** argv) {
     Entry l[180]; tableLinear(l, 180, false, 50, 130, 3);
     const SmoothInfo sl = smoothInfo(l, 180, 100);
     CHECK(sl.maskStart == (1u << 0) && sl.maskEnd == (1u << 18), "a left strip uses its corner zones (0 / 18): %x %x", sl.maskStart, sl.maskEnd); }
+  { // time-based smoothing: same result however the time is sliced
+    CHECK(fabsf(smoothDecay(0.5f, 33.333f, 33.333f) - 0.5f) < 1e-5f, "one reference tick leaves the setting's fraction");
+    CHECK(fabsf(smoothDecay(0.5f, 66.667f, 33.333f) - 0.25f) < 1e-5f, "two reference ticks leave its square");
+    CHECK(smoothDecay(0.5f, 0.f, 33.f) == 1.f, "no time passed: nothing moves");
+    CHECK(smoothDecay(0.f, 5.f, 33.f) == 0.f, "smoothing 0 jumps straight to the target");
+    CHECK(fabsf(smoothDecay(0.99f, 33.333f, 33.333f) - 0.95f) < 1e-5f, "smoothing is capped at 0.95");
+    CHECK(fabsf(smoothDecay(-1.f, 10.f, 33.f)) < 1e-6f, "a negative setting means none");
+    bool ok = true;
+    for (float s : {0.1f, 0.3f, 0.5f, 0.8f, 0.95f})
+      for (float a : {1.f, 4.f, 9.f, 20.f}) for (float b : {2.f, 7.f, 33.f}) {
+        const float split = smoothDecay(s, a, 33.333f) * smoothDecay(s, b, 33.333f), whole = smoothDecay(s, a + b, 33.333f);
+        if (fabsf(split - whole) > 1e-5f) { ok = false; printf("  s=%.2f a=%.0f b=%.0f split=%.6f whole=%.6f\n", s, a, b, split, whole); }
+      }
+    CHECK(ok, "two short steps equal one long step (the lights feel the same whatever the frame timing)");
+    // a step response: 100 -> 0 reached after 10 irregular updates over 100 ms equals the regular 3-tick version
+    float cur = 100.f; const float dts[10] = {3, 12, 7, 9, 14, 6, 11, 8, 20, 10};
+    for (float d : dts) cur = 0.f + (cur - 0.f) * smoothDecay(0.5f, d, 33.333f);
+    const float regular = 100.f * smoothDecay(0.5f, 100.f, 33.333f);
+    CHECK(fabsf(cur - regular) < 1e-3f, "irregular updates reach the same value as regular ones (%.4f vs %.4f)", cur, regular); }
+  { // reaction boost: undoes the Sync Box's own smoothing (y = 0.6 * previous + 0.4 * target)
+    CHECK(leadBoost(120.f, 120.f, 1.f) == 120.f && leadBoost(7.f, 7.f, 0.5f) == 7.f, "a steady colour is not changed");
+    CHECK(leadBoost(120.f, 40.f, 0.f) == 120.f, "boost 0 = the box's own value");
+    // the box's output for a step from 0 to 200 and back, and what the boost reconstructs from it
+    float y = 0.f, prev = 0.f; bool ok = true; float worst = 0.f;
+    for (int n = 0; n < 12; n++) {
+      const float x = n < 6 ? 200.f : 0.f;                       // the colour the box is aiming at
+      prev = y; y = 0.6f * y + 0.4f * x;                         // what the box broadcasts
+      const float est = leadBoost(y, prev, 1.f);
+      if (fabsf(est - x) > worst) worst = fabsf(est - x);
+      if (fabsf(est - x) > 0.01f) ok = false;
+    }
+    CHECK(ok, "with boost 1 the target is rebuilt exactly on every frame (worst error %.4f)", worst);
+    CHECK(fabsf(leadBoost(80.f, 0.f, 0.5f) - 140.f) < 1e-3f, "boost 0.5 goes half way to the target: first frame 80 -> 140 (200 is the target)");
+    CHECK(leadBoost(10.f, 200.f, 1.f) == 0.f && leadBoost(250.f, 50.f, 1.f) == 255.f, "the result stays a valid colour");
+    CHECK(leadBoost(100.f, 0.f, 7.f) == leadBoost(100.f, 0.f, 1.f) && leadBoost(100.f, 0.f, -3.f) == 100.f, "boost is limited to 0..1"); }
   { Entry t[10]; int bad[4] = {1, 1, 1, 1};
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }
