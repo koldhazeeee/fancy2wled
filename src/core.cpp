@@ -5,6 +5,60 @@
 namespace fwb {
 
 // ---------------------------------------------------------------------------
+ImageCheck checkAppImage(const uint8_t* h, size_t len, uint16_t chip) {
+  if (!h || len < kImageHeadBytes) return kImageTooShort;
+  if (h[0] != 0xE9) return kImageBadMagic;
+  if ((uint16_t)(h[12] | (h[13] << 8)) != chip) return kImageWrongChip;
+  const uint32_t desc = (uint32_t)h[32] | ((uint32_t)h[33] << 8) | ((uint32_t)h[34] << 16) | ((uint32_t)h[35] << 24);
+  if (desc != 0xABCD5432u) return kImageNoDescriptor;
+  return kImageOk;
+}
+
+const char* imageCheckMessage(ImageCheck c) {
+  switch (c) {
+    case kImageOk: return "";
+    case kImageTooShort: return "That file is too small to be a firmware image.";
+    case kImageBadMagic: return "That is not a firmware image (use firmware.bin from .pio/build/atoms3, not a merged or bootloader file).";
+    case kImageWrongChip: return "That firmware is for a different chip (this board has an ESP32-S3).";
+    case kImageNoDescriptor: return "That is not an application image (use firmware.bin, not the bootloader or the partition table).";
+  }
+  return "That file cannot be used.";
+}
+
+const char kImageMark[] = "FANCY2WLED-IMAGE-MARK-1";
+
+void markScan(MarkScanner& s, const uint8_t* d, size_t n) {
+  // The mark starts with a character that occurs nowhere else in it, so a failed match only has to retry the same byte as a new start.
+  const size_t len = sizeof kImageMark - 1;
+  for (size_t i = 0; i < n && !s.found; i++) {
+    if (d[i] == (uint8_t)kImageMark[s.matched]) {
+      if (++s.matched == len) s.found = true;
+    } else {
+      s.matched = (d[i] == (uint8_t)kImageMark[0]) ? 1 : 0;
+    }
+  }
+}
+
+bool validUpdatePassword(const char* pw) {
+  if (!pw) return false;
+  size_t n = 0;
+  for (; pw[n]; n++)
+    if ((unsigned char)pw[n] < 0x20 || (unsigned char)pw[n] > 0x7E) return false;
+  return n >= 8 && n <= 64;
+}
+
+bool secureEquals(const char* a, const char* b) {
+  if (!a || !b) return false;
+  size_t la = 0, lb = 0;
+  while (a[la]) la++;
+  while (b[lb]) lb++;
+  unsigned diff = (unsigned)(la ^ lb);
+  const size_t n = la < lb ? la : lb;
+  for (size_t i = 0; i < n; i++) diff |= (unsigned)((unsigned char)a[i] ^ (unsigned char)b[i]);
+  return diff == 0;
+}
+
+// ---------------------------------------------------------------------------
 int normalizeHost(const char* in, char* out, int cap) {
   if (!in || !out || cap < 1) return -1;
   auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };

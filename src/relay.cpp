@@ -64,7 +64,10 @@ static const uint32_t kKeepaliveMs = 1000;     // resend an unchanged frame this
 static const uint32_t kResolveEveryMs = 60000; // look a WLED's name up again this often (its IP may have changed)
 static const uint32_t kRetryResolveMs = 15000; // ... and this often while the name has not been found yet
 static uint32_t gHouseMs = 0;                  // when the once-a-second housekeeping last ran
-static BlackTracker gBlack;                    // is the picture black, and since when (TV off detection, see core.h); under Lock
+static volatile bool gUpdating = false;        // a firmware update is being written: no streaming
+void relayUpdateBegin() { gUpdating = true; }
+void relayUpdateEnd() { gUpdating = false; }
+static BlackTracker gBlack;                   // is the picture black, and since when (TV off detection, see core.h); under Lock
 
 // ---- per-target state
 struct Cal {                                   // the LED finder / phone calibration session on this target
@@ -718,7 +721,8 @@ void relayStatus(RelayStatus& s, bool detail) {
   s.wledOk = anyUsable && allOk;
   s.wledLeds = leds;
   s.wledName = detail ? gRt[0].wledName : String("");
-  if (calibrating) s.state = "calibrating";
+  if (gUpdating) s.state = "updating firmware";
+  else if (calibrating) s.state = "calibrating";
   else if (marking) s.state = "showing markers";
   else if (testing) s.state = "showing test pattern";
   else if (!anyUsable) s.state = "needs setup";
@@ -820,7 +824,7 @@ void relayLoop() {
   bool sentAny = false, allConverged = true;
   // paused (Home Assistant) = as if the box were silent; so is "the TV is off" unless that was set to do nothing
   const bool tvHold = tvOff && tvMode != 0;
-  const bool fresh = globalOn && gHave && now - gLastFrame < kStaleMs && !tvHold;
+  const bool fresh = globalOn && gHave && now - gLastFrame < kStaleMs && !tvHold && !gUpdating;
   for (int i = 0; i < nT; i++) {
     if (!streaming[i]) continue;
     Rt& r = gRt[i];

@@ -24,3 +24,11 @@ jobs:
       - run: pip install platformio
       - run: pio run -e atoms3
       - run: pio run -e atoms3-phonecal
+      # the app images, ready for "Update firmware" on the setup page (see docs/OTA.md)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            .pio/build/atoms3/firmware.bin
+            .pio/build/atoms3-phonecal/firmware.bin
+          if-no-files-found: error

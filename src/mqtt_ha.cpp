@@ -279,7 +279,7 @@ static void publishDiscovery() {
     withState(d, "{{ value_json.state }}");
     d["device_class"] = "enum";
     JsonArray o = d["options"].to<JsonArray>();
-    for (const char* s : {"relaying", "TV off", "waiting for the Sync Box", "Sync Box frames not understood", "paused", "needs setup", "calibrating", "showing markers", "showing test pattern", "starting"}) o.add(s);
+    for (const char* s : {"relaying", "TV off", "waiting for the Sync Box", "Sync Box frames not understood", "paused", "needs setup", "calibrating", "showing markers", "showing test pattern", "updating firmware", "starting"}) o.add(s);
     d["icon"] = "mdi:information-outline";
     discover("sensor", "state", d);
   }

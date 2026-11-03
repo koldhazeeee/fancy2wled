@@ -419,6 +419,76 @@ static esp_err_t h_reset(httpd_req_t* req) {
   return sendOk(req);
 }
 
+// ------------------------------------------------------------------ firmware updates
+static esp_err_t h_ota_get(httpd_req_t* req) {
+  OtaInfo o;
+  otaInfo(o);
+  JsonDocument d;
+  d["enabled"] = o.enabled;
+  d["passSet"] = o.passSet;
+  d["version"] = o.version;
+  d["slot"] = o.slot;
+  d["imageState"] = o.imageState;           // "pending" for the first minute of a freshly updated firmware, then "valid"
+  d["maxBytes"] = o.maxBytes;
+  d["rolledBack"] = o.rolledBack;           // the previous update did not start properly and was undone
+  d["busy"] = otaBusy();
+  return sendDoc(req, d);
+}
+
+// POST /api/ota: the body is the raw firmware.bin, the header X-Update-Password carries the update password. (A custom header cannot be set by a
+// form on another web site, so this cannot be triggered from a page you happen to visit; the Content-Type is not JSON on purpose.)
+static esp_err_t h_ota_post(httpd_req_t* req) {
+  httpd_resp_set_hdr(req, "Connection", "close");               // the body may stay unread when we refuse: do not reuse the connection
+  OtaInfo o;
+  otaInfo(o);
+  if (!o.enabled) return sendError(req, "403 Forbidden", "Firmware updates are switched off. Set an update password and switch updates on in the setup page first.");
+  char pw[100] = {0};
+  if (httpd_req_get_hdr_value_str(req, "X-Update-Password", pw, sizeof pw) != ESP_OK) return sendError(req, "401 Unauthorized", "Enter the update password.");
+  String stored;
+  { Lock l; stored = gSet.otaPass; }
+  bool locked = false;
+  if (!otaPasswordOk(String(pw), stored, &locked))
+    return locked ? sendError(req, "429 Too Many Requests", "Too many wrong passwords. Wait a minute and try again.") : sendError(req, "401 Unauthorized", "Wrong update password.");
+  const size_t total = req->content_len;
+  if (total < fwb::kImageHeadBytes) return sendError(req, "400 Bad Request", "That file is too small to be a firmware image.");
+  if (otaBusy()) return sendError(req, "409 Conflict", "An update is already running.");
+
+  const size_t kChunk = 4096;
+  uint8_t* buf = (uint8_t*)malloc(kChunk);
+  if (!buf) return sendError(req, "503 Service Unavailable", "Out of memory.");
+  auto fail = [&](const char* status, const String& msg) { free(buf); otaUploadAbort(); return sendError(req, status, msg); };
+
+  size_t have = 0, got = 0;
+  int idle = 0;
+  while (have < fwb::kImageHeadBytes) {                          // the first bytes decide whether this is firmware at all
+    const int r = httpd_req_recv(req, (char*)buf + have, kChunk - have);
+    if (r == HTTPD_SOCK_ERR_TIMEOUT) { if (++idle > 10) return fail("408 Request Timeout", "The upload stalled."); continue; }
+    if (r <= 0) return fail("400 Bad Request", "The upload was interrupted.");
+    have += (size_t)r;
+    idle = 0;
+  }
+  String e = otaUploadBegin(total, buf, have);
+  if (e.length()) { free(buf); return sendError(req, "400 Bad Request", e); }
+  e = otaUploadWrite(buf, have);
+  if (e.length()) return fail("500 Internal Server Error", e);
+  got = have;
+  while (got < total) {
+    const size_t want = total - got < kChunk ? total - got : kChunk;
+    const int r = httpd_req_recv(req, (char*)buf, want);
+    if (r == HTTPD_SOCK_ERR_TIMEOUT) { if (++idle > 10) return fail("408 Request Timeout", "The upload stalled. Nothing was changed."); continue; }
+    if (r <= 0) return fail("400 Bad Request", "The upload was interrupted. Nothing was changed.");
+    idle = 0;
+    e = otaUploadWrite(buf, (size_t)r);
+    if (e.length()) return fail("500 Internal Server Error", e);
+    got += (size_t)r;
+  }
+  free(buf);
+  e = otaUploadEnd();
+  if (e.length()) { otaUploadAbort(); return sendError(req, "400 Bad Request", e); }
+  requestRestart(1200);                                         // the answer goes out first, then the board starts the new firmware
+  return sendJson(req, "{\"ok\":true,\"restarting\":true}");
+}
+
 // ------------------------------------------------------------------ routes
 struct Route { const char* uri; httpd_method_t method; esp_err_t (*fn)(httpd_req_t*); };
 static const Route kRoutes[] = {
@@ -455,6 +525,8 @@ static const Route kRoutes[] = {
     {"/api/wled/info", HTTP_GET, h_wled_info},
     {"/api/wifi/scan", HTTP_GET, h_wifi_scan},
     {"/api/wifi", HTTP_POST, h_wifi_post},
+    {"/api/ota", HTTP_GET, h_ota_get},
+    {"/api/ota", HTTP_POST, h_ota_post},
     {"/api/reboot", HTTP_POST, h_reboot},
     {"/api/reset", HTTP_POST, h_reset},
 };

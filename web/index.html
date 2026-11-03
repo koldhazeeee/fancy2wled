@@ -164,6 +164,36 @@ input[type=range].wide{width:100%}
   <div id="saveMsg" class="small"></div>
 </div>
 
+<div class="card" id="otaCard">
+  <h2>Firmware updates</h2>
+  <p class="small mut" id="otaVer"></p>
+  <p class="small err hidden" id="otaRolled">The last update did not start properly, so the board went back to the previous firmware.</p>
+  <p class="small mut hidden" id="otaPending">The firmware that just started is being checked for about a minute. A new update is accepted after that.</p>
+  <p class="small mut">Updates over Wi-Fi are <b>off</b> until you set an update password and switch them on. The password is what protects the board: anyone who knows it and can reach this page can replace the firmware. Use one you do not use anywhere else (it travels unencrypted on your network, like the rest of this page).</p>
+  <div id="otaSet">
+    <div class="row"><label for="otaNew">New update password (8 to 64 characters)</label><input id="otaNew" type="password" autocomplete="new-password"></div>
+    <div class="row"><label for="otaNew2">Repeat it</label><input id="otaNew2" type="password" autocomplete="new-password"></div>
+    <div class="row"><button id="otaSetBtn" class="sec">Set the password</button></div>
+  </div>
+  <div id="otaChange" class="hidden">
+    <div class="row"><label for="otaCur">Current update password</label><input id="otaCur" type="password" autocomplete="current-password"></div>
+    <div class="row"><label for="otaNewB">New update password</label><input id="otaNewB" type="password" autocomplete="new-password"></div>
+    <div class="row"><label for="otaNewB2">Repeat it</label><input id="otaNewB2" type="password" autocomplete="new-password"></div>
+    <div class="row"><button id="otaChangeBtn" class="sec">Change the password</button></div>
+  </div>
+  <div class="row"><label for="otaOn">Allow firmware updates over Wi-Fi</label><input id="otaOn" type="checkbox" style="flex:0 0 auto" disabled></div>
+  <p class="small mut" id="otaNeed">Set an update password above to be able to switch updates on.</p>
+  <div id="otaUp" class="hidden">
+    <div class="row"><label for="otaFile">Firmware file (<code>firmware.bin</code>)</label><input id="otaFile" type="file" accept=".bin,application/octet-stream"></div>
+    <div class="row"><label for="otaPw">Update password</label><input id="otaPw" type="password" autocomplete="current-password"></div>
+    <div class="row"><button id="otaGo" class="sec">Update firmware</button></div>
+    <progress id="otaBar" class="hidden" max="100" value="0" style="width:100%"></progress>
+    <p class="small mut">The file is <code>firmware.bin</code> from <code>.pio/build/atoms3</code> (or the one attached to a release). Settings are kept. The WLEDs are handed back while it installs and the board restarts by itself; if the new firmware does not start properly the board returns to the old one.</p>
+    <p class="small mut">From a computer with PlatformIO: set the environment variable <code>FANCY2WLED_OTA_PASSWORD</code> to the update password, then run <code>pio run -e atoms3-ota -t upload</code>.</p>
+  </div>
+  <div id="otaMsg" class="small"></div>
+</div>
+
 <div class="card">
   <h2>Back up / move to another board</h2>
   <p class="small mut"><b>Export</b> saves your WLED address, LED layout, phone calibration, Look settings and MQTT settings to a file. <b>Import</b> loads such a file onto this board, for example a new ESP32 after you have set up its Wi-Fi. The Wi-Fi name and password are never included (a new board joins your Wi-Fi first, then you import).</p>
@@ -369,7 +399,62 @@ input[type=range].wide{width:100%}
       relay:{tvOff:{mode:$('tvMode').value,seconds:num('tvSecs',15)}},
       look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,smoothOut:parseInt($('kOut').value,10)}};
   }
-  async function load(){try{setCfg(await j('/api/config'));}catch(e){}}
+  async function load(){try{setCfg(await j('/api/config'));}catch(e){}refreshOta();}
+
+  /* ---------------------------------------------------- firmware updates */
+  function otaMsg(h){$('otaMsg').innerHTML=h;}
+  function otaErr(t){otaMsg('<span class="err">'+esc(t)+'</span>');}
+  async function refreshOta(){
+    try{
+      var o=await j('/api/ota');
+      $('otaVer').textContent='Running firmware '+o.version+' from slot '+o.slot+'. A new file can be up to '+Math.round(o.maxBytes/1024)+' KB.';
+      show('otaSet',!o.passSet);show('otaChange',!!o.passSet);show('otaNeed',!o.passSet);
+      $('otaOn').disabled=!o.passSet;$('otaOn').checked=!!o.enabled;show('otaUp',!!o.enabled);show('otaRolled',!!o.rolledBack);show('otaPending',o.imageState==='pending');
+    }catch(e){}
+  }
+  function pwProblem(a,b){return (a.length<8||a.length>64)?'The update password must be 8 to 64 characters.':(a!==b?'The two passwords are not the same.':'');}
+  $('otaSetBtn').onclick=async function(){
+    var p=pwProblem($('otaNew').value,$('otaNew2').value);if(p){otaErr(p);return;}
+    try{await j('/api/config',{ota:{pass:$('otaNew').value}});$('otaNew').value='';$('otaNew2').value='';otaMsg('<span class="ok">Password set. You can now switch updates on.</span>');}catch(e){otaErr(e.message);}
+    refreshOta();
+  };
+  $('otaChangeBtn').onclick=async function(){
+    var p=pwProblem($('otaNewB').value,$('otaNewB2').value);if(p){otaErr(p);return;}
+    try{await j('/api/config',{ota:{pass:$('otaNewB').value,currentPass:$('otaCur').value}});$('otaCur').value='';$('otaNewB').value='';$('otaNewB2').value='';otaMsg('<span class="ok">Password changed.</span>');}catch(e){otaErr(e.message);}
+    refreshOta();
+  };
+  $('otaOn').onchange=async function(){
+    var want=$('otaOn').checked;
+    try{await j('/api/config',{ota:{enabled:want}});otaMsg('<span class="ok">'+(want?'Updates over Wi-Fi are on.':'Updates over Wi-Fi are off.')+'</span>');}catch(e){otaErr(e.message);}
+    refreshOta();
+  };
+  async function otaWaitBack(){
+    await new Promise(function(r){setTimeout(r,4000);});
+    for(var i=0;i<40;i++){
+      try{var s=await j('/api/status');if(s.uptime<90){otaMsg('<span class="ok">Updated. The board is back online with firmware '+esc(s.ver)+'.</span>');$('otaGo').disabled=false;show('otaBar',false);refreshOta();return;}}catch(e){}
+      await new Promise(function(r){setTimeout(r,2000);});
+    }
+    otaErr('The board has not come back after 80 seconds. Reload this page; if it is still not reachable, unplug it and plug it in again (an update that does not start properly is undone by the board itself).');
+    $('otaGo').disabled=false;show('otaBar',false);
+  }
+  $('otaGo').onclick=function(){
+    var f=$('otaFile').files[0],pw=$('otaPw').value;
+    if(!f){otaErr('Choose firmware.bin first.');return;}
+    if(!pw){otaErr('Enter the update password.');return;}
+    var x=new XMLHttpRequest();
+    x.open('POST','/api/ota');
+    x.setRequestHeader('X-Update-Password',pw);
+    x.setRequestHeader('Content-Type','application/octet-stream');
+    $('otaBar').value=0;show('otaBar',true);$('otaGo').disabled=true;otaMsg('<span class="mut">Uploading '+Math.round(f.size/1024)+' KB...</span>');
+    x.upload.onprogress=function(e){if(e.lengthComputable)$('otaBar').value=Math.round(100*e.loaded/e.total);};
+    x.onload=function(){
+      var d={};try{d=JSON.parse(x.responseText);}catch(e){}
+      if(x.status===200&&d.ok){otaMsg('<span class="ok">Uploaded. The board is installing it and restarting...</span>');otaWaitBack();}
+      else{show('otaBar',false);$('otaGo').disabled=false;otaErr(d.error||('HTTP '+x.status));}
+    };
+    x.onerror=function(){show('otaBar',false);$('otaGo').disabled=false;otaErr('The upload was interrupted. Nothing was changed; try again.');};
+    x.send(f);
+  };
 
   /* ---------------------------------------------------- live preview (unsaved) */
   function changed(){

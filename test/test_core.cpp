@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -310,6 +311,45 @@ int main(int argc, char** argv) {
     CHECK(ut[0] > ut[1] && ut[5] > ut[4] && ut[0] > 40.f, "the corner zones carry the stretch of strip beyond the TV (zone 0: %.1f, zone 1: %.1f)", ut[0], ut[1]);
     CHECK(fabsf(ur[5] - ur[23]) < 2.f && ur[11] > 40.f, "a right-hand strip spreads over its column (zone 5: %.1f, 11: %.1f)", ur[5], ur[11]);
   }
+  { // firmware updates: what is accepted as an image, the marker scan and the password rules
+    uint8_t img[200] = {};
+    img[0] = 0xE9; img[12] = 9; img[13] = 0;                              // an ESP32-S3 image ...
+    img[32] = 0x32; img[33] = 0x54; img[34] = 0xCD; img[35] = 0xAB;       // ... whose first segment starts with the app descriptor
+    CHECK(checkAppImage(img, sizeof img, kChipEsp32S3) == kImageOk, "a well-formed ESP32-S3 app image is accepted");
+    CHECK(checkAppImage(img, kImageHeadBytes - 1, kChipEsp32S3) == kImageTooShort && checkAppImage(nullptr, 500, kChipEsp32S3) == kImageTooShort, "too little data to judge: refused");
+    uint8_t bad[200]; memcpy(bad, img, sizeof bad); bad[0] = 0x00;
+    CHECK(checkAppImage(bad, sizeof bad, kChipEsp32S3) == kImageBadMagic, "a file that does not start with 0xE9 is refused");
+    memcpy(bad, img, sizeof bad); bad[12] = 5;
+    CHECK(checkAppImage(bad, sizeof bad, kChipEsp32S3) == kImageWrongChip, "an image for another chip (ESP32-C3) is refused");
+    memcpy(bad, img, sizeof bad); bad[33] = 0;
+    CHECK(checkAppImage(bad, sizeof bad, kChipEsp32S3) == kImageNoDescriptor, "a bootloader / partition image without an app descriptor is refused");
+    CHECK(strlen(imageCheckMessage(kImageBadMagic)) > 20 && imageCheckMessage(kImageOk)[0] == 0, "every refusal has a message, success has none");
+    // the marker: found whole, split over chunks of any size, and not found in other data
+    const size_t ml = strlen(kImageMark);
+    std::vector<uint8_t> blob(3000, 0x41);
+    memcpy(blob.data() + 1234, kImageMark, ml);
+    for (size_t chunk : {1u, 2u, 3u, 7u, 64u, 1000u, 3000u}) {
+      MarkScanner sc;
+      for (size_t o = 0; o < blob.size(); o += chunk) markScan(sc, blob.data() + o, std::min(chunk, blob.size() - o));
+      CHECK(sc.found, "the mark is found with chunks of %zu bytes", chunk);
+    }
+    MarkScanner none;
+    std::vector<uint8_t> other(5000);
+    for (size_t i = 0; i < other.size(); i++) other[i] = (uint8_t)(i * 31 + 7);
+    markScan(none, other.data(), other.size());
+    CHECK(!none.found, "other data does not contain the mark");
+    MarkScanner almost;                                                      // the mark with its last character missing, then the real one
+    std::string tricky = std::string(kImageMark, ml - 1) + "X" + std::string(kImageMark);
+    markScan(almost, (const uint8_t*)tricky.data(), tricky.size());
+    CHECK(almost.found, "a near miss right before the real mark does not hide it");
+    MarkScanner partial;
+    markScan(partial, (const uint8_t*)kImageMark, ml - 1);
+    CHECK(!partial.found, "all but the last character is not the mark");
+    CHECK(!validUpdatePassword(nullptr) && !validUpdatePassword("") && !validUpdatePassword("short") && !validUpdatePassword("1234567"), "passwords under 8 characters are refused");
+    CHECK(validUpdatePassword("12345678") && validUpdatePassword("correct horse battery staple") && validUpdatePassword("p@ss w0rd!"), "8+ printable characters, spaces included, are accepted");
+    CHECK(validUpdatePassword(std::string(64, 'a').c_str()) && !validUpdatePassword(std::string(65, 'a').c_str()), "64 characters is the longest");
+    CHECK(!validUpdatePassword("pass\tword1") && !validUpdatePassword("passw\xC3\xB6rd1"), "control characters and non-ASCII are refused");
+    CHECK(secureEquals("hunter2hunter2", "hunter2hunter2") && !secureEquals("hunter2hunter2", "hunter2hunter3") && !secureEquals("abc", "abcd") && !secureEquals("abcd", "abc") && secureEquals("", ""), "password comparison"); }
   { // TV off: the picture has been completely black for a while
     uint8_t blk[kZones][3] = {}, dim[kZones][3] = {}, one[kZones][3] = {};
     dim[7][2] = 1;                                                // a single blue count in one zone is not black

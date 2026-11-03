@@ -12,6 +12,25 @@ constexpr int kRows = 4;
 constexpr uint16_t kBoxPort = 19875;
 constexpr int kMaxLeds = 1000;  // per-LED table size limit
 
+// ---- firmware updates (OTA) -----------------------------------------------
+// What an uploaded file has to look like before the board starts writing it to flash. An ESP32 app image starts with a header
+// (offset 0: magic 0xE9, 12: the chip id as 16 bits little endian) followed by the first segment, which begins with the app descriptor
+// (offset 32: magic 0xABCD5432). A bootloader, a partition table, a merged image or a text file fail one of these checks.
+enum ImageCheck { kImageOk = 0, kImageTooShort, kImageBadMagic, kImageWrongChip, kImageNoDescriptor };
+constexpr uint16_t kChipEsp32S3 = 9;
+constexpr size_t kImageHeadBytes = 112;                         // how much of the file checkAppImage() needs
+ImageCheck checkAppImage(const uint8_t* head, size_t len, uint16_t chip);
+const char* imageCheckMessage(ImageCheck c);
+
+// Every Fancy2WLED image contains this text (it is the pattern the update scans the whole upload for), so an image of some other
+// firmware for the same chip (WLED, a different project) is refused before it replaces this one.
+extern const char kImageMark[];
+struct MarkScanner { size_t matched = 0; bool found = false; };
+void markScan(MarkScanner& s, const uint8_t* data, size_t n);  // feed the upload chunk by chunk, in order
+
+bool validUpdatePassword(const char* pw);                       // 8 to 64 printable ASCII characters (letters, digits, symbols, spaces)
+bool secureEquals(const char* a, const char* b);                // the time taken does not depend on where the first difference is
+
 // ---- WLED address ---------------------------------------------------------
 // Cleans up what was typed or pasted into the "WLED address" box so that "  HTTP://Wled-Ceiling.local/ " becomes "wled-ceiling.local":
 // leading / trailing spaces, an "http://" or "https://" in front, everything from the first '/', '?' or '#', a ":80" port, trailing dots,

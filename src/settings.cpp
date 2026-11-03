@@ -135,6 +135,9 @@ static void loadFromFlash() {
   s.mqttBase = gS("mqBase", "");
   s.mqttDisc = gS("mqDisc", "homeassistant");
   s.perfDebug = gB("perf", false);
+  s.otaOn = gB("otaOn", false);
+  s.otaPass = gS("otaPass", "");
+  if (s.otaPass.length() == 0) s.otaOn = false;                   // never on without a password
   s.smoothOut = gI("kOut", 100);
   s.fps = gI("fps", 30);
   s.boxHost = gS("boxHost", "");
@@ -179,6 +182,8 @@ void settingsSave() {
   prefs.putString("mqBase", s.mqttBase);
   prefs.putString("mqDisc", s.mqttDisc);
   prefs.putBool("perf", s.perfDebug);
+  prefs.putBool("otaOn", s.otaOn);
+  prefs.putString("otaPass", s.otaPass);
   prefs.putInt("kOut", s.smoothOut);
   prefs.putInt("fps", s.fps);
   prefs.putString("boxHost", s.boxHost);
@@ -291,6 +296,8 @@ void settingsToJson(JsonDocument& d) {
   mq["base"] = s.mqttBase;
   mq["discovery"] = s.mqttDisc;
   mq["perf"] = s.perfDebug;
+  d["ota"]["enabled"] = s.otaOn;
+  d["ota"]["passSet"] = s.otaPass.length() > 0;                    // the password itself is never sent back
 }
 
 // Applies the "name / enabled / trim", "wled" and "layout" parts of a request to one target. x is the object holding name / enabled /
@@ -367,7 +374,7 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
   return "";
 }
 
-String settingsFromJson(JsonVariantConst d, bool persist) {
+String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   Lock l;
   Settings n = gSet;          // work on a copy; commit only if everything is valid
   JsonVariantConst k = d["look"], b = d["box"];
@@ -435,6 +442,26 @@ String settingsFromJson(JsonVariantConst d, bool persist) {
     if (!mq["discovery"].isNull()) { n.mqttDisc = mq["discovery"].as<String>(); n.mqttDisc.trim(); if (n.mqttDisc.length() == 0) n.mqttDisc = "homeassistant"; if (n.mqttDisc.length() > 32 || !okTopic(n.mqttDisc)) return "The discovery prefix may only contain letters, digits, - _ and /"; }
     if (n.mqttPort < 1 || n.mqttPort > 65535) return "The MQTT port must be between 1 and 65535";
     if (n.mqttOn && n.mqttHost.length() == 0) return "Enter the MQTT broker address (your Home Assistant or Mosquitto host).";
+  }
+
+  // Firmware updates. Never from a config file or a live preview. A password can be set when there is none yet (first setup); changing it
+  // needs the current one, and updates cannot be switched on without a password. (Switching them off is always allowed.)
+  JsonVariantConst ot = d["ota"];
+  if (persist && !imported && !ot.isNull()) {
+    if (!ot["pass"].isNull()) {
+      const String np = ot["pass"].as<String>();
+      if (!fwb::validUpdatePassword(np.c_str())) return "The update password must be 8 to 64 characters (letters, digits, symbols or spaces).";
+      if (n.otaPass.length() > 0) {
+        bool locked = false;
+        if (!otaPasswordOk(ot["currentPass"] | "", n.otaPass, &locked)) return locked ? "Too many wrong passwords. Wait a minute and try again." : "The current update password is wrong.";
+      }
+      n.otaPass = np;
+    }
+    if (!ot["enabled"].isNull()) {
+      const bool en = ot["enabled"].as<bool>();
+      if (en && n.otaPass.length() == 0) return "Set an update password first.";
+      n.otaOn = en;
+    }
   }
 
   const int oldCount = gSet.nTargets;
@@ -573,6 +600,7 @@ void settingsExport(JsonDocument& d, bool secrets) {
   d["config"].remove("layout");
   for (JsonObject tg : d["config"]["targets"].as<JsonArray>()) { tg["layout"].remove("hasTable"); tg.remove("usage"); }   // derived, not settings
   d["config"]["mqtt"].remove("passSet");
+  d["config"].remove("ota");                          // the update password and switch stay on this board
   Lock l;
   if (secrets && gSet.mqttPass.length()) d["config"]["mqtt"]["pass"] = gSet.mqttPass;
   JsonArray tb = d["tables"].to<JsonArray>();
@@ -641,7 +669,7 @@ String settingsImport(JsonVariantConst doc) {
   } else if (ver == 1 && !doc["table"].isNull()) {
     e = storeTable(0, doc["table"]);
   }
-  if (e.length() == 0) e = settingsFromJson(cfg, true);
+  if (e.length() == 0) e = settingsFromJson(cfg, true, true);          // imported: the update settings in the file are ignored
   if (e.length()) {                                    // refused: put everything back
     restoreTables(snap);
     gSet = oldSet;

@@ -36,6 +36,7 @@ function createDevice(opts) {
   const state = {
     cfg: { targets: [newTarget(0)],
       look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, smoothOut: 100 }, box: { host: '' },
+      ota: { enabled: false, passSet: false },
       relay: { enabled: true, tvOff: { mode: 'handback', seconds: 15 } }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
     screen: 'idle', calActive: false, maps: {}, test: null, total: opts.total || 600
   };
@@ -69,7 +70,26 @@ function createDevice(opts) {
       if (p === '/api/wled/discover') return json(res, 200, { devices: [{ name: 'wled-test', ip: '192.0.2.50', host: 'wled-test.local' }] });
       if (p === '/api/wled/info') return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false, on: true, bri: 128 });
       if (p === '/api/wifi/scan') return json(res, 200, { networks: ['TestNet', 'Other'] });
+      if (p === '/api/ota') return json(res, 200, { enabled: !!(state.otaOn && state.otaPass), passSet: !!state.otaPass, version: 'mock', slot: 'app0', imageState: state.imagePending ? 'pending' : 'valid', maxBytes: 3342336, rolledBack: !!state.rolledBack, busy: false });
       res.writeHead(404); return res.end('nope');
+    }
+    if (req.method === 'POST' && p === '/api/ota') {       // the firmware upload: a raw body and the update password in a header, like the board
+      const chunks = [];
+      req.on('data', c => chunks.push(c));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        calls.push('POST /api/ota');
+        state.lastUpload = { len: body.length, password: req.headers['x-update-password'], type: req.headers['content-type'] };
+        if (!(state.otaOn && state.otaPass)) return json(res, 403, { error: 'Firmware updates are switched off. Set an update password and switch updates on in the setup page first.' });
+        if (req.headers['x-update-password'] === undefined) return json(res, 401, { error: 'Enter the update password.' });
+        if (req.headers['x-update-password'] !== state.otaPass) return json(res, 401, { error: 'Wrong update password.' });
+        if (state.imagePending) return json(res, 400, { error: 'The firmware that is running has not been confirmed yet (a new firmware is checked for about a minute after it starts, so that a bad one can be undone). Try again in 30 seconds.' });
+        if (body.length < 112) return json(res, 400, { error: 'That file is too small to be a firmware image.' });
+        if (body[0] !== 0xE9) return json(res, 400, { error: 'That is not a firmware image (use firmware.bin from .pio/build/atoms3, not a merged or bootloader file).' });
+        state.uploaded = body.length;
+        return json(res, 200, { ok: true, restarting: true });
+      });
+      return;
     }
     if (req.method === 'POST') {
       if (!/application\/json/.test(req.headers['content-type'] || '')) return json(res, 400, { error: 'Content-Type must be application/json' });
@@ -93,6 +113,19 @@ function createDevice(opts) {
             Object.assign(T.wled, d.wled);
           }
           if (d.layout) Object.assign(T.layout, d.layout);
+          if (d.ota && !d.preview) {      // the same rules as the board: a first password is free, a change needs the current one, no switching on without one
+            const o = d.ota;
+            if (o.pass !== undefined) {
+              if (typeof o.pass !== 'string' || o.pass.length < 8 || o.pass.length > 64) return json(res, 400, { error: 'The update password must be 8 to 64 characters (letters, digits, symbols or spaces).' });
+              if (state.otaPass && o.currentPass !== state.otaPass) return json(res, 400, { error: 'The current update password is wrong.' });
+              state.otaPass = o.pass;
+            }
+            if (o.enabled !== undefined) {
+              if (o.enabled && !state.otaPass) return json(res, 400, { error: 'Set an update password first.' });
+              state.otaOn = !!o.enabled;
+            }
+            state.cfg.ota = { enabled: !!state.otaOn, passSet: !!state.otaPass };
+          }
           ['look', 'box', 'relay', 'mqtt'].forEach(k => { if (d[k]) Object.assign(state.cfg[k], d[k]); });
           if (d.mqtt && d.mqtt.pass !== undefined) { state.mqttPass = d.mqtt.pass; state.cfg.mqtt.passSet = d.mqtt.pass !== ''; delete state.cfg.mqtt.pass; }
           return json(res, 200, state.cfg);
@@ -119,7 +152,7 @@ function createDevice(opts) {
           return json(res, 200, { leds: w.count | 0, zones: usageOf(w, l) });
         }
         if (p === '/api/export') {     // like the firmware: settings + calibrated tables; never Wi-Fi; the MQTT password only on request
-          const cfg = JSON.parse(JSON.stringify(state.cfg)); delete cfg.wled; delete cfg.layout; delete cfg.mqtt.passSet;
+          const cfg = JSON.parse(JSON.stringify(state.cfg)); delete cfg.wled; delete cfg.layout; delete cfg.mqtt.passSet; delete cfg.ota;
           cfg.targets.forEach(t => { delete t.layout.hasTable; delete t.usage; });
           if (d.secrets && state.mqttPass) cfg.mqtt.pass = state.mqttPass;
           const tables = Object.keys(state.maps).map(k => ({ target: +k, start: state.maps[k].start, count: state.maps[k].count, hex: state.maps[k].hex }));

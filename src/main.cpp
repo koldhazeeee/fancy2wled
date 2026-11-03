@@ -13,6 +13,7 @@ void setup() {
   ledStatusBegin();
   wifiBegin();
   if (!wifiIsAp()) relayBegin();
+  otaBegin();
   webBegin();
   mqttBegin();
 }
@@ -20,6 +21,7 @@ void setup() {
 void loop() {
   if (gPerfOn) perfLoopBegin();
   wifiLoop();
+  otaLoop();
   if (!wifiIsAp() && WiFi.status() == WL_CONNECTED) { relayLoop(); mqttLoop(); }
   ledStatusLoop();
   if (restartDue()) {

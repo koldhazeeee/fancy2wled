@@ -68,6 +68,7 @@ void ledStatusLoop() {
   const bool blink = (now / 500) % 2;
   if (wifiIsAp()) { show(blink ? 20 : 0, 0, blink ? 24 : 0); return; }
   if (WiFi.status() != WL_CONNECTED) { show(0, 0, blink ? 20 : 2); return; }
+  if (otaBusy()) { show(blink ? 30 : 0, 0, blink ? 30 : 0); return; }                      // magenta blink: a firmware update is being written
   if (now - gLastStatus > 400) { relayStatus(gSt); gLastStatus = now; }
   const String s = gSt.state;
   if (s == "relaying") show(0, 14, 0);

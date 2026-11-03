@@ -72,6 +72,9 @@ struct Settings {
   String mqttBase;                     // topic prefix; "" = fancy2wled/<last 4 of the board id>
   String mqttDisc = "homeassistant";   // Home Assistant's discovery prefix
   bool perfDebug = false;              // measure and publish performance statistics over MQTT (off = nothing is measured)
+  // Firmware updates over Wi-Fi (the setup page's upload and PlatformIO's espota). Off until an update password exists; never exported.
+  bool otaOn = false;
+  String otaPass;
   // network
   String boxHost;                      // only accept the broadcast from this IP ("" = anyone)
   String ssid, pass;
@@ -100,7 +103,8 @@ void settingsExport(JsonDocument& d, bool secrets);
 String settingsImport(JsonVariantConst doc);
 // Partial update from POST /api/config. Returns "" on success or an error message.
 // persist=false is a live preview: used immediately but not written to flash (settingsRevert() drops it).
-String settingsFromJson(JsonVariantConst d, bool persist = true);
+// imported=true (a config file): the firmware-update settings in it are ignored, so a file cannot set the update password.
+String settingsFromJson(JsonVariantConst d, bool persist = true, bool imported = false);
 void settingsRevert();
 // Store a calibrated table for a target (hex: 8 chars per LED = a, b, f, d). Switches that target's layout to "table".
 String tableStoreHex(int target, int start, int count, const char* hex, size_t hexLen);
@@ -110,6 +114,20 @@ bool tableHasStored(int target);
 String targetUsage(int target, JsonVariantConst req, float out[fwb::kZones], int* leds);
 String targetAdd(int* index);               // new empty target at the end; "" or an error
 String targetRemove(int index);             // removes a target (the later ones move up); "" or an error
+
+// ---------------------------------------------------------------- firmware updates (ota.cpp)
+void otaBegin();                                 // after Wi-Fi is up (does nothing in setup mode)
+void otaLoop();                                  // PlatformIO's espota listener, and marking a new firmware as good once it has run for a while
+// Is this the update password? Constant time; after 5 wrong tries in a row everything is refused for a minute (`locked` tells which).
+bool otaPasswordOk(const String& given, const String& stored, bool* locked = nullptr);
+bool otaBusy();                                  // an update is being written
+// The web upload, one call per phase (called from the HTTP handler). "" = fine, otherwise the message to show.
+String otaUploadBegin(size_t total, const uint8_t* head, size_t headLen);   // checks the image header, opens the next firmware slot
+String otaUploadWrite(const uint8_t* data, size_t n);
+String otaUploadEnd();                           // checks the marker, closes the slot and chooses it for the next boot; restart afterwards
+void otaUploadAbort();
+struct OtaInfo { bool enabled, passSet, rolledBack; String version, slot, imageState; size_t maxBytes; };   // imageState: new / pending / valid / invalid / aborted / undefined of the running firmware
+void otaInfo(OtaInfo& o);
 
 // ---------------------------------------------------------------- relay
 struct TargetStatus { bool enabled = true, ok = false; int leds = 0; String name, host, wledName, ip; int ipAgeS = -1; };   // ip: the address in use (a name's current address)
@@ -130,6 +148,8 @@ struct RelayStatus {
   bool boxProblem = false;                  // frames arrive but none can be read: the box probably changed what it sends
 };
 
+void relayUpdateBegin();                    // a firmware update is about to be written: stop streaming and hand the WLEDs back
+void relayUpdateEnd();                      // ... it failed: carry on
 void relayBegin();
 void relayWait(uint32_t maxMs);              // sleep until a Sync Box packet arrives or the relay needs to act (max maxMs)
 void relayLoop();
