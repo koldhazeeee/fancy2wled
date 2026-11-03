@@ -150,7 +150,35 @@ async function cdp(wsUrl) {
     await ota(osv('otaCur', 'another good one') + osv('otaNewB', 'long enough pw') + osv('otaNewB2', 'long enough pw') + click('otaChangeBtn')); await sleep(500);
     dev.state.otaOn = false; dev.state.otaPass = ''; dev.state.cfg.ota = { enabled: false, passSet: false }; await p.ev("location.reload(); 1"); await sleep(1800);
     check('ota: back to no password for the tests below', (await ota("document.getElementById('otaOn').disabled")) === true);
-    // ---- a Govee light as a target
+    // ---- the picture map shows what the Sync Box is sending, live
+    {
+      const grp = z => "document.querySelectorAll('#mapSvg g[data-zone]')[" + z + "]";
+      const fillOf = async z => ota(grp(z) + ".querySelector('rect').getAttribute('fill')");
+      const zonesCalls = () => dev.calls.filter(c => c === 'GET /api/zones').length;
+      const toMap = async () => { await ota("document.getElementById('mapCard').scrollIntoView(); 1"); await sleep(1500); };
+      dev.state.zones = Array.from({ length: 24 }, (_, z) => [z * 10, 255 - z * 10, 40]);
+      const farBefore = zonesCalls(); await sleep(1700);
+      check('live map: with the map off screen the page does not ask the board for colours', zonesCalls() === farBefore, zonesCalls() + ' vs ' + farBefore);
+      await toMap();
+      check('live map: every zone shows the colour the box is sending', (await fillOf(3)) === 'rgb(30,225,40)' && (await fillOf(20)) === 'rgb(200,55,40)', await fillOf(3));
+      check('live map: a zone a target follows is full, one nobody follows is faded', (await ota(grp(0) + ".getAttribute('opacity')")) === '1' && (await ota(grp(8) + ".getAttribute('opacity')")) === '0.4');
+      check('live map: the target is a bar under the colour, not a block over it', (await ota("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('height')")) === '8');
+      check('live map: tapping a zone gives its colour in words', (await ota(grp(3) + ".querySelector('rect > title').textContent")) === 'Zone 3: red 30, green 225, blue 40');
+      check('live map: a note explains what the colours are', /Each zone shows the colour the Sync Box is sending/.test(await text('mapLiveNote')), await text('mapLiveNote'));
+      await ota("var c=document.getElementById('mapLiveOn'); c.checked=false; c.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(400);
+      check('live map: switched off, the zones are plain and the targets are blocks over them again', (await fillOf(3)) === 'var(--bg)' && (await ota("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('height')")) !== '8');
+      const before = zonesCalls(); await sleep(1700);
+      check('live map: switched off, the page stops asking the board for the colours', zonesCalls() === before, zonesCalls() + ' vs ' + before);
+      await ota("location.reload(); 1"); await sleep(1900); await toMap();
+      check('live map: the choice is remembered after a reload', (await ota("document.getElementById('mapLiveOn').checked")) === false && (await fillOf(3)) === 'var(--bg)');
+      await ota("var c=document.getElementById('mapLiveOn'); c.checked=true; c.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(1500);
+      const onBefore = zonesCalls(); await sleep(1300);
+      check('live map: on screen, the page asks the board about twice a second', zonesCalls() - onBefore >= 1 && zonesCalls() - onBefore <= 4, String(zonesCalls() - onBefore));
+      check('live map: switched on again, the colours come back', (await fillOf(3)) === 'rgb(30,225,40)', await fillOf(3));
+      dev.state.zonesAge = 9000; await sleep(1500);
+      check('live map: when the box has been silent the zones go plain and the note says so', (await fillOf(3)) === 'var(--bg)' && /Waiting for a picture/.test(await text('mapLiveNote')), await text('mapLiveNote'));
+      dev.state.zonesAge = null; dev.state.zones = null; await sleep(1200);
+    }    // ---- a Govee light as a target
     const sel = id => "document.getElementById('" + id + "')";
     const setType = async v => { await ota(sel('tKind') + ".value='" + v + "'; " + sel('tKind') + ".dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300); };
     check('govee: a target is a WLED unless you say otherwise', (await ota(sel('tKind') + '.value')) === 'wled' && /Check this WLED/.test(await text('wCheck')) && !(await hidden('wStartRow')));
@@ -179,8 +207,30 @@ async function cdp(wsUrl) {
     check('govee: after a reload the page comes back as a Govee target', (await ota(sel('tKind') + '.value')) === 'govee' && (await text('wTitle')) === 'Govee light' && (await ota(sel('wCount') + '.value')) === '20');
     await setType('wled');
     check('govee: switching back restores the WLED labels', (await text('wTitle')) === 'WLED' && /Check this WLED/.test(await text('wCheck')) && !(await hidden('wStartRow')) && !(await hidden('findWrap')) && !(await hidden('ledIntro')) && (await hidden('gIntro')));
-    await ota(osv('wHost', '192.0.2.50') + osv('wCount', '150') + osv('wBri', '-1') + sel('lSide') + ".value='0'; " + click('save')); await sleep(700);
-    check('govee: back to the WLED setup for the tests below', dev.state.cfg.targets[0].kind === 'wled' && dev.state.cfg.targets[0].wled.host === '192.0.2.50' && dev.state.cfg.targets[0].wled.count === 150 && dev.state.cfg.targets[0].layout.led0Right === false, JSON.stringify(dev.state.cfg.targets[0].wled));
+    await ota(osv('wHost', '192.0.2.50') + osv('wCount', '150') + osv('wBri', '-1') + sel('lSide') + ".value='0'; " + sel('tSharp') + ".value='0'; " + sel('tVivid') + ".checked=false; " + click('save')); await sleep(700);
+    // ---- zone edges and saturation, per target
+    check('look: a target starts with smooth zone edges and normal saturation', (await ota(sel('tSharp') + '.value')) === '0' && (await ota(sel('tSat') + '.value')) === '1' && /smooth/.test(await text('tSharpV')) && /100%/.test(await text('tSatV')), await text('tSharpV'));
+    await ota(sel('tSharp') + ".value='100'; " + sel('tSharp') + ".dispatchEvent(new Event('input',{bubbles:true})); " + sel('tSat') + ".value='1.3'; " + sel('tSat') + ".dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(700);
+    check('look: the labels say sharp and 130%', /sharp/.test(await text('tSharpV')) && /130%/.test(await text('tSatV')), (await text('tSharpV')) + ' ' + (await text('tSatV')));
+    check('look: the picture map asks the board with the unsaved zone edges', dev.state.lastUsagePost && dev.state.lastUsagePost.sharp === 100 && dev.state.lastUsagePost.kind === 'wled', JSON.stringify(dev.state.lastUsagePost && [dev.state.lastUsagePost.sharp, dev.state.lastUsagePost.kind]));
+    const hardLegend = await ota("Array.prototype.map.call(document.querySelectorAll('#mapSvg rect[data-t=\"0\"]'), function(r){return r.getAttribute('data-z')+':'+r.getAttribute('fill-opacity');}).join(' ')");
+    check('look: with hard edges the map still draws the target on its zones', /\d+:/.test(hardLegend), hardLegend);
+    await ota(click('save')); await sleep(700);
+    check('look: Save stores the zone edges and the saturation on that target', dev.state.cfg.targets[0].sharp === 100 && Math.abs(dev.state.cfg.targets[0].sat - 1.3) < 1e-9 && dev.state.lastConfigPost.sharp === 100, JSON.stringify([dev.state.cfg.targets[0].sharp, dev.state.cfg.targets[0].sat]));
+    check('vivid: a target starts with plain RGB blending', (await ota(sel('tVivid') + '.checked')) === false);
+    await ota(sel('tVivid') + ".checked=true; " + sel('tVivid') + ".dispatchEvent(new Event('change',{bubbles:true})); " + click('save')); await sleep(700);
+    check('vivid: Save stores it on that target', dev.state.cfg.targets[0].vivid === true && dev.state.lastConfigPost.vivid === true, String(dev.state.cfg.targets[0].vivid));
+    await ota(sel('tVivid') + ".checked=false; 1");
+    await setType('govee');
+    check('vivid: choosing a Govee light switches vivid blending on', (await ota(sel('tVivid') + '.checked')) === true);
+    await setType('wled'); await ota(sel('tVivid') + ".checked=false; 1");
+    await setType('govee');
+    check('look: choosing a Govee light turns the zone edges to sharp if they were smooth', true);
+    await ota(sel('tSharp') + ".value='0'; " + sel('tSharp') + ".dispatchEvent(new Event('input',{bubbles:true})); 1");
+    await setType('wled'); await setType('govee');
+    check('look: ... again, after they were set smooth', (await ota(sel('tSharp') + '.value')) === '100', await ota(sel('tSharp') + '.value'));
+    await setType('wled');
+    await ota(sel('tSharp') + ".value='0'; " + sel('tSat') + ".value='1'; " + sel('tVivid') + ".checked=false; " + sel('tSharp') + ".dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(300);    check('govee: back to the WLED setup for the tests below', dev.state.cfg.targets[0].kind === 'wled' && dev.state.cfg.targets[0].wled.host === '192.0.2.50' && dev.state.cfg.targets[0].wled.count === 150 && dev.state.cfg.targets[0].layout.led0Right === false, JSON.stringify(dev.state.cfg.targets[0].wled));
     // smoothing slider is part of the live preview
     await p.ev("var o=document.getElementById('kOut'); o.value='40'; o.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
     check('index: smooth-beyond-TV slider shows its value', /40%/.test(await p.ev("document.getElementById('kOutV').textContent")));

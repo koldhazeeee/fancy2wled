@@ -139,10 +139,39 @@ def main():
         sample = [0, 10, 40, 80, 91, 100, 130, 174, 175, 190, 209]
         lines.append("APPLY 210 left 91 174 %d %d %d %s | %s" % (pct, info[2], info[3], flat_z, " ".join("%d:%.3f,%.3f,%.3f" % ((i,) + tuple(cols[i])) for i in sample)))
 
+    # --- vivid blending of two colours, and a whole table with it -----------------------------
+    pairs = [((255, 0, 0), (0, 255, 0)), ((255, 0, 0), (0, 0, 255)), ((0, 255, 0), (0, 0, 255)), ((80, 4, 153), (150, 130, 45)), ((101, 0, 142), (67, 112, 117)),
+             ((200, 200, 200), (255, 0, 0)), ((0, 0, 0), (0, 200, 100)), ((90, 90, 90), (40, 40, 40)), ((255, 0, 0), (0, 255, 255)), ((255, 128, 0), (255, 128, 0)),
+             ((250, 10, 5), (10, 5, 250)), ((20, 240, 20), (240, 20, 240))]
+    for _ in range(8):
+        pairs.append((tuple(float(rnd.randrange(256)) for _ in range(3)), tuple(float(rnd.randrange(256)) for _ in range(3))))
+    for pa, pb in pairs:
+        for w in (0.0, 0.25, 0.5, 0.75, 1.0):
+            o = layout.blend_vivid(list(pa), list(pb), w)
+            lines.append("VBLEND %s %s %.4f %.3f %.3f %.3f" % (",".join("%.3f" % v for v in pa), ",".join("%.3f" % v for v in pb), w, o[0], o[1], o[2]))
+    for case in range(3):
+        zones = [[float(rnd.randrange(256)) for _ in range(3)] for _ in range(24)]
+        tbl = layout.table_linear(210, "left", (91, 174))
+        info = layout.smooth_info(tbl, [100, 50, 0][case])
+        cols = layout.apply_table(tbl, zones, info, vivid=True)
+        flat_z = ",".join("%.3f" % z[c] for z in zones for c in range(3))
+        sample = [0, 10, 40, 80, 91, 100, 130, 174, 175, 190, 209]
+        lines.append("APPLYV 210 left 91 174 %d %d %d %s | %s" % ([100, 50, 0][case], info[2], info[3], flat_z, " ".join("%d:%.3f,%.3f,%.3f" % ((i,) + tuple(cols[i])) for i in sample)))
+
     # --- DDP header -------------------------------------------------------------
     for seq, dt, off, ln, push in [(1, 0x0B, 0, 450, 1), (15, 0x1B, 40, 1440, 0), (3, 0x0B, 100000, 7, 1)]:
         hdr = struct.pack("!BBBBIH", 0x40 | (1 if push else 0), seq, dt, 1, off, ln)
         lines.append("DDP %d %d %d %d %d %s" % (seq, dt, off, ln, push, hdr.hex()))
+
+    # --- sharper zone edges: a table, then the same table sharpened ---------------------------
+    # (the input table is part of the vector, so both sides sharpen exactly the same entries)
+    for count, side, span, edge in [(210, "left", (91, 174), "top"), (150, "left", None, "top"), (266, "left", None, "right"), (100, "right", (20, 80), "bottom"), (42, "right", None, "bottom")]:
+        src = layout.table_linear(count, side, span, edge=edge)
+        for pct in (25, 50, 80, 100):
+            lines.append("SHARP %d %s | %s" % (pct, ent(src), ent(layout.sharpen(src, pct))))
+    src = layout.table_loop(142, "top-left", "clockwise", None, 0, (16, 9))
+    for pct in (30, 60, 100):
+        lines.append("SHARP %d %s | %s" % (pct, ent(src), ent(layout.sharpen(src, pct))))
 
     # --- Govee streaming packets (the complete UDP payload) ----------------------
     for on in (1, 0):

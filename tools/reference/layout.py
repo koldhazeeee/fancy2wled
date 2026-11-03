@@ -163,7 +163,59 @@ def smooth_info(table, percent):
     zones_end = outer_zone(table[-1]) if 0 <= last_zero < n - 1 else None
     return first_zero, last_zero, tail(0, first_zero), tail(last_zero + 1, n), zones_start, zones_end
 
-def apply_table(table, zones, info):
+def _to_hsv(c):
+    r, g, b = c
+    mx, mn = max(r, g, b), min(r, g, b)
+    d = mx - mn
+    v = mx / 255.0
+    s = d / mx if mx > 0 else 0.0
+    if d <= 0:
+        return 0.0, s, v
+    if mx == r:
+        h = 60.0 * (((g - b) / d) % 6.0)
+    elif mx == g:
+        h = 60.0 * ((b - r) / d + 2.0)
+    else:
+        h = 60.0 * ((r - g) / d + 4.0)
+    return h, s, v
+
+
+def _from_hsv(h, s, v):
+    h = h % 360.0
+    c = v * s
+    x = c * (1.0 - abs((h / 60.0) % 2.0 - 1.0))
+    m = v - c
+    sector = [(c, x, 0), (x, c, 0), (0, c, x), (0, x, c), (x, 0, c), (c, 0, x)][int(h // 60.0) % 6]
+    return [(p + m) * 255.0 for p in sector]
+
+
+def blend_vivid(a, b, w):
+    """Blend two colours along the colour wheel: the hue takes the shorter way round, saturation and brightness blend straight; a grey or black end has
+    no hue of its own and takes the other end's. Mirrors vividBlend() in src/core.cpp."""
+    ha, sa, va = _to_hsv(a)
+    hb, sb, vb = _to_hsv(b)
+    if va < 0.02 and vb >= 0.02:
+        sa = sb
+    elif vb < 0.02 and va >= 0.02:
+        sb = sa
+    da, db = sa >= 0.04 and va >= 0.02, sb >= 0.04 and vb >= 0.02
+    if da and db:
+        dh = hb - ha
+        if dh > 180.0:
+            dh -= 360.0
+        elif dh <= -180.0:
+            dh += 360.0
+        h = ha + dh * w
+    elif da:
+        h = ha
+    elif db:
+        h = hb
+    else:
+        h = 0.0
+    return _from_hsv(h, sa + (sb - sa) * w, va + (vb - va) * w)
+
+
+def apply_table(table, zones, info, vivid=False):
     """Colours for every LED given 24 zone colours (each a 3-sequence of floats 0..255).
 
     LEDs beyond the TV (d > 0) ease toward the colour of the zone at their end of the strip (the corner zone), reaching it at the
@@ -177,11 +229,31 @@ def apply_table(table, zones, info):
     out = []
     for i, (a, b, f, d) in enumerate(table):
         w = f / 255.0
-        col = [zones[a][c] + (zones[b][c] - zones[a][c]) * w for c in range(3)]
+        if vivid and a != b and f not in (0, 255):
+            col = blend_vivid(zones[a], zones[b], w)
+        else:
+            col = [zones[a][c] + (zones[b][c] - zones[a][c]) * w for c in range(3)]
         length = len_start if i < first_zero else (len_end if i > last_zero else 0)
         if length > 0 and d > 0:
             g = smoothstep(d / float(length))
             avg = avg_start if i < first_zero else avg_end
             col = [col[c] + (avg[c] - col[c]) * g for c in range(3)]
         out.append(col)
+    return out
+
+def sharpen(table, percent):
+    """How soft the change from one zone to the next is. f runs from 0 (at the first zone's centre) to 255 (at the next one's), the line between them at 127.5.
+    percent 0 leaves it, 100 snaps every LED to the zone it sits in, in between the change is squeezed into a narrower band. Entries that use one zone are
+    left alone. Mirrors sharpenTable() in src/core.cpp."""
+    out = []
+    for a, b, f, d in table:
+        if percent <= 0 or a == b:
+            out.append([a, b, f, d])
+            continue
+        if percent >= 100:
+            nf = 0.0 if f < 127.5 else 255.0
+        else:
+            k = 1.0 / (1.0 - percent / 100.0)
+            nf = min(255.0, max(0.0, (f - 127.5) * k + 127.5))
+        out.append([a, b, int(nf + 0.5), d])
     return out

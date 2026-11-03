@@ -800,7 +800,7 @@ void relayLoop() {
   const uint32_t now = millis();
   gWaitHintMs = 10;
 
-  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; };
+  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; };
   TSnap sn[kMaxTargets];
   int nT, fps, tvMode;
   bool globalOn, tvOff;
@@ -813,7 +813,7 @@ void relayLoop() {
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
       const Target& t = gSet.t[i];
-      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind};
+      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind, t.sat, t.vivid};
     }
   }
   for (int i = nT; i < kMaxTargets; i++) {                  // targets that no longer exist: hand their WLED back and free their memory
@@ -909,7 +909,8 @@ void relayLoop() {
         const float(*zones)[3] = gAdj;
         if (testing) { float raw[kZones][3]; rainbowZones(raw); adjustInto(adjR, raw); zones = adjR; }
         if (r.smoothGen != gSettingsGen) { r.smooth = smoothInfo(gTable[i], n, gSet.smoothOut); r.smoothGen = gSettingsGen; }
-        applyTable(gTable[i], n, zones, r.tgt, r.smooth);
+        applyTable(gTable[i], n, zones, r.tgt, r.smooth, sn[i].vivid);
+        if (sn[i].sat != 1.f) saturateColours(r.tgt, n, sn[i].sat);                  // this target's own saturation, on top of the shared one
         r.computedGen = gSettingsGen;
         const float smo = gSet.kSmo;
         const float trim = sn[i].trim;

@@ -41,6 +41,9 @@ struct Target {
   bool wTurnOn = true, wRestore = true, whiteMin = false;
   int wBri = -1;                       // -1 = leave WLED's brightness alone
   float trim = 1.f;                    // this target's brightness relative to the others (0..2)
+  int sharp = 0;                       // zone edges: 0 = smooth blend between zones .. 100 = every LED takes the colour of the zone it sits in (a Govee light defaults to 100)
+  float sat = 1.f;                     // this target's colour saturation on top of the shared one (0..3)
+  bool vivid = false;                  // blend neighbouring zones along the colour wheel instead of mixing them in RGB (a Govee light defaults to on)
   // layout
   int lType = LAYOUT_LINEAR;
   bool led0Right = false;              // straight run: LED 0 at the right end (top/bottom run) or at the bottom end (left/right run)

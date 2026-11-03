@@ -12,21 +12,32 @@ const ROUTES = { '/': 'index.html', '/calibrate': 'calibrate.html', '/screen': '
 const A = require('../web/analysis.js');       // the mapping code that is checked against the Python reference and the firmware
 
 // How many of a target's LEDs follow each of the 24 zones (what the firmware's zoneUsage() reports).
-function usageOf(wled, layout) {
+// The firmware's sharpenTable(): 0 = smooth, 100 = every LED takes the zone it sits in, in between the change is squeezed into a narrower band.
+function sharpen(tbl, pct) {
+  if (!(pct > 0)) return tbl;
+  return tbl.map(e => {
+    if (e[0] === e[1]) return e;
+    const f = pct >= 100 ? (e[2] < 127.5 ? 0 : 255) : Math.min(255, Math.max(0, (e[2] - 127.5) / (1 - pct / 100) + 127.5));
+    return [e[0], e[1], Math.floor(f + 0.5), e[3]];
+  });
+}
+
+function usageOf(wled, layout, sharp) {
   const n = wled.count | 0, out = new Array(24).fill(0);
   if (n <= 0 || n > 1000) return out;
   let tbl = null;
   if (layout.type === 'loop') tbl = A.tableLoop(n, layout.corner | 0, !!layout.ccw, (layout.sides && layout.sides[0] > 0) ? layout.sides : null, layout.shift | 0, 16, 9);
   if (!tbl) tbl = A.tableLinear(n, !!layout.led0Right, layout.spanFirst, layout.spanLast, layout.edge || 'top');
+  tbl = sharpen(tbl, sharp | 0);
   tbl.forEach(e => { out[e[0]] += 1 - e[2] / 255; out[e[1]] += e[2] / 255; });
   return out.map(v => Math.round(v * 10) / 10);
 }
 
 function newTarget(i) {
-  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1,
+  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1, sharp: 0, sat: 1, vivid: false,
     wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
     layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false } };
-  Object.defineProperty(t, 'usage', { enumerable: true, get() { return usageOf(this.wled, this.layout); } });   // like the firmware, derived from the settings
+  Object.defineProperty(t, 'usage', { enumerable: true, get() { return usageOf(this.wled, this.layout, this.sharp); } });   // like the firmware, derived from the settings
   return t;
 }
 
@@ -65,7 +76,7 @@ function createDevice(opts) {
       }
       if (p === '/api/config') return json(res, 200, state.cfg);
       if (p === '/api/diag') return json(res, 200, { format: 'fancy2wled-diagnostics', version: 1, firmware: 'mock', relay: { frames: { understood: 1200, newLayout: 340, unreadable: 2 }, samples: [{ ageMs: 100, class: 'sync box framing, payload not understood', len: 90, checksumOk: true, hex: '55aa5a55' }] } });
-      if (p === '/api/zones') return json(res, 200, { age: 40, zones: Array.from({ length: 24 }, () => [state.screen === 'white' ? 200 : 0, 0, 0]) });
+      if (p === '/api/zones') return json(res, 200, { age: state.zonesAge != null ? state.zonesAge : 40, zones: state.zones || Array.from({ length: 24 }, () => [state.screen === 'white' ? 200 : 0, 0, 0]) });
       if (p === '/api/screen') return json(res, 200, { mode: state.calActive ? state.screen : 'idle' });
       if (p === '/api/wled/discover') return json(res, 200, { devices: [{ name: 'wled-test', ip: '192.0.2.50', host: 'wled-test.local' }] });
       if (p === '/api/wled/info') return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false, on: true, bri: 128 });
@@ -120,6 +131,9 @@ function createDevice(opts) {
             if (w.brightness > 100 || w.brightness === 0) return json(res, 400, { error: 'Govee brightness must be -1 (leave it) or 1-100 percent' });
             d.wled = Object.assign({}, w, { start: 0 });
           }
+          if (d.sharp !== undefined) T.sharp = Math.min(100, Math.max(0, d.sharp | 0));
+          if (d.sat !== undefined) T.sat = Math.min(3, Math.max(0, +d.sat));
+          if (d.vivid !== undefined) T.vivid = !!d.vivid;
           if (d.enabled !== undefined) T.enabled = d.enabled;
           if (d.trim !== undefined) T.trim = d.trim;
           if (d.wled) {
@@ -166,7 +180,7 @@ function createDevice(opts) {
           if (!T) return json(res, 400, { error: 'There is no target ' + ((d.target || 0) + 1) });
           const w = Object.assign({}, T.wled, d.wled || {}), l = Object.assign({}, T.layout, d.layout || {});
           if (w.count > 1000) return json(res, 400, { error: 'A target can have at most 1000 LEDs' });
-          return json(res, 200, { leds: w.count | 0, zones: usageOf(w, l) });
+          return json(res, 200, { leds: w.count | 0, zones: usageOf(w, l, d.sharp !== undefined ? d.sharp : T.sharp) });
         }
         if (p === '/api/export') {     // like the firmware: settings + calibrated tables; never Wi-Fi; the MQTT password only on request
           const cfg = JSON.parse(JSON.stringify(state.cfg)); delete cfg.wled; delete cfg.layout; delete cfg.mqtt.passSet; delete cfg.ota;

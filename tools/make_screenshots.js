@@ -39,6 +39,9 @@ async function cdp(wsUrl) {
 
   // ---- sample data: a ceiling strip, a cabinet light, a Govee desk light
   dev.state.relayState = 'relaying';
+  // what the Sync Box is sending in the live picture map: a colourful scene, brighter along the edges the targets follow
+  { const row = [[78, 4, 152], [150, 130, 45], [98, 2, 141], [67, 109, 116], [158, 17, 69], [67, 102, 131]]; const mid = row.map(c => c.map(v => Math.round(v * 0.55)));
+    dev.state.zones = [].concat(row, mid, mid, row); }
   dev.state.version = '0.3.0';
   dev.state.totals = { '192.0.2.50': 600, '192.0.2.51': 266 };
   await post('/api/targets', { action: 'add' });

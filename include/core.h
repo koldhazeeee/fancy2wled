@@ -137,13 +137,28 @@ float smoothDecay(float smoothing, float dtMs, float refMs);
 constexpr float kBoxLead = 1.5f;
 float leadBoost(float y, float yPrev, float boost);
 
+// Vivid blending between two zone colours. Mixing two colours in RGB (red and green half and half is a dull dark yellow) turns unlike hues into
+// grey or brown in between. This blends along the colour wheel instead: the hue takes the shorter way round from one colour to the other (red -> orange ->
+// yellow -> green), saturation and brightness blend straight. A grey or black end has no hue of its own and takes the other end's. w = 0 gives a, 1 gives b.
+void vividBlend(const float a[3], const float b[3], float w, float out[3]);
+
+// How soft the colour changes where one zone ends and the next begins. Each LED blends two zones (colour = zone[a] * (1 - f/255) + zone[b] * (f/255), f
+// running from 0 at the first zone's centre to 255 at the next one's, the line between them at 127.5). percent steepens that around the line: 0 leaves
+// it as it is (smooth), 100 snaps every LED to the zone it sits in (hard edges, like the Sync Box's own strip), in between the change is squeezed into a
+// narrower band. Entries that use one zone (the stretch beyond the TV) are left alone. Not for phone-calibrated tables.
+void sharpenTable(Entry* table, int count, int percent);
+
+// Saturation of finished LED colours (r, g, b as 0..255 floats, 3 per LED): 1 leaves them, 0 makes them grey, above 1 pushes each away from the grey of
+// the same brightness. Results are clamped to 0..255.
+void saturateColours(float* rgb, int n, float sat);
+
 // How many LEDs follow each picture zone: an LED adds (1 - f/255) to zone a and f/255 to zone b of its table entry, so the 24 numbers add
 // up to `count`. The setup page draws this as the "picture map" (which part of the screen each target pulls from). LEDs past the ends of the
 // TV hold the corner zone, so the corners usually come out highest.
 void zoneUsage(const Entry* table, int count, float out[kZones]);
 
 // out[i*3 + c] = colour of LED i.
-void applyTable(const Entry* table, int count, const float zones[kZones][3], float* out, const SmoothInfo& smooth);
+void applyTable(const Entry* table, int count, const float zones[kZones][3], float* out, const SmoothInfo& smooth, bool vivid = false);   // vivid: blend zones with vividBlend()
 
 // ---- DDP (UDP 4048) ---------------------------------------------------------
 constexpr size_t kDdpHeader = 10;

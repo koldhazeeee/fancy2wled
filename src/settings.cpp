@@ -37,6 +37,13 @@ static void loadTarget(Target& t, int i) {
   t.name = gS("tName", ("Target " + String(i + 1)).c_str());
   t.kind = gI("tKind", 0);
   if (t.kind < 0 || t.kind > 1) t.kind = 0;
+  t.sharp = gI("lSharp", t.kind == 1 ? 100 : 0);
+  if (t.sharp < 0) t.sharp = 0;
+  if (t.sharp > 100) t.sharp = 100;
+  t.vivid = gB("lVivid", t.kind == 1);
+  t.sat = gF("tSat", 1.f);
+  if (t.sat < 0.f) t.sat = 0.f;
+  if (t.sat > 3.f) t.sat = 3.f;
   t.enabled = gB("tOn", true);
   t.trim = gF("tTrim", 1.f);
   t.wHost = gS("wHost", "");
@@ -75,6 +82,9 @@ static void loadTarget(Target& t, int i) {
 static void saveTarget(const Target& t, int i) {
   prefs.putString(K("tName", i).c_str(), t.name);
   prefs.putInt(K("tKind", i).c_str(), t.kind);
+  prefs.putInt(K("lSharp", i).c_str(), t.sharp);
+  prefs.putFloat(K("tSat", i).c_str(), t.sat);
+  prefs.putBool(K("lVivid", i).c_str(), t.vivid);
   prefs.putBool(K("tOn", i).c_str(), t.enabled);
   prefs.putFloat(K("tTrim", i).c_str(), t.trim);
   prefs.putString(K("wHost", i).c_str(), t.wHost);
@@ -96,7 +106,7 @@ static void saveTarget(const Target& t, int i) {
 }
 
 static void eraseTargetKeys(int i) {
-  static const char* keys[] = {"tName", "tKind", "tOn", "tTrim", "wHost", "wStart", "wCount", "wOn", "wRestore", "wBri", "whiteMin", "lType", "lRight",
+  static const char* keys[] = {"tName", "tKind", "lSharp", "tSat", "lVivid", "tOn", "tTrim", "wHost", "wStart", "wCount", "wOn", "wRestore", "wBri", "whiteMin", "lType", "lRight",
                                "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "tbl4"};
   for (const char* k : keys) prefs.remove(K(k, i).c_str());
 }
@@ -213,6 +223,7 @@ static void buildTable(const Target& t, int idx, fwb::Entry* out, int n) {
   } else {   // linear (also the fallback when a calibrated table does not match the LED count)
     fwb::tableLinear(out, n, t.led0Right, t.spanFirst, t.spanLast, t.linEdge);
   }
+  if (!(t.lType == LAYOUT_TABLE && gStoredN[idx] == n)) fwb::sharpenTable(out, n, t.sharp);     // a phone-measured table stays as measured
 }
 
 void tableRebuild() {
@@ -246,6 +257,9 @@ static const char* kEdgeNames[4] = {"top", "right", "bottom", "left"};
 static void targetToJson(const Target& t, int i, JsonObject o) {
   o["name"] = t.name;
   o["kind"] = t.kind == 1 ? "govee" : "wled";
+  o["sharp"] = t.sharp;
+  o["sat"] = t.sat;
+  o["vivid"] = t.vivid;
   o["enabled"] = t.enabled;
   o["trim"] = t.trim;
   JsonObject w = o["wled"].to<JsonObject>();
@@ -323,6 +337,9 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
     else if (k == "govee") n.kind = 1;
     else return "The target type must be wled or govee";
   }
+  if (!x["sharp"].isNull()) n.sharp = (int)clampf(x["sharp"].as<float>(), 0.f, 100.f);
+  if (!x["sat"].isNull()) n.sat = clampf(x["sat"].as<float>(), 0.f, 3.f);
+  if (!x["vivid"].isNull()) n.vivid = x["vivid"].as<bool>();
   if (!x["enabled"].isNull()) n.enabled = x["enabled"].as<bool>();
   if (!x["trim"].isNull()) n.trim = clampf(x["trim"].as<float>(), 0.f, 2.f);
 
@@ -409,7 +426,8 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
       String e = applyTargetJson(n.t[i], i, a[i], a[i]["wled"], a[i]["layout"]);
       if (e.length()) return e;
     }
-  } else if (!d["wled"].isNull() || !d["layout"].isNull() || !d["name"].isNull() || !d["trim"].isNull() || !d["enabled"].isNull()) {
+  } else if (!d["wled"].isNull() || !d["layout"].isNull() || !d["name"].isNull() || !d["trim"].isNull() || !d["enabled"].isNull() || !d["kind"].isNull() ||
+             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull()) {
     const int ti = d["target"] | 0;                   // which target the top-level wled / layout / name / trim apply to
     if (ti < 0 || ti >= n.nTargets) return "There is no target " + String(ti + 1);
     String e = applyTargetJson(n.t[ti], ti, d, d["wled"], d["layout"]);

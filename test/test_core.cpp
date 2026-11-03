@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[200000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -174,7 +174,21 @@ int main(int argc, char** argv) {
       CHECK(ok, "%s: returned false", what);
       if (ok) compareTables(what, got, want);
       nLoop++;
-    } else if (k == "APPLY") {
+    } else if (k == "SHARP") {
+      // SHARP <percent> <entries before> | <entries after>
+      int pct, n = 0;
+      sscanf(rest, "%d%n", &pct, &n);
+      const char* bar = strchr(rest + n, '|');
+      auto before = parseEntries(rest + n);
+      auto want = parseEntries(bar ? bar + 1 : "");
+      CHECK(bar && before.size() == want.size() && before.size() > 0, "sharp vector is malformed (%zu / %zu entries)", before.size(), want.size());
+      if (bar && before.size() == want.size()) {
+        std::vector<Entry> got = before;
+        sharpenTable(got.data(), (int)got.size(), pct);
+        char what[64]; snprintf(what, sizeof what, "sharp %d%% of %zu LEDs", pct, got.size());
+        compareTables(what, got, want);
+      }
+      nSharp++;    } else if (k == "APPLY" || k == "APPLYV") {
       // APPLY count side first last percent lenStart lenEnd z0r,z0g,... | idx:r,g,b ...
       int count, sf, sl, pct, qs, qe, n = 0;
       char side[16];
@@ -190,7 +204,7 @@ int main(int argc, char** argv) {
       for (int z = 0; z < kZones; z++)
         for (int c = 0; c < 3; c++) { char* e; zones[z][c] = strtof(p, &e); p = *e == ',' ? e + 1 : e; }
       std::vector<float> out((size_t)count * 3);
-      applyTable(tbl.data(), count, zones, out.data(), si);
+      applyTable(tbl.data(), count, zones, out.data(), si, k == "APPLYV");
       p = tail ? tail + 1 : "";
       int checked = 0;
       while (*p) {
@@ -203,6 +217,19 @@ int main(int argc, char** argv) {
       }
       CHECK(checked > 5, "apply: only %d samples parsed", checked);
       nApply++;
+    } else if (k == "VBLEND") {
+      // VBLEND r,g,b r,g,b w r g b
+      float a[3], b[3], w, want[3];
+      char sa[64], sb[64];
+      if (sscanf(rest, "%63s %63s %f %f %f %f", sa, sb, &w, &want[0], &want[1], &want[2]) == 6) {
+        sscanf(sa, "%f,%f,%f", &a[0], &a[1], &a[2]);
+        sscanf(sb, "%f,%f,%f", &b[0], &b[1], &b[2]);
+        float got[3];
+        vividBlend(a, b, w, got);
+        CHECK(fabsf(got[0] - want[0]) < 0.7f && fabsf(got[1] - want[1]) < 0.7f && fabsf(got[2] - want[2]) < 0.7f,
+              "vivid blend %s -> %s at %.2f: got %.2f,%.2f,%.2f want %.2f,%.2f,%.2f", sa, sb, w, got[0], got[1], got[2], want[0], want[1], want[2]);
+        nVivid++;
+      }
     } else if (k == "GOVEE") {
       // GOVEE ENABLE <0|1> <json>   |   GOVEE FRAME <n> <hex rgb> <json>
       char what[16] = {0};
@@ -369,7 +396,92 @@ int main(int argc, char** argv) {
     CHECK(validUpdatePassword(std::string(64, 'a').c_str()) && !validUpdatePassword(std::string(65, 'a').c_str()), "64 characters is the longest");
     CHECK(!validUpdatePassword("pass\tword1") && !validUpdatePassword("passw\xC3\xB6rd1"), "control characters and non-ASCII are refused");
     CHECK(secureEquals("hunter2hunter2", "hunter2hunter2") && !secureEquals("hunter2hunter2", "hunter2hunter3") && !secureEquals("abc", "abcd") && !secureEquals("abcd", "abc") && secureEquals("", ""), "password comparison"); }
-  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
+  { // vivid blending, on its own terms
+    const float red[3] = {255, 0, 0}, green[3] = {0, 255, 0}, blue[3] = {0, 0, 255}, grey[3] = {120, 120, 120}, black[3] = {0, 0, 0}, white[3] = {255, 255, 255};
+    float o[3];
+    vividBlend(red, green, 0.f, o);
+    CHECK(fabsf(o[0] - 255) < 0.01f && fabsf(o[1]) < 0.01f && fabsf(o[2]) < 0.01f, "w = 0 gives the first colour back exactly");
+    vividBlend(red, green, 1.f, o);
+    CHECK(fabsf(o[0]) < 0.01f && fabsf(o[1] - 255) < 0.01f && fabsf(o[2]) < 0.01f, "w = 1 gives the second colour back exactly");
+    vividBlend(red, green, 0.5f, o);
+    CHECK(o[0] > 250.f && o[1] > 250.f && o[2] < 5.f, "red and green meet in bright yellow (%.0f,%.0f,%.0f), where an RGB mix gives a dark 127,127,0", o[0], o[1], o[2]);
+    vividBlend(red, blue, 0.5f, o);
+    CHECK(o[0] > 250.f && o[2] > 250.f && o[1] < 5.f, "red and blue meet in bright magenta (%.0f,%.0f,%.0f)", o[0], o[1], o[2]);
+    bool vivid = true;                                         // between two fully saturated colours the result stays fully saturated and bright
+    for (float w = 0.f; w <= 1.001f; w += 0.05f) {
+      vividBlend(green, blue, w, o);
+      const float mx = fmaxf(o[0], fmaxf(o[1], o[2])), mn = fminf(o[0], fminf(o[1], o[2]));
+      if (mx < 250.f || mn > 5.f) vivid = false;
+    }
+    CHECK(vivid, "green to blue never loses its saturation or brightness on the way");
+    vividBlend(black, green, 0.5f, o);
+    CHECK(o[1] > 125.f && o[1] < 130.f && o[0] < 1.f && o[2] < 1.f, "black to green is a darker green (%.0f,%.0f,%.0f): black has no hue to pull the blend away", o[0], o[1], o[2]);
+    vividBlend(grey, red, 0.5f, o);
+    CHECK(o[0] > o[1] && o[0] > o[2] && fabsf(o[1] - o[2]) < 1.f, "grey to red keeps red''s hue (%.0f,%.0f,%.0f)", o[0], o[1], o[2]);
+    vividBlend(white, white, 0.5f, o);
+    CHECK(fabsf(o[0] - 255) < 0.1f && fabsf(o[1] - 255) < 0.1f && fabsf(o[2] - 255) < 0.1f, "white with white stays white");
+    // used in a table: LEDs that sit on one zone are untouched, and the result equals the RGB mix there
+    std::vector<Entry> tb(60); tableLinear(tb.data(), 60, false, -1, -1, 0);
+    float zn[kZones][3] = {}; for (int z = 0; z < 6; z++) { zn[z][0] = (float)(z * 40); zn[z][1] = 255.f - z * 40; zn[z][2] = 30.f; }
+    const SmoothInfo si0 = smoothInfo(tb.data(), 60, 0);
+    std::vector<float> rgbOut(180), vivOut(180);
+    applyTable(tb.data(), 60, zn, rgbOut.data(), si0, false);
+    applyTable(tb.data(), 60, zn, vivOut.data(), si0, true);
+    int same = 0, diff = 0;
+    for (int i = 0; i < 60; i++) {
+      const bool pure = tb[i].a == tb[i].b || tb[i].f == 0 || tb[i].f == 255;
+      const bool eq = fabsf(rgbOut[i * 3] - vivOut[i * 3]) < 0.01f && fabsf(rgbOut[i * 3 + 1] - vivOut[i * 3 + 1]) < 0.01f && fabsf(rgbOut[i * 3 + 2] - vivOut[i * 3 + 2]) < 0.01f;
+      if (pure) same += eq ? 1 : 0; else diff += eq ? 0 : 1;
+    }
+    CHECK(same > 0 && diff > 0, "in a table, LEDs on a single zone are identical either way (%d) and blended ones differ (%d)", same, diff); }  { // zone edges (sharpenTable) and per-target saturation, checked on their own terms as well as against the Python reference
+    auto make = []() { std::vector<Entry> v(210); tableLinear(v.data(), 210, false, 82, 172, 0); return v; };
+    const std::vector<Entry> soft = make();
+    std::vector<Entry> t0 = soft; sharpenTable(t0.data(), 210, 0);
+    bool same = true; for (int i = 0; i < 210; i++) if (t0[i].f != soft[i].f || t0[i].a != soft[i].a || t0[i].b != soft[i].b || t0[i].d != soft[i].d) same = false;
+    CHECK(same, "0 %% keeps the smooth blend exactly");
+    std::vector<Entry> hard = soft; sharpenTable(hard.data(), 210, 100);
+    bool onlyEnds = true, tailsKept = true, zonesKept = true;
+    for (int i = 0; i < 210; i++) {
+      if (hard[i].a != soft[i].a || hard[i].b != soft[i].b || hard[i].d != soft[i].d) zonesKept = false;
+      if (soft[i].a == soft[i].b) { if (hard[i].f != soft[i].f) tailsKept = false; }
+      else if (hard[i].f != 0 && hard[i].f != 255) onlyEnds = false;
+    }
+    CHECK(onlyEnds && tailsKept && zonesKept, "100 %% gives every blended LED to one zone (f is 0 or 255), leaves the tails and the zone numbers alone");
+    { Entry e[3] = {Entry{2, 3, 127, 0}, Entry{2, 3, 128, 0}, Entry{4, 4, 77, 9}}; sharpenTable(e, 3, 100);
+      CHECK(e[0].f == 0 && e[1].f == 255 && e[2].f == 77, "the line between two zones is at 127.5: 127 goes to the first, 128 to the second, a single-zone entry is untouched"); }
+    bool monotone = true;
+    for (int pct : {10, 40, 50, 75, 90, 99}) {
+      uint8_t prev = 0;
+      for (int f = 0; f < 256; f++) {
+        Entry e{2, 3, (uint8_t)f, 0}; sharpenTable(&e, 1, pct);
+        if (e.f < prev) monotone = false;
+        prev = e.f;
+      }
+    }
+    CHECK(monotone, "more f never gives less of the second zone, at any sharpness");
+    { Entry a{2, 3, 60, 0}, b{2, 3, 195, 0}, c{2, 3, 100, 0}; sharpenTable(&a, 1, 50); sharpenTable(&b, 1, 50); sharpenTable(&c, 1, 50);
+      CHECK(a.f == 0 && b.f == 255 && c.f > 60 && c.f < 100, "50 %% squeezes the change into the middle half: 60 -> 0, 195 -> 255, 100 -> %d (less than before)", c.f); }
+    { // the picture map of a hard top strip: whole LEDs per zone, still adding up to the LED count
+      float u[kZones], us[kZones];
+      zoneUsage(hard.data(), 210, u); zoneUsage(soft.data(), 210, us);
+      float sum = 0; bool whole = true;
+      for (int z = 0; z < kZones; z++) { sum += u[z]; if (fabsf(u[z] - roundf(u[z])) > 1e-3f) whole = false; }
+      CHECK(fabsf(sum - 210.f) < 1e-2f && whole, "a hard strip puts whole LEDs on each zone (%.1f in total)", sum);
+      CHECK(u[2] > us[2] - 0.01f || u[2] > 10.f, "an inner top zone keeps about its own stretch of the strip when the edges are hard (%.1f vs %.1f)", u[2], us[2]); }
+    // saturation
+    float c1[6] = {200, 100, 100, 50, 50, 50};
+    saturateColours(c1, 2, 1.f);
+    CHECK(c1[0] == 200 && c1[1] == 100 && c1[3] == 50, "saturation 1 changes nothing");
+    float c2[6] = {200, 100, 100, 50, 50, 50};
+    saturateColours(c2, 2, 0.f);
+    const float y = 0.299f * 200 + 0.587f * 100 + 0.114f * 100;
+    CHECK(fabsf(c2[0] - y) < 1e-3f && fabsf(c2[1] - y) < 1e-3f && fabsf(c2[2] - y) < 1e-3f, "saturation 0 is the grey of the same brightness (%.1f)", c2[0]);
+    float c3[6] = {200, 100, 100, 50, 50, 50};
+    saturateColours(c3, 2, 1.5f);
+    CHECK(c3[0] > 200 && c3[1] < 100 && c3[3] == 50 && c3[4] == 50 && c3[5] == 50, "saturation 1.5 pushes a colour away from its grey; a grey stays grey");
+    float c4[3] = {250, 10, 0};
+    saturateColours(c4, 1, 3.f);
+    CHECK(c4[0] <= 255.f && c4[1] >= 0.f && c4[2] >= 0.f, "results stay between 0 and 255"); }  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
     struct { const char* in; const char* want; } b64[] = {{"", ""}, {"f", "Zg=="}, {"fo", "Zm8="}, {"foo", "Zm9v"}, {"foob", "Zm9vYg=="}, {"fooba", "Zm9vYmE="}, {"foobar", "Zm9vYmFy"}};
     for (const auto& c : b64) {
       char o[32];
@@ -476,8 +588,8 @@ int main(int argc, char** argv) {
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }
 
-  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, g_pass, g_fail);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

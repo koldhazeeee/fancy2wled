@@ -9,7 +9,8 @@ and the light stretches them evenly over its whole length. Developed and tested 
 2. Setup page > *Targets* > **Add target** > *Type*: **Govee light**. Press **Find** (a scan takes about 3 seconds) or type the light's **IP address**
    (give it a fixed address in your router). **Check this light** shows the model, firmware and whether it is on.
 3. Pick **Where the LEDs are** (the edge of the picture the light follows, or all the way around) and the **number of segments** (1 to 60, 20 is a good start;
-   the light has its own number of real segments, so going far beyond it gains nothing). Entry 0 is the light's **right-hand end** as seen from the front:
+   the light has its own number of real segments, so going far beyond it gains nothing; **an H61C3 has 42**, each about 2.9 in on a full 10 ft strip, and
+   all 42 can be driven separately: alternating 42 colours showed 21 red and 21 blue blocks on a real one). Entry 0 is the light's **right-hand end** as seen from the front:
    the page starts with *the numbers go from right to left*; change it if yours is the other way.
 4. *Switch the light on while relaying*, its brightness (1-100 %, or -1 to leave it) and *Put the light back how it was when I stop* work like the WLED ones.
    When the sync stops (the box goes quiet, the TV is off with "hand back", you pause it) the light is put back to its earlier on/off state, brightness and
@@ -26,5 +27,8 @@ and the light stretches them evenly over its whole length. Developed and tested 
   independent reference the firmware's packets are tested against (`test/golden.txt`).
 * The light gets at most about 12 frames a second (UDP, no acknowledgement, no documented limit); unchanged colours are re-sent once a second, and "streaming on" every 10 s.
 * UDP gets lost: control commands are sent twice and a state is checked before it is believed (a lone "turn off" was sometimes ignored by the real light).
-* The colour of a Govee strip differs from a WLED strip's; the target's brightness trim and the Look settings apply.
+* The colour of a Govee strip differs from a WLED strip's; the target's brightness trim and the Look settings apply. A Govee target starts with **sharp zone edges** (each of the Sync
+  Box's zones gets its own block of segments, 7 each for 42 segments on the bottom edge) because a smooth blend between unlike colours passes through muddy grey and brown on a light you
+  look at directly; slide *Zone edges* towards smooth if you prefer soft gradients. **Vivid blending** (on by default for a Govee) keeps the colours between two zones vivid
+  instead of mixing them in RGB: with smooth edges every one of the 42 segments of an H61C3 shows its own colour, the zones being joined through the colour wheel (red, orange, yellow, green), not through grey. A diffused neon rope also looks pale: raise the target's **colour saturation** (130 % is a good start).
 * Not available for Govee targets: the LED finder, the markers and the phone calibration (they are for WLED strips).

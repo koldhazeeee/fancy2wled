@@ -368,7 +368,52 @@ static void averageOf(const float zones[kZones][3], uint32_t mask, float avg[3])
   for (int c = 0; c < 3; c++) avg[c] /= n;
 }
 
-void applyTable(const Entry* t, int count, const float zones[kZones][3], float* out, const SmoothInfo& sm) {
+// ---- vivid blending: through the colour wheel (see core.h; tools/reference/layout.py blend_vivid is the independent version)
+static void toHsv(const float c[3], float* h, float* s, float* v) {
+  const float r = c[0], g = c[1], b = c[2];
+  const float mx = fmaxf(r, fmaxf(g, b)), mn = fminf(r, fminf(g, b)), d = mx - mn;
+  *v = mx / 255.f;
+  *s = mx > 0.f ? d / mx : 0.f;
+  if (d <= 0.f) { *h = 0.f; return; }
+  float hh;
+  if (mx == r) { hh = (g - b) / d; hh -= 6.f * floorf(hh / 6.f); hh *= 60.f; }
+  else if (mx == g) hh = 60.f * ((b - r) / d + 2.f);
+  else hh = 60.f * ((r - g) / d + 4.f);
+  *h = hh;
+}
+static void fromHsv(float h, float s, float v, float out[3]) {
+  h -= 360.f * floorf(h / 360.f);
+  const float c = v * s, x = c * (1.f - fabsf(fmodf(h / 60.f, 2.f) - 1.f)), m = v - c;
+  float r, g, b;
+  if (h < 60.f) { r = c; g = x; b = 0; }
+  else if (h < 120.f) { r = x; g = c; b = 0; }
+  else if (h < 180.f) { r = 0; g = c; b = x; }
+  else if (h < 240.f) { r = 0; g = x; b = c; }
+  else if (h < 300.f) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  out[0] = (r + m) * 255.f; out[1] = (g + m) * 255.f; out[2] = (b + m) * 255.f;
+}
+void vividBlend(const float a[3], const float b[3], float w, float out[3]) {
+  float ha, sa, va, hb, sb, vb;
+  toHsv(a, &ha, &sa, &va);
+  toHsv(b, &hb, &sb, &vb);
+  if (va < 0.02f && vb >= 0.02f) sa = sb;                                           // black has no saturation of its own either: green from black is a darker green, not a paler one
+  else if (vb < 0.02f && va >= 0.02f) sb = sa;
+  const bool da = sa >= 0.04f && va >= 0.02f, db = sb >= 0.04f && vb >= 0.02f;     // a grey or a black has no hue worth keeping
+  float h;
+  if (da && db) {
+    float dh = hb - ha;
+    if (dh > 180.f) dh -= 360.f;
+    else if (dh <= -180.f) dh += 360.f;
+    h = ha + dh * w;
+  } else if (da) h = ha;
+  else if (db) h = hb;
+  else h = 0.f;
+  fromHsv(h, sa + (sb - sa) * w, va + (vb - va) * w, out);
+}
+
+// ---------------------------------------------------------------------------
+void applyTable(const Entry* t, int count, const float zones[kZones][3], float* out, const SmoothInfo& sm, bool vivid) {
   float avgS[3] = {0, 0, 0}, avgE[3] = {0, 0, 0};
   if (sm.lenStart > 0) averageOf(zones, sm.maskStart, avgS);
   if (sm.lenEnd > 0) averageOf(zones, sm.maskEnd, avgE);
@@ -380,13 +425,42 @@ void applyTable(const Entry* t, int count, const float zones[kZones][3], float* 
     const int len = before ? sm.lenStart : (i > sm.lastZero ? sm.lenEnd : 0);
     const float* avg = before ? avgS : avgE;
     const float g = (len > 0 && t[i].d > 0) ? smoothstep01(t[i].d / (float)len) : 0.f;
-    for (int c = 0; c < 3; c++) {
-      float col = za[c] + (zb[c] - za[c]) * w;
-      out[i * 3 + c] = col + (avg[c] - col) * g;
-    }
+    float mixed[3];
+    if (vivid && t[i].a != t[i].b && t[i].f != 0 && t[i].f != 255) vividBlend(za, zb, w, mixed);
+    else for (int c = 0; c < 3; c++) mixed[c] = za[c] + (zb[c] - za[c]) * w;
+    for (int c = 0; c < 3; c++) out[i * 3 + c] = mixed[c] + (avg[c] - mixed[c]) * g;
   }
 }
 // ---------------------------------------------------------------------------
+void sharpenTable(Entry* t, int count, int percent) {
+  if (percent <= 0 || !t) return;
+  const float s = percent >= 100 ? 1.f : percent / 100.f;
+  const float k = s >= 1.f ? 0.f : 1.f / (1.f - s);
+  for (int i = 0; i < count; i++) {
+    Entry& e = t[i];
+    if (e.a == e.b) continue;
+    float x;
+    if (s >= 1.f) x = e.f < 127.5f ? 0.f : 255.f;
+    else {
+      x = ((float)e.f - 127.5f) * k + 127.5f;
+      x = x < 0.f ? 0.f : (x > 255.f ? 255.f : x);
+    }
+    e.f = (uint8_t)(x + 0.5f);
+  }
+}
+
+void saturateColours(float* rgb, int n, float sat) {
+  if (sat == 1.f || !rgb) return;
+  for (int i = 0; i < n; i++) {
+    float* c = rgb + i * 3;
+    const float y = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
+    for (int k = 0; k < 3; k++) {
+      const float v = y + (c[k] - y) * sat;
+      c[k] = v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+    }
+  }
+}
+
 void zoneUsage(const Entry* t, int count, float out[kZones]) {
   for (int z = 0; z < kZones; z++) out[z] = 0.f;
   for (int i = 0; i < count; i++) {
