@@ -1,0 +1,52 @@
+name: release
+# Publishes a GitHub release with the firmware files when a version tag is pushed:
+#     git tag v0.2.0 && git push origin v0.2.0
+# The tag must match FWB_VERSION in platformio.ini (bump it first), so a release never carries a firmware that reports another version.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.12' }
+      - run: pip install platformio
+
+      - name: The tag must match the firmware version
+        run: |
+          v=$(sed -n 's/.*FWB_VERSION=\\"\([^\\"]*\)\\".*/\1/p' platformio.ini | head -1)
+          echo "platformio.ini says $v, the tag is $GITHUB_REF_NAME"
+          [ -n "$v" ] && [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME does not match FWB_VERSION $v in platformio.ini"; exit 1; }
+
+      - run: pio run -e atoms3
+      - run: pio run -e atoms3-phonecal
+
+      - name: Name the files and check them
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          mkdir dist
+          cp .pio/build/atoms3/firmware.bin "dist/fancy2wled-atoms3-$ver.bin"
+          cp .pio/build/atoms3-phonecal/firmware.bin "dist/fancy2wled-atoms3-phonecal-$ver.bin"
+          for f in dist/*.bin; do
+            # an ESP32 app image (magic 0xE9) that carries the marker the setup page's update looks for (see docs/OTA.md)
+            [ "$(head -c1 "$f" | od -An -tx1 | tr -d ' ')" = "e9" ] || { echo "::error::$f is not an app image"; exit 1; }
+            grep -q 'FANCY2WLED-IMAGE-MARK-1' "$f" || { echo "::error::$f lacks the update marker"; exit 1; }
+          done
+          (cd dist && sha256sum *.bin > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          cat > notes.md <<EOF
+          **Update an installed board:** setup page > *Firmware updates* > choose \`fancy2wled-atoms3-$ver.bin\` (the normal build) and enter your update password. See docs/OTA.md.
+          \`fancy2wled-atoms3-phonecal-$ver.bin\` is the build with the phone-camera calibration. \`SHA256SUMS.txt\` has the checksums.
+          **First time (USB):** \`pio run -e atoms3 -t upload\` from a checkout of this tag.
+
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Fancy2WLED $ver" --notes-file notes.md --generate-notes

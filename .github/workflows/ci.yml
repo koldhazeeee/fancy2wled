@@ -4,11 +4,11 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: '3.12' }
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+      - uses: actions/setup-node@v7
+        with: { node-version: '24' }
       - name: C++ core vs golden vectors
         run: python test/run_core_tests.py
       - name: Calibration maths + simulated camera
@@ -18,14 +18,14 @@ jobs:
   firmware:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: '3.12' }
       - run: pip install platformio
       - run: pio run -e atoms3
       - run: pio run -e atoms3-phonecal
-      # the app images, ready for "Update firmware" on the setup page (see docs/OTA.md)
-      - uses: actions/upload-artifact@v4
+      # the app images, ready for "Update firmware" on the setup page (see docs/OTA.md); releases are made by release.yml
+      - uses: actions/upload-artifact@v7
         with:
           name: firmware
           path: |

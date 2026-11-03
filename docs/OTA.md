@@ -8,7 +8,8 @@ After the first USB flash you can update the board without a cable, in two ways.
 | **Setup page** | *Firmware updates*: choose `firmware.bin`, enter the update password, press *Update firmware*. A progress bar shows the upload, then the page waits for the board to come back and shows the new version. |
 | **PlatformIO** | Set the environment variable `FANCY2WLED_OTA_PASSWORD` to the update password, then `pio run -e atoms3-ota -t upload` (the board is found as `fancy2wled.local`). |
 
-The file is `firmware.bin` from `.pio/build/atoms3/` (the **app image**, not a merged or bootloader file), or the one a release provides. The phone-calibration
+The file is `firmware.bin` from `.pio/build/atoms3/` (the **app image**, not a merged or bootloader file), or `fancy2wled-atoms3-<version>.bin` from the project's
+GitHub *Releases* page (built from the tagged version by the `release` workflow; `SHA256SUMS.txt` has the checksums). The phone-calibration
 build has its own file (`.pio/build/atoms3-phonecal/firmware.bin`). Your settings, calibration and MQTT login are kept.
 
 ## First time

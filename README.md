@@ -164,6 +164,10 @@ pio run -e atoms3-phonecal        # ... with the phone-camera calibration and th
 
 `node test/mock_device.js` serves the web UI against a fake relay so you can work on it without hardware.
 
+**Releases.** Bump `FWB_VERSION` in `platformio.ini`, commit, then `git tag v0.2.0 && git push origin v0.2.0` (the tag must match the version). The `release` workflow
+builds both firmwares and publishes a GitHub release with `fancy2wled-atoms3-<version>.bin`, `fancy2wled-atoms3-phonecal-<version>.bin` and `SHA256SUMS.txt`: the file
+to choose for *Update firmware* on the setup page ([docs/OTA.md](docs/OTA.md)). Every push also uploads the same files as a build artifact on its Actions run.
+
 ## How it works
 
 * `web/` - the UI (setup; with `atoms3-phonecal` also the phone calibration and the TV screen), compiled into the firmware.
