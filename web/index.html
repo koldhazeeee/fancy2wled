@@ -106,7 +106,7 @@ input[type=range].wide{width:100%}
     <div class="row"><label for="tvLast"><span id="tvLastLbl">TV ends at LED</span></label><div class="num"><input id="tvLast" type="number" data-live="1"><span class="nudge" data-nudge="tvLast"></span></div></div>
     <div class="row"><label>Slide the TV part along the run</label><span class="nudge" id="mover"></span></div>
     <div id="tvNote" class="small"></div>
-    <div class="row" id="markRow"><button id="markBtn" class="sec">Show markers on the LEDs</button><span class="small mut">When you change these numbers, <b style="color:#e5484d">red</b> LEDs light up on the strip where the TV starts and ends, and <b style="color:#3b82f6">blue</b> ones where the run starts and ends.</span></div>
+    <div class="row" id="markRow"><button id="markBtn" class="sec">Show markers on the LEDs</button><button id="markMidBtn" class="sec">Show the middle of the TV</button><span class="small mut">When you change these numbers, <b style="color:#e5484d">red</b> LEDs light up on the strip where the TV starts and ends, and <b style="color:#3b82f6">blue</b> ones where the run starts and ends. The middle button adds a <b style="color:#22a559">green</b> LED at the exact middle of the TV part, to check that it sits in the middle of the screen.</span></div>
     <div class="row"><label for="lSide" id="dirLbl">The LED numbers go</label><select id="lSide" data-live="1"><option value="0"></option><option value="1"></option></select></div>
   </div>
 
@@ -545,7 +545,7 @@ input[type=range].wide{width:100%}
   document.querySelectorAll('[data-live]').forEach(function(e){e.addEventListener('input',changed);e.addEventListener('change',changed);});
 
   /* ------------------------------------ markers: light the LEDs where the run / the TV part starts and ends */
-  var markTimer=null, MARK=3;
+  var markTimer=null, MARK=3, midUntil=0;                                  // midUntil: the green middle LED stays in the markers until then
   function markers(seconds){
     clearTimeout(markTimer);
     markTimer=setTimeout(function(){
@@ -560,11 +560,16 @@ input[type=range].wide{width:100%}
         bl.push({start:st+s.first,count:tz,color:[255,0,0]});            // red: the TV part (drawn last, so it wins where they overlap)
         bl.push({start:st+s.last-tz+1,count:tz,color:[255,0,0]});
       }
+      if(linear()&&Date.now()<midUntil){                                  // green: the exact middle of the TV part (of the run when no TV part is set); two LEDs when it has an even length
+        var a=s.set?s.first:0,n=(s.set?s.last:c-1)-a+1;
+        if(n>0)bl.push({start:st+a+Math.floor((n-1)/2),count:n%2?1:2,color:[0,255,0]});
+      }
       j('/api/mark',{target:sel,blocks:bl,seconds:seconds}).catch(function(){});
     },150);
   }
   ['wStart','wCount','tvFirst','tvLast'].forEach(function(id){$(id).addEventListener('input',function(){markers(8);});});
-  $('markBtn').onclick=function(){markers(30);};
+  $('markBtn').onclick=function(){midUntil=0;markers(30);};
+  $('markMidBtn').onclick=function(){midUntil=Date.now()+30000;markers(30);};
 
   /* ---------------------------------------------------------------- nudge buttons */
   function fire(id){$(id).dispatchEvent(new Event('input',{bubbles:true}));}

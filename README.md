@@ -71,7 +71,9 @@ The pictures are regenerated from the real page with `node tools/make_screenshot
    where things are? Press **Find my LEDs** and drag the slider: a block of white LEDs lights up wherever you put it, with buttons to use
    that spot as the start or end of the run or of the TV. Whenever you change the run or the TV part, a few **red** LEDs light up on
    the strip where the TV starts and ends and a few **blue** ones where the run starts and ends (for about 8 seconds, or press
-   *Show markers on the LEDs*), so you can see exactly which LEDs you are choosing.
+   *Show markers on the LEDs*), so you can see exactly which LEDs you are choosing. To check that the strip is centred on the TV, press
+   *Show the middle of the TV*: one **green** LED lights at the exact middle of the TV part (two when it has an even number of LEDs),
+   and it should sit in the middle of the screen.
 6. **Check it:** press **Start rainbow test**: red shows at the TV's left edge through to violet at its right edge on the target you are
    editing, and every change (the +1/+10 buttons, *slide the TV part along the run*, LED numbers, where the LEDs are, look) updates
    live without being saved. Press **Save** when it looks right (stopping the test without saving discards the changes).

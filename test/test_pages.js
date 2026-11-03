@@ -282,6 +282,20 @@ async function cdp(wsUrl) {
     dev.state.mark = null;
     await p.ev("document.getElementById('markBtn').click(); 1"); await sleep(500);
     check('markers: the button shows them for 30 seconds', dev.state.mark && dev.state.mark.seconds === 30, JSON.stringify(dev.state.mark));
+    check('markers: no middle LED unless asked for', dev.state.mark && !dev.state.mark.blocks.some(b => b.color[1] === 255 && b.color[0] === 0 && b.color[2] === 0), JSON.stringify(dev.state.mark));
+    // the middle of the TV part: LEDs 160..230 are 71 LEDs, so the middle is the single LED 195
+    const greens = () => dev.state.mark && dev.state.mark.blocks.filter(b => b.color[0] === 0 && b.color[1] === 255 && b.color[2] === 0).map(b => b.start + '+' + b.count);
+    dev.state.mark = null;
+    await p.ev("document.getElementById('markMidBtn').click(); 1"); await sleep(500);
+    check('markers: the middle button lights one green LED at the middle of the TV part (160..230 -> 195)', greens() && greens().join(',') === '195+1', JSON.stringify(dev.state.mark));
+    check('markers: ... for 30 seconds, together with the red and blue ones', dev.state.mark.seconds === 30 && dev.state.mark.blocks.filter(b => b.color[0] === 255).length === 2 && dev.state.mark.blocks.filter(b => b.color[2] === 255).length === 2, JSON.stringify(dev.state.mark));
+    dev.state.mark = null;
+    await setv('tvLast', 231); await sleep(700);                          // 72 LEDs: the middle lies between two LEDs, so both light up; the green stays while the numbers change
+    check('markers: an even TV part (160..231) lights the two middle LEDs (195 and 196), and the green stays while nudging', greens() && greens().join(',') === '195+2' && dev.state.mark.seconds === 8, JSON.stringify(dev.state.mark));
+    await setv('tvLast', 230); await sleep(300);
+    dev.state.mark = null;
+    await p.ev("document.getElementById('markBtn').click(); 1"); await sleep(500);
+    check('markers: the plain markers button takes the green one away again', dev.state.mark && greens().length === 0, JSON.stringify(dev.state.mark));
     // the TV part must lie inside the run
     dev.state.lastConfigPost = null;
     await setv('tvFirst', 50); await sleep(700);
