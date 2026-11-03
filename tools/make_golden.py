@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import layout, protocol  # noqa: E402
+from reference import govee, layout, protocol  # noqa: E402
 
 
 def ent(entries):
@@ -143,6 +143,13 @@ def main():
     for seq, dt, off, ln, push in [(1, 0x0B, 0, 450, 1), (15, 0x1B, 40, 1440, 0), (3, 0x0B, 100000, 7, 1)]:
         hdr = struct.pack("!BBBBIH", 0x40 | (1 if push else 0), seq, dt, 1, off, ln)
         lines.append("DDP %d %d %d %d %d %s" % (seq, dt, off, ln, push, hdr.hex()))
+
+    # --- Govee streaming packets (the complete UDP payload) ----------------------
+    for on in (1, 0):
+        lines.append("GOVEE ENABLE %d %s" % (on, govee.enable_json(bool(on))))
+    for n in (1, 2, 5, 20, 33, 60):
+        rgb = [tuple(rnd.randrange(256) for _ in range(3)) for _ in range(n)]
+        lines.append("GOVEE FRAME %d %s %s" % (n, "".join("%02x%02x%02x" % px for px in rgb), govee.frame_json(rgb)))
 
     out = os.path.join(HERE, "..", "test", "golden.txt")
     os.makedirs(os.path.dirname(out), exist_ok=True)

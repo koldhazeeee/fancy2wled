@@ -83,6 +83,56 @@ int normalizeHost(const char* in, char* out, int cap) {
 }
 
 // ---------------------------------------------------------------------------
+size_t base64Encode(const uint8_t* in, size_t n, char* out, size_t cap) {
+  static const char* kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const size_t need = ((n + 2) / 3) * 4;
+  if (!out || cap < need + 1) return 0;
+  size_t o = 0;
+  for (size_t i = 0; i < n; i += 3) {
+    const uint32_t v = ((uint32_t)in[i] << 16) | ((i + 1 < n ? (uint32_t)in[i + 1] : 0u) << 8) | (i + 2 < n ? (uint32_t)in[i + 2] : 0u);
+    out[o++] = kB64[(v >> 18) & 63];
+    out[o++] = kB64[(v >> 12) & 63];
+    out[o++] = i + 1 < n ? kB64[(v >> 6) & 63] : '=';
+    out[o++] = i + 2 < n ? kB64[v & 63] : '=';
+  }
+  out[o] = 0;
+  return o;
+}
+
+// {"msg":{"cmd":"razer","data":{"pt":"<base64>"}}}
+static size_t goveeWrap(const uint8_t* packet, size_t n, char* out, size_t cap) {
+  static const char kHead[] = "{\"msg\":{\"cmd\":\"razer\",\"data\":{\"pt\":\"";
+  static const char kTail[] = "\"}}}";
+  const size_t h = sizeof kHead - 1, t = sizeof kTail - 1;
+  if (!out || cap < h + t + 1) return 0;
+  const size_t b = base64Encode(packet, n, out + h, cap - h - t);
+  if (b == 0) return 0;
+  for (size_t i = 0; i < t; i++) out[h + b + i] = kTail[i];
+  out[h + b + t] = 0;
+  for (size_t i = 0; i < h; i++) out[i] = kHead[i];
+  return h + b + t;
+}
+
+size_t goveeEnableJson(bool on, char* out, size_t cap) {
+  uint8_t p[6] = {0xBB, 0x00, 0x01, 0xB1, (uint8_t)(on ? 1 : 0), 0};
+  for (int i = 0; i < 5; i++) p[5] ^= p[i];
+  return goveeWrap(p, sizeof p, out, cap);
+}
+
+size_t goveeFrameJson(const uint8_t* rgb, int n, char* out, size_t cap) {
+  if (!rgb || n < 1 || n > kGoveeMaxSegments) return 0;
+  uint8_t p[7 + 3 * kGoveeMaxSegments];
+  const int len = 2 + 3 * n;
+  p[0] = 0xBB; p[1] = (uint8_t)(len >> 8); p[2] = (uint8_t)(len & 255); p[3] = 0xB0; p[4] = 0x00; p[5] = (uint8_t)n;
+  for (int i = 0; i < 3 * n; i++) p[6 + i] = rgb[i];
+  const size_t total = (size_t)(6 + 3 * n);
+  uint8_t x = 0;
+  for (size_t i = 0; i < total; i++) x ^= p[i];
+  p[total] = x;
+  return goveeWrap(p, total + 1, out, cap);
+}
+
+// ---------------------------------------------------------------------------
 bool isBlackPicture(const uint8_t zones[kZones][3]) {
   for (int z = 0; z < kZones; z++)
     if (zones[z][0] | zones[z][1] | zones[z][2]) return false;

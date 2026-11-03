@@ -23,7 +23,7 @@ function usageOf(wled, layout) {
 }
 
 function newTarget(i) {
-  const t = { name: 'Target ' + (i + 1), enabled: true, trim: 1,
+  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1,
     wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
     layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false } };
   Object.defineProperty(t, 'usage', { enumerable: true, get() { return usageOf(this.wled, this.layout); } });   // like the firmware, derived from the settings
@@ -57,7 +57,7 @@ function createDevice(opts) {
       if (p === '/api/status') {
         // a name points to some address (192.0.2.51) unless the test says it was not found yet; an IP address is its own address
         const addrOf = h => !h ? '' : (/^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : (state.nameNotFound ? '' : '192.0.2.51'));
-        const targets = state.cfg.targets.map(t => ({ name: t.name, host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: state.total, wledName: 'WLED' }));
+        const targets = state.cfg.targets.map(t => ({ name: t.name, kind: t.kind || 'wled', host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: t.kind === 'govee' ? t.wled.count : state.total, wledName: 'WLED' }));
         return json(res, 200, { ver: 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: 'waiting for the Sync Box', https: false, heap: 1e5,
           enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
           features: { phoneCal: opts.phoneCal !== false },
@@ -69,6 +69,12 @@ function createDevice(opts) {
       if (p === '/api/screen') return json(res, 200, { mode: state.calActive ? state.screen : 'idle' });
       if (p === '/api/wled/discover') return json(res, 200, { devices: [{ name: 'wled-test', ip: '192.0.2.50', host: 'wled-test.local' }] });
       if (p === '/api/wled/info') return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false, on: true, bri: 128 });
+      if (p === '/api/govee/discover') return json(res, 200, { devices: [{ name: 'Govee H61C3', ip: '192.0.2.60', host: '192.0.2.60', device: 'AA:BB:CC:DD:EE:FF:00:11' }] });
+      if (p === '/api/govee/info') {
+        state.goveeInfoCalls = (state.goveeInfoCalls || 0) + 1;
+        if (url.searchParams.get('host') === '192.0.2.99') return json(res, 502, { error: 'The light at 192.0.2.99 did not answer. Check the address, and that LAN control is switched on for it in the Govee Home app.' });
+        return json(res, 200, { name: 'Govee H61C3', sku: 'H61C3', device: 'AA:BB:CC:DD:EE:FF:00:11', wifi: '1.06.24', on: false, bri: 14 });
+      }
       if (p === '/api/wifi/scan') return json(res, 200, { networks: ['TestNet', 'Other'] });
       if (p === '/api/ota') return json(res, 200, { enabled: !!(state.otaOn && state.otaPass), passSet: !!state.otaPass, version: 'mock', slot: 'app0', imageState: state.imagePending ? 'pending' : 'valid', maxBytes: 3342336, rolledBack: !!state.rolledBack, busy: false });
       res.writeHead(404); return res.end('nope');
@@ -103,6 +109,17 @@ function createDevice(opts) {
           const T = state.cfg.targets[d.target || 0];
           if (!T) return json(res, 400, { error: 'There is no target ' + ((d.target || 0) + 1) });
           if (d.name !== undefined) T.name = d.name;
+          if (d.kind !== undefined) {         // like the board: a Govee light is found by IP address, has 1-60 segments and starts at 0
+            if (d.kind !== 'wled' && d.kind !== 'govee') return json(res, 400, { error: 'The target type must be wled or govee' });
+            T.kind = d.kind;
+          }
+          if (T.kind === 'govee' && d.wled) {
+            const w = d.wled;
+            if (typeof w.host === 'string' && w.host && !/^\d+\.\d+\.\d+\.\d+$/.test(w.host)) return json(res, 400, { error: 'A Govee light is addressed by its IP address (for example 192.168.1.60), not a name.' });
+            if (w.count > 60) return json(res, 400, { error: 'A Govee light can have at most 60 segments' });
+            if (w.brightness > 100 || w.brightness === 0) return json(res, 400, { error: 'Govee brightness must be -1 (leave it) or 1-100 percent' });
+            d.wled = Object.assign({}, w, { start: 0 });
+          }
           if (d.enabled !== undefined) T.enabled = d.enabled;
           if (d.trim !== undefined) T.trim = d.trim;
           if (d.wled) {

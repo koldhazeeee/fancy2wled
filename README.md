@@ -10,6 +10,7 @@ your lights and no PC has to stay on.
   to follow (the top, bottom, left or right edge, or all the way around) and its own brightness. One WLED can serve several targets.
 * **See what each target follows**: a *picture map* on the setup page shows the TV as the Sync Box's 6 by 4 grid with the zones every target pulls
   from, each target in its own colour and shaded by how many of its LEDs use the zone. It redraws as you edit, before you save.
+* **Govee lights too**: a target can be a Govee light on your network (LAN control), followed per segment like a WLED strip ([docs/GOVEE.md](docs/GOVEE.md)).
 * **Updates over Wi-Fi**: after the first USB flash, upload `firmware.bin` on the setup page or push it with PlatformIO. Off until you set an update password;
   a new firmware that fails to start is undone by the board itself ([docs/OTA.md](docs/OTA.md)).
 * **Follows the TV's power**: the Sync Box sends no TV-off signal, but its picture goes completely black when the TV is switched off (including by CEC). After
@@ -103,6 +104,7 @@ usual, then open the setup page and press **Import config**. The page shows a su
 | Picture map | not a setting: the TV as a 6 by 4 grid with the zones each target follows highlighted in its colour, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`) |
 | When the TV is off | what to do when the picture has been completely black for the chosen number of seconds (3-600, default 15): **hand the WLEDs back** as they were before sync started (default), **switch them off**, or do nothing (the *TV on* sensor still works). They return with the first frame that has any colour. A long black screen counts as "TV off" too, so raise the delay if that bothers you. Inferred from the picture, not a signal from the box: see [PROTOCOL.md](docs/PROTOCOL.md) |
 | Firmware updates | off until an **update password** (8-64 characters) is set; then tick *Allow firmware updates over Wi-Fi* and upload `firmware.bin` here, or run `pio run -e atoms3-ota -t upload` with `FANCY2WLED_OTA_PASSWORD` set. Changing the password needs the current one; a config file cannot set it. Details, safety rules and rollback: [docs/OTA.md](docs/OTA.md) |
+| Target type | **WLED** (a strip running WLED, streamed over DDP) or **Govee light** (LAN control; streamed per segment, 1-60 segments, addressed by IP; see [docs/GOVEE.md](docs/GOVEE.md)) |
 | Targets | up to four runs of LEDs, each on a WLED of its own or sharing one. Each has a name, an on/off switch, its WLED, its run, where it is (which edge of the picture it follows) and a brightness trim. The Look settings below are shared |
 | Where the LEDs are | above the TV (uses the top row of the picture's colour map), below it (bottom row), left or right of it (that column), all the way around it, or the phone-measured layout |
 | First LED / length of the run | the part of the WLED strip that belongs to the TV lighting (the rest is left alone) |

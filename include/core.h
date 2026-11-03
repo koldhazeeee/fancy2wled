@@ -58,6 +58,16 @@ struct FrameInfo {
 bool frameChecksumOk(const uint8_t* data, size_t len);
 FrameClass classifyFrame(const uint8_t* data, size_t len, uint8_t zones[kZones][3], FrameInfo* info);
 
+// ---- Govee lights (LAN API) -------------------------------------------------
+// A Govee light with LAN control switched on takes JSON over UDP on port 4003. The "razer" streaming mode takes one colour per segment and
+// stretches them evenly over the whole light (checked on an H61C3: 5, 10 and 20 entries all covered the full length, entry 0 at its right
+// end). These build the complete UDP payloads; tools/reference/govee.py is the independent reference they are tested against.
+constexpr int kGoveeMaxSegments = 60;
+constexpr uint16_t kGoveeScanPort = 4001, kGoveeReplyPort = 4002, kGoveeControlPort = 4003;
+size_t base64Encode(const uint8_t* in, size_t n, char* out, size_t cap);          // NUL-terminated; returns the length, 0 if it does not fit
+size_t goveeEnableJson(bool on, char* out, size_t cap);                           // streaming on / off
+size_t goveeFrameJson(const uint8_t* rgb, int n, char* out, size_t cap);          // n colours (3 bytes each), 1..kGoveeMaxSegments; 0 if invalid or it does not fit
+
 // ---- TV off ---------------------------------------------------------------
 // The Sync Box sends no separate packet when the TV is switched off (checked on a real box: CEC power off and on, every port that could be
 // heard). It keeps streaming at the normal rate, with all 24 zones exactly 0,0,0, and the colours come back with the first non-black frame.

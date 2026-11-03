@@ -14,6 +14,7 @@ void setup() {
   wifiBegin();
   if (!wifiIsAp()) relayBegin();
   otaBegin();
+  goveeBegin();
   webBegin();
   mqttBegin();
 }

@@ -61,6 +61,7 @@ static bool gNewPending = false;               // a Sync Box frame arrived that 
 static uint32_t gWaitHintMs = 10;              // how long the main loop may sleep before the relay needs to act again
 static const uint32_t kMinGapMs = 6;           // never run two output cycles closer than this
 static const uint32_t kKeepaliveMs = 1000;     // resend an unchanged frame this often so WLED does not leave realtime mode (2.5 s)
+static const uint32_t kGoveeGapMs = 80;         // a Govee light gets at most about 12 frames a second (UDP, no acknowledgement, no documented limit)
 static const uint32_t kResolveEveryMs = 60000; // look a WLED's name up again this often (its IP may have changed)
 static const uint32_t kRetryResolveMs = 15000; // ... and this often while the name has not been found yet
 static uint32_t gHouseMs = 0;                  // when the once-a-second housekeeping last ran
@@ -109,6 +110,9 @@ struct Rt {
   uint32_t tryMs = 0, addrGen = 0xFFFFFFFF;    // when a lookup was last requested; the settings generation the host was last compared at
   String hostCache;                            // the host this target was prepared for
   bool restoreCache = true;
+  int kindCache = 0;                           // the target type (0 WLED, 1 Govee light) this target was prepared as
+  uint32_t goveeEnableMs = 0;                  // when "streaming on" was last sent to a Govee light
+  int snapR = 0, snapG = 0, snapB = 0;         // a Govee light's colour before the stream (it is restored afterwards)
   bool offByTv = false;                        // this WLED was switched off because the TV went off: the next stream switches it on again and keeps its original state
   String snapHost;                             // the host snapOn / snapBri were read from
   bool snapOn = false;
@@ -277,7 +281,31 @@ static bool openSockets() {
   return gRx >= 0 && gTx >= 0;
 }
 
+// A frame for a Govee light: one colour per segment (3 bytes each), sent as the "razer" streaming command. The light stretches the segments over
+// its whole length. "Streaming on" is sent by the prepare job and repeated here every 10 s in case the light left the mode.
+static char gGoveeJson[760];
+static void goveeFrameSend(int ti, const uint8_t* rgb, size_t len) {
+  IPAddress ip;
+  if (gTx < 0 || !wledAddress(ti, ip)) return;
+  const size_t jl = fwb::goveeFrameJson(rgb, (int)(len / 3), gGoveeJson, sizeof gGoveeJson);
+  if (!jl) return;
+  sockaddr_in to = {};
+  to.sin_family = AF_INET;
+  to.sin_port = htons(fwb::kGoveeControlPort);
+  to.sin_addr.s_addr = (uint32_t)ip;
+  if (sendto(gTx, gGoveeJson, jl, 0, (sockaddr*)&to, sizeof to) < 0) { if (gPerfOn) perfSendFail(); return; }
+  Rt& r = gRt[ti];
+  const uint32_t now = millis();
+  if (now - r.goveeEnableMs >= 10000) {
+    r.goveeEnableMs = now;
+    char en[100];
+    const size_t el = fwb::goveeEnableJson(true, en, sizeof en);
+    if (el) sendto(gTx, en, el, 0, (sockaddr*)&to, sizeof to);
+  }
+}
+
 static void ddpSend(int ti, const uint8_t* payload, size_t len, int ledStart, bool rgbw) {
+  if (gSet.t[ti].kind == 1) { goveeFrameSend(ti, payload, len); return; }                  // a Govee light, not a WLED
   IPAddress ip;
   if (gTx < 0 || !wledAddress(ti, ip)) return;
   sockaddr_in to = {};
@@ -351,6 +379,8 @@ struct WledJob {
   int snapBri = 128;
   bool forceOff = false;                           // (restore) switch the WLED off instead of putting it back how it was: the TV is off
   bool keepSnap = false;                           // (prepare) the WLED was switched off by us: keep the state remembered before, not "off"
+  bool govee = false;                              // the target is a Govee light, not a WLED
+  int segments = 0;                                // (Govee) its number of segments
 };
 static QueueHandle_t gJobs = nullptr;
 
@@ -389,10 +419,32 @@ static bool workerAddress(int target, const String& host, bool fresh, String& ad
   return moved;
 }
 
+// Preparing / handing back a Govee light (blocking UDP exchanges, see govee.cpp).
+static void goveeJob(WledJob* j) {
+  IPAddress ip;
+  if (!ip.fromString(j->host)) { Lock l; if (gRt[j->target].hostCache == j->host) gRt[j->target].wledOk = false; return; }
+  if (j->prepare) {
+    GoveeState before;
+    const bool ok = goveePrepare(ip, j->turnOn, j->bri, before);
+    Lock l;
+    Rt& r = gRt[j->target];
+    if (r.hostCache == j->host) {
+      r.wledOk = ok; r.wledLeds = j->segments; r.wledName = "Govee light";
+      if (ok && !(j->keepSnap && r.snapHost == j->host)) { r.snapHost = j->host; r.snapOn = before.on; r.snapBri = before.bri; r.snapR = before.r; r.snapG = before.g; r.snapB = before.b; }
+    }
+  } else {
+    GoveeState snap;
+    bool haveSnap = false;
+    { Lock l; const Rt& r = gRt[j->target]; if (r.snapHost == j->host) { snap.on = r.snapOn; snap.bri = r.snapBri; snap.r = r.snapR; snap.g = r.snapG; snap.b = r.snapB; haveSnap = true; } }
+    goveeRestore(ip, j->restore, haveSnap, snap, j->forceOff);
+  }
+}
+
 static void wledWorker(void*) {
   for (;;) {
     WledJob* j = nullptr;
     if (xQueueReceive(gJobs, &j, portMAX_DELAY) != pdTRUE || !j) continue;
+    if (j->govee) { goveeJob(j); delete j; continue; }
     if (j->resolveOnly) {
       String addr;
       const bool moved = workerAddress(j->target, j->host, true, addr);
@@ -486,9 +538,13 @@ static void requestPrepare(int i, const String& host, bool turnOn, int bri, bool
   r.restoreCache = restore;
   const bool resume = r.offByTv;                  // coming back after "TV off": switch it on whatever the target's setting says
   r.offByTv = false;
+  int kind, segs;
+  { Lock l; kind = gSet.t[i].kind; segs = gSet.t[i].wCount; }
+  r.kindCache = kind;
   if (host.length() == 0) return;
   WledJob* j = new WledJob();
   j->prepare = true; j->target = i; j->host = host; j->turnOn = turnOn || resume; j->bri = bri; j->restore = restore; j->keepSnap = resume;
+  j->govee = kind == 1; j->segments = segs;
   postJob(j);
 }
 
@@ -497,7 +553,7 @@ static void requestRestore(int i, bool switchOff = false) {
   Rt& r = gRt[i];
   if (r.prepared && r.hostCache.length() > 0) {
     WledJob* j = new WledJob();
-    j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache; j->forceOff = switchOff;
+    j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache; j->forceOff = switchOff; j->govee = r.kindCache == 1;
     postJob(j);
     if (switchOff) r.offByTv = true;
   }
@@ -514,7 +570,7 @@ static void requestHandBackAfterOff(int i) {
   r.offByTv = false;
   if (r.hostCache.length() == 0) return;
   WledJob* j = new WledJob();
-  j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache;
+  j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache; j->govee = r.kindCache == 1;
   postJob(j);
 }
 
@@ -706,6 +762,7 @@ void relayStatus(RelayStatus& s, bool detail) {
     const Rt& r = gRt[i];
     TargetStatus& ts = s.targets[i];
     ts.enabled = t.enabled;
+    ts.kind = t.kind;
     ts.ok = r.wledOk;
     ts.leds = r.wledLeds;
     if (detail) {
@@ -743,7 +800,7 @@ void relayLoop() {
   const uint32_t now = millis();
   gWaitHintMs = 10;
 
-  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; };
+  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; };
   TSnap sn[kMaxTargets];
   int nT, fps, tvMode;
   bool globalOn, tvOff;
@@ -756,7 +813,7 @@ void relayLoop() {
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
       const Target& t = gSet.t[i];
-      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache, t.wStart, t.wCount, t.wBri, t.trim};
+      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind};
     }
   }
   for (int i = nT; i < kMaxTargets; i++) {                  // targets that no longer exist: hand their WLED back and free their memory
@@ -880,6 +937,7 @@ void relayLoop() {
     if (!packed) continue;
     if (!r.converged) allConverged = false;
     const bool same = len == r.lastLen && sn[i].start == r.lastStart && sn[i].whiteMin == r.lastRgbw && memcmp(gPayload, r.last, len) == 0;
+    if (!same && sn[i].kind == 1 && r.lastLen && now - r.lastSendMs < kGoveeGapMs) { allConverged = false; continue; }   // a Govee light is not flooded: the newest colours go out on the next tick
     if (same && now - r.lastSendMs < kKeepaliveMs) {
       if (gPerfOn) perfSkip();
     } else {
@@ -922,6 +980,7 @@ String calBegin(int target, int* total) {
   {
     Lock l;
     if (target < 0 || target >= gSet.nTargets) return "There is no such target.";
+    if (gSet.t[target].kind == 1) return "The LED finder is for WLED strips.";
     host = gSet.t[target].wHost;
   }
   if (host.length() == 0) return "Set the WLED address first (on the setup page).";

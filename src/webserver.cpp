@@ -146,6 +146,7 @@ static esp_err_t h_status(httpd_req_t* req) {
   for (int i = 0; i < s.nTargets; i++) {
     JsonObject o = ta.add<JsonObject>();
     o["name"] = s.targets[i].name;
+    o["kind"] = s.targets[i].kind == 1 ? "govee" : "wled";
     o["host"] = s.targets[i].host;
     o["ip"] = s.targets[i].ip;                      // the address in use: for a name, what it currently points to ("" = not found yet)
     o["ipAge"] = s.targets[i].ipAgeS;               // seconds since it was last confirmed (-1 = never)
@@ -397,6 +398,30 @@ static esp_err_t h_wled_info(httpd_req_t* req) {
   return sendDoc(req, d);
 }
 
+static esp_err_t h_govee_discover(httpd_req_t* req) {
+  String out;
+  goveeDiscover(out);
+  return sendJson(req, out);
+}
+
+static esp_err_t h_govee_info(httpd_req_t* req) {
+  char q[200] = {0}, enc[160] = {0}, raw[160] = {0}, host[64] = {0};
+  if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK || httpd_query_key_value(q, "host", enc, sizeof enc) != ESP_OK)
+    return sendError(req, "400 Bad Request", "host is required");
+  urlDecode(enc, raw, sizeof raw);
+  if (fwb::normalizeHost(raw, host, sizeof host) < 0) return sendError(req, "400 Bad Request", "The address is too long");
+  GoveeInfo i = goveeQuery(String(host));
+  if (!i.ok) return sendError(req, "502 Bad Gateway", i.error);
+  JsonDocument d;
+  d["name"] = i.sku.length() ? "Govee " + i.sku : String("Govee light");
+  d["sku"] = i.sku;
+  d["device"] = i.device;
+  d["wifi"] = i.wifiVer;
+  d["on"] = i.on;
+  d["bri"] = i.bri;
+  return sendDoc(req, d);
+}
+
 static esp_err_t h_wifi_scan(httpd_req_t* req) { return sendJson(req, wifiScanJson()); }
 
 static esp_err_t h_wifi_post(httpd_req_t* req) {
@@ -523,6 +548,8 @@ static const Route kRoutes[] = {
     {"/api/usage", HTTP_POST, h_usage},
     {"/api/wled/discover", HTTP_GET, h_wled_discover},
     {"/api/wled/info", HTTP_GET, h_wled_info},
+    {"/api/govee/discover", HTTP_GET, h_govee_discover},
+    {"/api/govee/info", HTTP_GET, h_govee_info},
     {"/api/wifi/scan", HTTP_GET, h_wifi_scan},
     {"/api/wifi", HTTP_POST, h_wifi_post},
     {"/api/ota", HTTP_GET, h_ota_get},

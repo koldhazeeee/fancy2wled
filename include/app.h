@@ -33,6 +33,7 @@ constexpr int kMaxTotalLeds = 2000;  // LEDs over all targets together
 // One place the picture is streamed to: a run of LEDs on a WLED, with its own layout (which part of the picture it follows).
 struct Target {
   String name;                         // shown on the setup page ("TV strip", "Cabinet")
+  int kind = 0;                        // 0 = a WLED, 1 = a Govee light (LAN API, streamed per segment: wCount = number of segments)
   bool enabled = true;                 // false: nothing is streamed to it and its WLED is left alone
   // WLED
   String wHost;
@@ -115,6 +116,17 @@ String targetUsage(int target, JsonVariantConst req, float out[fwb::kZones], int
 String targetAdd(int* index);               // new empty target at the end; "" or an error
 String targetRemove(int index);             // removes a target (the later ones move up); "" or an error
 
+// ---------------------------------------------------------------- Govee lights (govee.cpp)
+struct GoveeState { bool ok = false, on = false; int bri = 0, r = 0, g = 0, b = 0; };     // bri in percent
+struct GoveeInfo { bool ok = false, on = false; int bri = 0; String sku, device, wifiVer, error; };
+void goveeBegin();
+bool goveeStatus(const IPAddress& ip, GoveeState& st);                      // asks the light (blocks up to about 2 s)
+bool goveePrepare(const IPAddress& ip, bool turnOn, int briPct, GoveeState& before);   // remembers its state, switches it on, starts streaming
+void goveeRestore(const IPAddress& ip, bool restore, bool haveSnap, const GoveeState& snap, bool forceOff);   // stops streaming, puts it back (or off)
+void goveeStream(const IPAddress& ip, bool on);
+GoveeInfo goveeQuery(const String& host);                                   // the setup page's "Check this light"
+int goveeDiscover(String& jsonOut);                                         // multicast scan, writes {"devices":[...]}
+
 // ---------------------------------------------------------------- firmware updates (ota.cpp)
 void otaBegin();                                 // after Wi-Fi is up (does nothing in setup mode)
 void otaLoop();                                  // PlatformIO's espota listener, and marking a new firmware as good once it has run for a while
@@ -130,7 +142,7 @@ struct OtaInfo { bool enabled, passSet, rolledBack; String version, slot, imageS
 void otaInfo(OtaInfo& o);
 
 // ---------------------------------------------------------------- relay
-struct TargetStatus { bool enabled = true, ok = false; int leds = 0; String name, host, wledName, ip; int ipAgeS = -1; };   // ip: the address in use (a name's current address)
+struct TargetStatus { bool enabled = true, ok = false; int kind = 0; int leds = 0; String name, host, wledName, ip; int ipAgeS = -1; };   // ip: the address in use (a name's current address)
 struct RelayStatus {
   bool tvOff = false;                       // the picture has been black for the configured time (frames are still arriving)
   int tvBlackS = 0;                         // how long it has been black so far, in seconds (0 = not black)

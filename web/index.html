@@ -42,9 +42,10 @@ input[type=range].wide{width:100%}
 <div id="main" class="hidden">
 <div class="card">
   <h2>Targets</h2>
-  <p class="small mut">A target is a run of LEDs on a WLED that follows one part of the picture. Add one for each strip, for example a strip behind the TV and a cabinet light. The cards below edit the target you pick here; the <i>Look</i> settings are shared, and each target has its own brightness.</p>
+  <p class="small mut">A target is a run of LEDs on a WLED, or a Govee light, that follows one part of the picture. Add one for each strip, for example a strip behind the TV and a cabinet light. The cards below edit the target you pick here; the <i>Look</i> settings are shared, and each target has its own brightness.</p>
   <div class="row"><label for="tSel">Editing</label><select id="tSel"></select><button id="tAdd" class="sec">Add a target</button><button id="tDel" class="bad">Remove this target</button></div>
   <div class="row"><label for="tName">Name</label><input id="tName" maxlength="24" data-live="1"></div>
+  <div class="row"><label for="tKind">Type</label><select id="tKind" data-live="1"><option value="wled">WLED (a strip running WLED)</option><option value="govee">Govee light (LAN control, per segment)</option></select></div>
   <div class="row"><label for="tOn">Stream to this target</label><input id="tOn" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
   <div class="row"><label for="tTrim">This target's brightness compared with the others <span id="tTrimV"></span></label><input id="tTrim" type="range" min="0" max="1.5" step="0.05" data-live="1"></div>
 </div>
@@ -57,19 +58,22 @@ input[type=range].wide{width:100%}
 </div>
 
 <div class="card">
-  <h2>WLED</h2>
-  <div class="row"><label for="wHost">WLED address</label><input id="wHost" placeholder="IP address or name, e.g. wled-ceiling.local" autocapitalize="none"><button id="wFind" class="sec">Find</button></div>
+  <h2 id="wTitle">WLED</h2>
+  <p class="small mut hidden" id="gNote">A Govee light must have <b>LAN control</b> switched on in the Govee Home app (the light's settings). The board sends it a few colours per second and the light stretches them evenly over its whole length. The light is addressed by its IP address.</p>
+  <div class="row"><label for="wHost" id="wHostLbl">WLED address</label><input id="wHost" placeholder="IP address or name, e.g. wled-ceiling.local" autocapitalize="none"><button id="wFind" class="sec">Find</button></div>
   <div id="wResolved" class="small mut hidden"></div>
   <div id="wList" class="row"></div>
   <div class="row"><label>Check</label><button id="wCheck" class="sec">Check this WLED</button><span id="wInfo" class="small mut"></span></div>
-  <div class="row"><label for="wOn">Switch WLED on while relaying</label><input id="wOn" type="checkbox" style="flex:0 0 auto"></div>
-  <div class="row"><label for="wBri">Set WLED brightness (0-255, -1 = leave it)</label><input id="wBri" type="number" min="-1" max="255"></div>
-  <div class="row"><label for="wRestore">Put WLED back how it was when I stop</label><input id="wRestore" type="checkbox" style="flex:0 0 auto"></div>
+  <div class="row"><label for="wOn" id="wOnLbl">Switch WLED on while relaying</label><input id="wOn" type="checkbox" style="flex:0 0 auto"></div>
+  <div class="row"><label for="wBri" id="wBriLbl">Set WLED brightness (0-255, -1 = leave it)</label><input id="wBri" type="number" min="-1" max="255"></div>
+  <div class="row"><label for="wRestore" id="wRestoreLbl">Put WLED back how it was when I stop</label><input id="wRestore" type="checkbox" style="flex:0 0 auto"></div>
 </div>
 
 <div class="card sec">
   <h2>Your LEDs</h2>
-  <p class="small mut">Your WLED has <b id="totLeds">?</b> LEDs, numbered from 0. Tell the board which of them are part of the TV lighting, where they are, and which part of them covers the TV.</p>
+  <p class="small mut" id="ledIntro">Your WLED has <b id="totLeds">?</b> LEDs, numbered from 0. Tell the board which of them are part of the TV lighting, where they are, and which part of them covers the TV.</p>
+
+  <p class="small mut hidden" id="gIntro">A Govee light is controlled in <b>segments</b>: the board sends a number of colours and the light stretches them evenly over its whole length, so more segments follow the picture in finer detail. 20 is a good start. Tell the board where the light is, and which end of it is which.</p>
 
   <h3>1. Where are the LEDs?</h3>
   <div class="row"><label for="lPlace">The LEDs are</label><select id="lPlace" data-live="1">
@@ -82,10 +86,10 @@ input[type=range].wide{width:100%}
   <p class="small mut" id="placeNote"></p>
   <div class="row" id="calRow"><a class="btn" id="calBtn" href="/calibrate">Auto-calibrate with my phone</a></div>
 
-  <h3>2. The whole run: how long is it?</h3>
-  <p class="small mut">The run is the stretch of your strip you want the TV to control; the rest of the strip is left alone. For example, if the first 210 LEDs of the strip are behind and beside the TV: first LED <b>0</b>, length <b>210</b>.</p>
-  <div class="row"><label for="wStart">First LED of the run</label><div class="num"><input id="wStart" type="number" min="0" data-live="1"><span class="nudge" data-nudge="wStart"></span></div></div>
-  <div class="row"><label for="wCount">Length of the run (number of LEDs)</label><div class="num"><input id="wCount" type="number" min="1" data-live="1"><span class="nudge" data-nudge="wCount"></span></div></div>
+  <h3 id="runHead">2. The whole run: how long is it?</h3>
+  <p class="small mut" id="runNote">The run is the stretch of your strip you want the TV to control; the rest of the strip is left alone. For example, if the first 210 LEDs of the strip are behind and beside the TV: first LED <b>0</b>, length <b>210</b>.</p>
+  <div class="row" id="wStartRow"><label for="wStart">First LED of the run</label><div class="num"><input id="wStart" type="number" min="0" data-live="1"><span class="nudge" data-nudge="wStart"></span></div></div>
+  <div class="row"><label for="wCount" id="wCountLbl">Length of the run (number of LEDs)</label><div class="num"><input id="wCount" type="number" min="1" data-live="1"><span class="nudge" data-nudge="wCount"></span></div></div>
   <div id="rangeNote" class="small"></div>
 
   <div id="lLinear">
@@ -95,7 +99,7 @@ input[type=range].wide{width:100%}
     <div class="row"><label for="tvLast"><span id="tvLastLbl">TV ends at LED</span></label><div class="num"><input id="tvLast" type="number" data-live="1"><span class="nudge" data-nudge="tvLast"></span></div></div>
     <div class="row"><label>Slide the TV part along the run</label><span class="nudge" id="mover"></span></div>
     <div id="tvNote" class="small"></div>
-    <div class="row"><button id="markBtn" class="sec">Show markers on the LEDs</button><span class="small mut">When you change these numbers, <b style="color:#e5484d">red</b> LEDs light up on the strip where the TV starts and ends, and <b style="color:#3b82f6">blue</b> ones where the run starts and ends.</span></div>
+    <div class="row" id="markRow"><button id="markBtn" class="sec">Show markers on the LEDs</button><span class="small mut">When you change these numbers, <b style="color:#e5484d">red</b> LEDs light up on the strip where the TV starts and ends, and <b style="color:#3b82f6">blue</b> ones where the run starts and ends.</span></div>
     <div class="row"><label for="lSide" id="dirLbl">The LED numbers go</label><select id="lSide" data-live="1"><option value="0"></option><option value="1"></option></select></div>
   </div>
 
@@ -108,6 +112,7 @@ input[type=range].wide{width:100%}
   </div>
   <p class="small mut hidden" id="layNote"></p>
 
+  <div id="findWrap">
   <h3>Need help finding the numbers?</h3>
   <div class="row"><button id="fOpen" class="sec">Find my LEDs: light up a block I can move</button></div>
   <div id="fBox" class="hidden">
@@ -117,6 +122,7 @@ input[type=range].wide{width:100%}
     <div class="row"><span id="fTxt" class="small"></span><span class="nudge" data-nudge="fPos"></span></div>
     <div class="row"><button id="fFirst" class="sec">Run starts here</button><button id="fLast" class="sec">Run ends here</button></div>
     <div class="row"><button id="fTvFirst" class="sec">TV starts here</button><button id="fTvLast" class="sec">TV ends here</button><button id="fClose">Done</button></div>
+  </div>
   </div>
 </div>
 
@@ -281,8 +287,8 @@ input[type=range].wide{width:100%}
       ts.forEach(function(t){
         var sp=document.createElement('span'),nm=(ts.length>1?t.name+': ':'');
         if(t.enabled===false){sp.className='pill warn';sp.textContent=nm+'off';}
-        else if(t.ok){sp.className='pill ok';sp.textContent=(ts.length>1?t.name+': ':'WLED ')+t.leds+' LEDs';}
-        else{sp.className='pill '+(t.host?'bad':'warn');sp.textContent=nm+(t.host?'WLED unreachable':'WLED not set');}
+        else if(t.ok){sp.className='pill ok';sp.textContent=t.kind==='govee'?(ts.length>1?t.name+': ':'Govee ')+t.leds+' segments':(ts.length>1?t.name+': ':'WLED ')+t.leds+' LEDs';}
+        else{var nn=t.kind==='govee'?'light':'WLED';sp.className='pill '+(t.host?'bad':'warn');sp.textContent=nm+(t.host?nn+' unreachable':nn+' not set');}
         box.appendChild(sp);
       });
       pill('pState','',s.state);
@@ -293,8 +299,8 @@ input[type=range].wide{width:100%}
       var byName=!!(cur&&cur.host&&cur.ip!==cur.host);      // a name: say which address it points to now (it is looked up again every minute)
       show('wResolved',byName);
       if(byName)$('wResolved').textContent=cur.ip?'Reaching '+cur.host+' at '+cur.ip+' (looked up again every minute, so a new IP is found on its own).':'Looking for '+cur.host+' on the network...';
-      if(cur&&cur.leds){totalLeds=cur.leds;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);}
-      var pc=!!(s.features&&s.features.phoneCal);show('calRow',pc);
+      if(cur&&cur.leds&&cur.kind!=='govee'){totalLeds=cur.leds;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);}
+      var pc=!!(s.features&&s.features.phoneCal)&&!isGovee();show('calRow',pc);
       if(pc)$('calBtn').href=(s.https?'https://'+location.host:'')+'/calibrate?target='+sel;
       var sb=$('syncBtn');sb.classList.toggle('hidden',s.mode==='ap');sb.textContent=s.enabled===false?'Resume sync':'Pause sync';sb.setAttribute('data-enabled',s.enabled===false?'0':'1');
       var m=s.mqtt;if(m){var e=$('mqStatus');
@@ -317,12 +323,32 @@ input[type=range].wide{width:100%}
   };
   function place(){return $('lPlace').value;}
   function linear(){var p=place();return p==='top'||p==='bottom'||p==='left'||p==='right';}
+  /* the target type: a WLED strip, or a Govee light (per segment) */
+  function isGovee(){return $('tKind').value==='govee';}
+  var runNoteHtml=$('runNote').innerHTML,runHeadTxt=$('runHead').textContent;
+  function applyKind(){
+    var g=isGovee();
+    $('wTitle').textContent=g?'Govee light':'WLED';
+    show('gNote',g);show('gIntro',g);show('ledIntro',!g);
+    $('wHostLbl').textContent=g?'Light\'s IP address':'WLED address';
+    $('wHost').placeholder=g?'e.g. 192.168.1.60':'IP address or name, e.g. wled-ceiling.local';
+    $('wCheck').textContent=g?'Check this light':'Check this WLED';
+    $('wOnLbl').textContent=g?'Switch the light on while relaying':'Switch WLED on while relaying';
+    $('wBriLbl').textContent=g?'Set the light\'s brightness (1-100 %, -1 = leave it)':'Set WLED brightness (0-255, -1 = leave it)';
+    $('wBri').max=g?100:255;
+    $('wRestoreLbl').textContent=g?'Put the light back how it was when I stop (its last plain colour: a scene cannot be restored)':'Put WLED back how it was when I stop';
+    $('runHead').textContent=g?'2. How many segments?':runHeadTxt;
+    if(g)$('runNote').textContent='The board sends this many colours; the light stretches them over its whole length. More segments = finer detail (the light has its own number of real segments, so going far beyond it gains nothing). 1 to 60.';else $('runNote').innerHTML=runNoteHtml;
+    $('wCountLbl').textContent=g?'Number of segments':'Length of the run (number of LEDs)';
+    show('wStartRow',!g);show('markRow',!g);show('findWrap',!g);
+  }
   function labels(){
     var p=place(),v=PLACE[p].vertical;
     $('placeNote').textContent=PLACE[p].note;
     $('endsTxt').textContent=v?'its top end and its bottom end':'its left end and its right end, as you face the TV';
-    $('tvFirstLbl').textContent=v?'TV top is at LED':'TV left edge is at LED';
-    $('tvLastLbl').textContent=v?'TV bottom is at LED':'TV right edge is at LED';
+    var u=isGovee()?'segment':'LED';
+    $('tvFirstLbl').textContent=v?'TV top is at '+u:'TV left edge is at '+u;
+    $('tvLastLbl').textContent=v?'TV bottom is at '+u:'TV right edge is at '+u;
     $('dirLbl').textContent=v?'The LED numbers go':'The LED numbers go (as you face the TV)';
     var o=$('lSide').options;o[0].textContent=v?'from top to bottom':'from left to right';o[1].textContent=v?'from bottom to top':'from right to left';
     show('lLinear',linear());show('lLoop',p==='loop');
@@ -335,8 +361,14 @@ input[type=range].wide{width:100%}
     return {first:parseInt(a,10)-st,last:parseInt(b,10)-st,set:true};
   }
   function problems(){
-    var st=num('wStart',0),c=num('wCount',0),tot=totalLeds,tvs=num('tvSecs',15);
+    var st=num('wStart',0),c=num('wCount',0),tot=totalLeds,tvs=num('tvSecs',15),gv=isGovee();
     if(tvs<3||tvs>600)return 'The TV-off delay must be between 3 and 600 seconds.';
+    if(gv){
+      if(c<1||c>60)return 'A Govee light takes 1 to 60 segments.';
+      var hh=$('wHost').value.trim();
+      if(hh&&!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hh))return 'A Govee light is addressed by its IP address, for example 192.168.1.60.';
+      tot=0;
+    }
     if(tot&&st+c>tot)return 'LEDs '+st+' to '+(st+c-1)+' do not all exist: this WLED only has LEDs 0 to '+(tot-1)+'. Lower the first LED or the length of the run.';
     if(linear()){
       var s=tvSpan();
@@ -351,7 +383,8 @@ input[type=range].wide{width:100%}
   }
   function info(){
     var st=num('wStart',0),c=num('wCount',0),n=$('rangeNote'),pr=problems();
-    if(!totalLeds&&!pr){n.textContent=c>0?'The run is LEDs '+st+' to '+(st+c-1)+'.':'';}
+    if(isGovee()){n.innerHTML=pr?'<span class="err">'+pr+'</span>':(c>0?'<span class="mut">'+c+' segments.</span>':'');}
+    else if(!totalLeds&&!pr){n.textContent=c>0?'The run is LEDs '+st+' to '+(st+c-1)+'.':'';}
     else if(pr&&/do not all exist/.test(pr)){n.innerHTML='<span class="err">'+pr+'</span>';}
     else if(c>0){n.innerHTML='<span class="mut">The run is LEDs '+st+' to '+(st+c-1)+' ('+c+' LEDs).</span>';}
     else n.textContent='';
@@ -373,7 +406,7 @@ input[type=range].wide{width:100%}
     var T=list[sel],W=T.wled;
     $('tSel').innerHTML=list.map(function(t,i){return '<option value="'+i+'">'+esc(t.name)+'</option>';}).join('');$('tSel').value=String(sel);
     $('tDel').disabled=list.length<2;$('tAdd').disabled=list.length>=4;
-    $('tName').value=T.name;$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;
+    $('tName').value=T.name;$('tKind').value=T.kind||'wled';$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;
     $('wHost').value=W.host;$('wStart').value=W.start;$('wCount').value=W.count;$('wOn').checked=W.turnOn;$('wBri').value=W.brightness;$('wRestore').checked=W.restore;
     var L=T.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
     $('tvFirst').value=L.spanFirst>=0?L.spanFirst+W.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+W.start:'';
@@ -385,7 +418,7 @@ input[type=range].wide{width:100%}
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
     $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';$('mqPerf').checked=!!M.perf;
     usage=list.map(function(t){return t.usage||[];});
-    vals();labels();info();setDirty(false);drawMap();
+    applyKind();vals();labels();info();setDirty(false);drawMap();
   }
   function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
@@ -394,7 +427,7 @@ input[type=range].wide{width:100%}
     lay={type:p==='loop'?'loop':(p==='table'?'table':'linear'),led0Right:$('lSide').value==='1',spanFirst:linear()?s.first:-1,spanLast:linear()?s.last:-1,
       corner:num('lCorner',0),ccw:$('lDir').value==='1',sides:[num('lS0',0),num('lS1',0),num('lS2',0),num('lS3',0)],shift:num('lShift',0)};
     if(linear())lay.edge=p;
-    return {target:sel,name:$('tName').value.trim(),enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
+    return {target:sel,name:$('tName').value.trim(),kind:$('tKind').value,enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
       relay:{tvOff:{mode:$('tvMode').value,seconds:num('tvSecs',15)}},
       look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,smoothOut:parseInt($('kOut').value,10)}};
@@ -618,15 +651,27 @@ input[type=range].wide{width:100%}
     try{await j('/api/config',{mqtt:m});$('mqPass').value='';$('mqStatus').innerHTML='<span class="mut">Saved. Connecting...</span>';setTimeout(status,3000);}
     catch(e){$('mqStatus').innerHTML='<span class="err">'+e.message+'</span>';}
   };
+  $('tKind').addEventListener('change',function(){      // switching the type: sensible starting values for a Govee light (entry 0 is its right-hand end)
+    applyKind();
+    if(isGovee()){if(num('wCount',0)<1||num('wCount',0)>60)$('wCount').value=20;$('wStart').value=0;$('lSide').value='1';if(num('wBri',-1)>100)$('wBri').value=-1;}
+    changed();
+  });
   $('wFind').onclick=async function(){
-    $('wList').textContent='Looking for WLED devices...';
-    try{var d=await j('/api/wled/discover');$('wList').innerHTML='';
+    var g=isGovee();
+    $('wList').textContent=g?'Looking for Govee lights (about 3 seconds)...':'Looking for WLED devices...';
+    try{var d=await j(g?'/api/govee/discover':'/api/wled/discover');$('wList').innerHTML='';
       if(!d.devices.length)$('wList').textContent='None found. Type the address above.';
       d.devices.forEach(function(x){var b=document.createElement('button');b.className='sec';b.textContent=x.name+' ('+x.ip+')';b.onclick=function(){$('wHost').value=x.host||x.ip;changed();$('wCheck').click();};$('wList').appendChild(b);});
     }catch(e){$('wList').textContent=e.message;}
   };
   $('wCheck').onclick=async function(){
     $('wInfo').textContent='Checking...';
+    if(isGovee()){
+      try{var gd=await j('/api/govee/info?host='+encodeURIComponent($('wHost').value.trim()));
+        $('wInfo').innerHTML='<span class="ok">'+esc(gd.name)+(gd.wifi?' | firmware '+esc(gd.wifi):'')+' | '+(gd.on?'on':'off')+', brightness '+gd.bri+' %</span>';
+      }catch(e){$('wInfo').innerHTML='<span class="err">'+esc(e.message)+'</span>';}
+      return;
+    }
     try{var d=await j('/api/wled/info?host='+encodeURIComponent($('wHost').value.trim()));
       totalLeds=d.leds;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);
       $('wInfo').innerHTML='<span class="ok">'+d.name+' | WLED '+d.ver+' | '+d.leds+' LEDs'+(d.rgbw?' (RGBW)':'')+(d.on?'':' | currently off')+'</span>';

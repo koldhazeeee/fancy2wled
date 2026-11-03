@@ -150,6 +150,37 @@ async function cdp(wsUrl) {
     await ota(osv('otaCur', 'another good one') + osv('otaNewB', 'long enough pw') + osv('otaNewB2', 'long enough pw') + click('otaChangeBtn')); await sleep(500);
     dev.state.otaOn = false; dev.state.otaPass = ''; dev.state.cfg.ota = { enabled: false, passSet: false }; await p.ev("location.reload(); 1"); await sleep(1800);
     check('ota: back to no password for the tests below', (await ota("document.getElementById('otaOn').disabled")) === true);
+    // ---- a Govee light as a target
+    const sel = id => "document.getElementById('" + id + "')";
+    const setType = async v => { await ota(sel('tKind') + ".value='" + v + "'; " + sel('tKind') + ".dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300); };
+    check('govee: a target is a WLED unless you say otherwise', (await ota(sel('tKind') + '.value')) === 'wled' && /Check this WLED/.test(await text('wCheck')) && !(await hidden('wStartRow')));
+    await setType('govee');
+    check('govee: choosing the type changes the labels and hides what only a WLED strip has', (await text('wTitle')) === 'Govee light' && /IP address/.test(await text('wHostLbl')) && /Check this light/.test(await text('wCheck')) &&
+      !(await hidden('gNote')) && !(await hidden('gIntro')) && (await hidden('ledIntro')) && (await hidden('wStartRow')) && (await hidden('findWrap')) && (await hidden('markRow')), await text('wTitle'));
+    check('govee: sensible starting values: 20 segments, entry 0 at the right-hand end', (await ota(sel('wCount') + '.value')) === '20' && (await ota(sel('lSide') + '.value')) === '1' && /segments/.test(await text('wCountLbl')));
+    await ota(sel('wHost') + ".value='my-light.local'; " + sel('wHost') + ".dispatchEvent(new Event('input',{bubbles:true})); " + click('save')); await sleep(500);
+    check('govee: a name instead of an IP address is refused on the page', /IP address/.test(await text('saveMsg')) && dev.state.cfg.targets[0].kind === 'wled', await text('saveMsg'));
+    await ota(osv('wHost', '192.0.2.60') + osv('wCount', '70') + click('save')); await sleep(500);
+    check('govee: more than 60 segments is refused on the page', /1 to 60 segments/.test(await text('saveMsg')) && dev.state.cfg.targets[0].kind === 'wled', await text('saveMsg'));
+    await ota(sel('wFind') + '.click(); 1'); await sleep(500);
+    check('govee: Find lists the lights found on the network', /Govee H61C3 \(192\.0\.2\.60\)/.test(await text('wList')), await text('wList'));
+    await ota(sel('wList') + ".querySelector('button').click(); 1"); await sleep(700);
+    check('govee: picking one fills in its address and checks it (model, firmware, state)', (await ota(sel('wHost') + '.value')) === '192.0.2.60' && /Govee H61C3 \| firmware 1\.06\.24 \| off, brightness 14 %/.test(await text('wInfo')), await text('wInfo'));
+    await ota(osv('wHost', '192.0.2.99') + click('wCheck')); await sleep(600);
+    check('govee: a light that does not answer says what to check', /did not answer.*LAN control/.test(await text('wInfo')), await text('wInfo'));
+    await ota(osv('wHost', '192.0.2.60') + osv('wCount', '20') + osv('wBri', '60') + click('save')); await sleep(700);
+    const g0 = dev.state.cfg.targets[0];
+    check('govee: Save stores the type, the address, the segments and that the strip starts at the right', g0.kind === 'govee' && g0.wled.host === '192.0.2.60' && g0.wled.count === 20 && g0.wled.start === 0 && g0.layout.led0Right === true && g0.wled.brightness === 60, JSON.stringify([g0.kind, g0.wled, g0.layout.led0Right]));
+    await sleep(3000);
+    check('govee: the status pill counts segments, not LEDs', /Govee 20 segments/.test(await text('wPills')), await text('wPills'));
+    await ota(location_reload());
+    function location_reload() { return "location.reload(); 1"; }
+    await sleep(1800);
+    check('govee: after a reload the page comes back as a Govee target', (await ota(sel('tKind') + '.value')) === 'govee' && (await text('wTitle')) === 'Govee light' && (await ota(sel('wCount') + '.value')) === '20');
+    await setType('wled');
+    check('govee: switching back restores the WLED labels', (await text('wTitle')) === 'WLED' && /Check this WLED/.test(await text('wCheck')) && !(await hidden('wStartRow')) && !(await hidden('findWrap')) && !(await hidden('ledIntro')) && (await hidden('gIntro')));
+    await ota(osv('wHost', '192.0.2.50') + osv('wCount', '150') + osv('wBri', '-1') + sel('lSide') + ".value='0'; " + click('save')); await sleep(700);
+    check('govee: back to the WLED setup for the tests below', dev.state.cfg.targets[0].kind === 'wled' && dev.state.cfg.targets[0].wled.host === '192.0.2.50' && dev.state.cfg.targets[0].wled.count === 150 && dev.state.cfg.targets[0].layout.led0Right === false, JSON.stringify(dev.state.cfg.targets[0].wled));
     // smoothing slider is part of the live preview
     await p.ev("var o=document.getElementById('kOut'); o.value='40'; o.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
     check('index: smooth-beyond-TV slider shows its value', /40%/.test(await p.ev("document.getElementById('kOutV').textContent")));

@@ -35,6 +35,8 @@ static void loadTarget(Target& t, int i) {
   auto gF = [&](const char* k, float d) { const String key = K(k, i); return prefs.isKey(key.c_str()) ? prefs.getFloat(key.c_str(), d) : d; };
   t = Target();
   t.name = gS("tName", ("Target " + String(i + 1)).c_str());
+  t.kind = gI("tKind", 0);
+  if (t.kind < 0 || t.kind > 1) t.kind = 0;
   t.enabled = gB("tOn", true);
   t.trim = gF("tTrim", 1.f);
   t.wHost = gS("wHost", "");
@@ -72,6 +74,7 @@ static void loadTarget(Target& t, int i) {
 
 static void saveTarget(const Target& t, int i) {
   prefs.putString(K("tName", i).c_str(), t.name);
+  prefs.putInt(K("tKind", i).c_str(), t.kind);
   prefs.putBool(K("tOn", i).c_str(), t.enabled);
   prefs.putFloat(K("tTrim", i).c_str(), t.trim);
   prefs.putString(K("wHost", i).c_str(), t.wHost);
@@ -93,7 +96,7 @@ static void saveTarget(const Target& t, int i) {
 }
 
 static void eraseTargetKeys(int i) {
-  static const char* keys[] = {"tName", "tOn", "tTrim", "wHost", "wStart", "wCount", "wOn", "wRestore", "wBri", "whiteMin", "lType", "lRight",
+  static const char* keys[] = {"tName", "tKind", "tOn", "tTrim", "wHost", "wStart", "wCount", "wOn", "wRestore", "wBri", "whiteMin", "lType", "lRight",
                                "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "tbl4"};
   for (const char* k : keys) prefs.remove(K(k, i).c_str());
 }
@@ -242,6 +245,7 @@ static const char* kEdgeNames[4] = {"top", "right", "bottom", "left"};
 
 static void targetToJson(const Target& t, int i, JsonObject o) {
   o["name"] = t.name;
+  o["kind"] = t.kind == 1 ? "govee" : "wled";
   o["enabled"] = t.enabled;
   o["trim"] = t.trim;
   JsonObject w = o["wled"].to<JsonObject>();
@@ -313,6 +317,12 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
     }
     n.name = nm;
   }
+  if (!x["kind"].isNull()) {
+    const String k = x["kind"].as<String>();
+    if (k == "wled") n.kind = 0;
+    else if (k == "govee") n.kind = 1;
+    else return "The target type must be wled or govee";
+  }
   if (!x["enabled"].isNull()) n.enabled = x["enabled"].as<bool>();
   if (!x["trim"].isNull()) n.trim = clampf(x["trim"].as<float>(), 0.f, 2.f);
 
@@ -336,6 +346,14 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
   if (n.wStart < 0 || n.wStart > 20000) return "First LED must be between 0 and 20000";
   if (n.wCount < 0 || n.wCount > fwb::kMaxLeds) return "A target can have at most " + String(fwb::kMaxLeds) + " LEDs";
   if (n.wBri < -1 || n.wBri > 255) return "WLED brightness must be -1 (leave) or 0-255";
+  if (n.kind == 1) {                                  // a Govee light: found by IP address, streamed as a few segments, brightness in percent
+    n.wStart = 0;
+    n.whiteMin = false;
+    IPAddress ip;
+    if (n.wHost.length() > 0 && !ip.fromString(n.wHost)) return "A Govee light is addressed by its IP address (for example 192.168.1.60), not a name.";
+    if (n.wCount > fwb::kGoveeMaxSegments) return "A Govee light can have at most " + String(fwb::kGoveeMaxSegments) + " segments";
+    if (n.wBri == 0 || n.wBri > 100) return "Govee brightness must be -1 (leave it) or 1-100 percent";
+  }
 
   if (!y["type"].isNull()) {
     String t = y["type"].as<String>();

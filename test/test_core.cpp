@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[200000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -203,6 +203,25 @@ int main(int argc, char** argv) {
       }
       CHECK(checked > 5, "apply: only %d samples parsed", checked);
       nApply++;
+    } else if (k == "GOVEE") {
+      // GOVEE ENABLE <0|1> <json>   |   GOVEE FRAME <n> <hex rgb> <json>
+      char what[16] = {0};
+      int cursor = 0;
+      sscanf(rest, "%15s%n", what, &cursor);
+      char got[800];
+      if (!strcmp(what, "ENABLE")) {
+        int on = 0; char json[300] = {0};
+        sscanf(rest + cursor, "%d %299s", &on, json);
+        const size_t n = goveeEnableJson(on != 0, got, sizeof got);
+        CHECK(n == strlen(json) && !strcmp(got, json), "govee enable %d: got %s want %s", on, got, json);
+      } else {
+        int cnt = 0; char hex[400] = {0}; char json[800] = {0};
+        sscanf(rest + cursor, "%d %399s %799s", &cnt, hex, json);
+        const auto rgb = fromHex(hex);
+        const size_t n = goveeFrameJson(rgb.data(), cnt, got, sizeof got);
+        CHECK(n == strlen(json) && !strcmp(got, json), "govee frame of %d: got %s want %s", cnt, got, json);
+      }
+      nGovee++;
     } else if (k == "DDP") {
       int seq, dt, ln, push; unsigned off2; char hex[64];
       sscanf(rest, "%d %d %u %d %d %63s", &seq, &dt, &off2, &ln, &push, hex);
@@ -350,7 +369,25 @@ int main(int argc, char** argv) {
     CHECK(validUpdatePassword(std::string(64, 'a').c_str()) && !validUpdatePassword(std::string(65, 'a').c_str()), "64 characters is the longest");
     CHECK(!validUpdatePassword("pass\tword1") && !validUpdatePassword("passw\xC3\xB6rd1"), "control characters and non-ASCII are refused");
     CHECK(secureEquals("hunter2hunter2", "hunter2hunter2") && !secureEquals("hunter2hunter2", "hunter2hunter3") && !secureEquals("abc", "abcd") && !secureEquals("abcd", "abc") && secureEquals("", ""), "password comparison"); }
-  { // TV off: the picture has been completely black for a while
+  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
+    struct { const char* in; const char* want; } b64[] = {{"", ""}, {"f", "Zg=="}, {"fo", "Zm8="}, {"foo", "Zm9v"}, {"foob", "Zm9vYg=="}, {"fooba", "Zm9vYmE="}, {"foobar", "Zm9vYmFy"}};
+    for (const auto& c : b64) {
+      char o[32];
+      const size_t n = base64Encode((const uint8_t*)c.in, strlen(c.in), o, sizeof o);
+      CHECK(strlen(c.want) == n && !strcmp(o, c.want), "base64(\"%s\") = %s (want %s)", c.in, o, c.want);
+    }
+    char small[8];
+    CHECK(base64Encode((const uint8_t*)"foobar", 6, small, sizeof small) == 0, "base64 refuses a buffer that is too small");
+    char o[400];
+    goveeEnableJson(true, o, sizeof o);
+    CHECK(strstr(o, "\"pt\":\"uwABsQEK\"") != nullptr, "streaming on is the packet other Govee projects use (uwABsQEK): %s", o);
+    goveeEnableJson(false, o, sizeof o);
+    CHECK(strstr(o, "\"pt\":\"uwABsQAL\"") != nullptr, "streaming off is uwABsQAL: %s", o);
+    uint8_t rgb[3 * (kGoveeMaxSegments + 1)] = {};
+    CHECK(goveeFrameJson(rgb, 0, o, sizeof o) == 0 && goveeFrameJson(rgb, kGoveeMaxSegments + 1, o, sizeof o) == 0, "0 and 61 segments are refused");
+    CHECK(goveeFrameJson(rgb, 60, o, sizeof o) > 0 && goveeFrameJson(rgb, 1, o, sizeof o) > 0, "1 and 60 segments are fine");
+    CHECK(goveeFrameJson(rgb, 20, small, sizeof small) == 0, "a frame that does not fit the buffer is refused, not cut");
+    CHECK(goveeFrameJson(nullptr, 5, o, sizeof o) == 0, "no colours, no frame"); }  { // TV off: the picture has been completely black for a while
     uint8_t blk[kZones][3] = {}, dim[kZones][3] = {}, one[kZones][3] = {};
     dim[7][2] = 1;                                                // a single blue count in one zone is not black
     one[23][0] = 1;
@@ -384,8 +421,8 @@ int main(int argc, char** argv) {
       {"http://wled-ceiling.local", "wled-ceiling.local"},
       {"  HTTP://Wled-Ceiling.local/  ", "wled-ceiling.local"},
       {"https://wled-cabinet.local/json/info?x=1", "wled-cabinet.local"},
-      {"192.168.3.251", "192.168.3.251"},
-      {"http://192.168.3.251:80/", "192.168.3.251"},
+      {"192.0.2.51", "192.0.2.51"},
+      {"http://192.0.2.51:80/", "192.0.2.51"},
       {"wled.local.", "wled.local"},
       {"wled.local:80", "wled.local"},
       {"wled.local:8080", "wled.local:8080"},          // another port is kept, so the validation can refuse it with a clear message
@@ -439,8 +476,8 @@ int main(int argc, char** argv) {
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }
 
-  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, g_pass, g_fail);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }
