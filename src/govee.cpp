@@ -6,6 +6,7 @@
 // The light must have "LAN control" switched on in the Govee Home app. The protocol is plain, unauthenticated UDP and UDP gets lost: control
 // commands are sent twice and a state is checked before it is believed (found on a real H61C3: a lone "turn off" was sometimes ignored).
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <lwip/sockets.h>
 
@@ -137,6 +138,50 @@ void goveeRestore(const IPAddress& ip, bool restore, bool haveSnap, const GoveeS
   control(ip, cmdJson("colorwc", String("{\"color\":{\"r\":") + snap.r + ",\"g\":" + snap.g + ",\"b\":" + snap.b + "},\"colorTemInKelvin\":0}")); delay(300);
   if (snap.bri >= 1) { control(ip, cmdJson("brightness", String("{\"value\":") + snap.bri + "}")); delay(300); }
   if (!snap.on) setOnOff(ip, false);
+}
+
+// ---------------------------------------------------------------- the state before the stream, kept across restarts
+// Its own flash namespace (not the settings one): it is written from the background task. A record is written when the stream starts and
+// removed when the light has been handed back, so it is written a few times a day at most.
+static const char* kSessNs = "fwbgv";
+static String sk(char c, int t) { return String(c) + String(t); }
+
+bool goveeSessionSave(int t, const String& host, const GoveeState& s) {
+  Preferences p;
+  if (!p.begin(kSessNs, false)) return false;
+  const int rgb = ((s.r & 255) << 16) | ((s.g & 255) << 8) | (s.b & 255);
+  const int on = s.on ? 1 : 0;
+  if (p.getString(sk('h', t).c_str(), "") != host) p.putString(sk('h', t).c_str(), host);
+  if (p.getInt(sk('o', t).c_str(), -1) != on) p.putInt(sk('o', t).c_str(), on);
+  if (p.getInt(sk('b', t).c_str(), -1) != s.bri) p.putInt(sk('b', t).c_str(), s.bri);
+  if (p.getInt(sk('c', t).c_str(), -1) != rgb) p.putInt(sk('c', t).c_str(), rgb);
+  p.end();
+  return true;
+}
+
+bool goveeSessionLoad(int t, String& host, GoveeState& s) {
+  Preferences p;
+  if (!p.begin(kSessNs, false)) return false;                         // (read-write: opening a namespace that does not exist yet read-only logs an error)
+  host = p.getString(sk('h', t).c_str(), "");
+  const bool have = host.length() > 0 && p.isKey(sk('o', t).c_str());
+  if (have) {
+    s.on = p.getInt(sk('o', t).c_str(), 0) != 0;
+    s.bri = p.getInt(sk('b', t).c_str(), 0);
+    const int rgb = p.getInt(sk('c', t).c_str(), 0);
+    s.r = (rgb >> 16) & 255; s.g = (rgb >> 8) & 255; s.b = rgb & 255;
+    s.ok = true;
+  }
+  p.end();
+  return have;
+}
+
+void goveeSessionClear(int t) {
+  Preferences p;
+  if (!p.begin(kSessNs, false)) return;
+  if (p.isKey(sk('h', t).c_str())) {
+    p.remove(sk('h', t).c_str()); p.remove(sk('o', t).c_str()); p.remove(sk('b', t).c_str()); p.remove(sk('c', t).c_str());
+  }
+  p.end();
 }
 
 // ---------------------------------------------------------------- the setup page

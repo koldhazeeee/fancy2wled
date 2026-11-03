@@ -15,6 +15,9 @@ and the light stretches them evenly over its whole length. Developed and tested 
 4. *Switch the light on while relaying*, its brightness (1-100 %, or -1 to leave it) and *Put the light back how it was when I stop* work like the WLED ones.
    When the sync stops (the box goes quiet, the TV is off with "hand back", you pause it) the light is put back to its earlier on/off state, brightness and
    last plain colour. **A scene** (rainbow, music...) **cannot be restored** over the LAN: the light returns to the last plain colour it had.
+   If the board restarts while it is relaying (a firmware update, a crash, a power cut) it cannot put the light back at that moment. It keeps the
+   light's earlier state in its flash memory for as long as it relays, and puts the light back from that record the next time it starts, so the
+   light is not left on, and the next sync does not mistake the relaying state for the light's own.
 
 ## How it works (and what to know)
 

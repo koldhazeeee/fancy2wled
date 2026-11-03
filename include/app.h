@@ -127,6 +127,12 @@ bool goveeStatus(const IPAddress& ip, GoveeState& st);                      // a
 bool goveePrepare(const IPAddress& ip, bool turnOn, int briPct, GoveeState& before);   // remembers its state, switches it on, starts streaming
 void goveeRestore(const IPAddress& ip, bool restore, bool haveSnap, const GoveeState& snap, bool forceOff);   // stops streaming, puts it back (or off)
 void goveeStream(const IPAddress& ip, bool on);
+// The state a light was in before this board took it over, kept in flash for as long as the board streams to it. A board that restarts while
+// streaming (update, crash, power cut) cannot hand the light back; without this the next start would take the light's streaming state for its
+// original one. At the next start the light is handed back from this record. One record per target number.
+bool goveeSessionSave(int target, const String& host, const GoveeState& s);
+bool goveeSessionLoad(int target, String& host, GoveeState& s);
+void goveeSessionClear(int target);
 GoveeInfo goveeQuery(const String& host);                                   // the setup page's "Check this light"
 int goveeDiscover(String& jsonOut);                                         // multicast scan, writes {"devices":[...]}
 

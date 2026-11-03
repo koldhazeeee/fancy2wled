@@ -426,17 +426,44 @@ static void goveeJob(WledJob* j) {
   if (j->prepare) {
     GoveeState before;
     const bool ok = goveePrepare(ip, j->turnOn, j->bri, before);
-    Lock l;
-    Rt& r = gRt[j->target];
-    if (r.hostCache == j->host) {
-      r.wledOk = ok; r.wledLeds = j->segments; r.wledName = "Govee light";
-      if (ok && !(j->keepSnap && r.snapHost == j->host)) { r.snapHost = j->host; r.snapOn = before.on; r.snapBri = before.bri; r.snapR = before.r; r.snapG = before.g; r.snapB = before.b; }
+    bool remember = false;
+    {
+      Lock l;
+      Rt& r = gRt[j->target];
+      if (r.hostCache == j->host) {
+        r.wledOk = ok; r.wledLeds = j->segments; r.wledName = "Govee light";
+        if (ok && !(j->keepSnap && r.snapHost == j->host)) { r.snapHost = j->host; r.snapOn = before.on; r.snapBri = before.bri; r.snapR = before.r; r.snapG = before.g; r.snapB = before.b; remember = true; }
+      }
     }
+    if (remember && j->restore) goveeSessionSave(j->target, j->host, before);      // so a restart while streaming cannot lose what the light was like
   } else {
     GoveeState snap;
     bool haveSnap = false;
     { Lock l; const Rt& r = gRt[j->target]; if (r.snapHost == j->host) { snap.on = r.snapOn; snap.bri = r.snapBri; snap.r = r.snapR; snap.g = r.snapG; snap.b = r.snapB; haveSnap = true; } }
     goveeRestore(ip, j->restore, haveSnap, snap, j->forceOff);
+    if (!j->forceOff) goveeSessionClear(j->target);          // handed back (when it was switched off for the TV, the original state is still the one to hand back later)
+  }
+}
+
+// After a restart: a light that was being streamed to when the board stopped is still as the stream left it (on, at the stream's brightness).
+// Hand it back from the record kept in flash, before anything new is prepared (so the next stream takes the right "before" state).
+static bool gGoveeBootDone = false;
+static void goveeBootHandBack(int nT) {
+  gGoveeBootDone = true;
+  for (int i = 0; i < kMaxTargets; i++) {
+    String host;
+    GoveeState s;
+    if (!goveeSessionLoad(i, host, s)) continue;
+    bool give = false;
+    {
+      Lock l;
+      give = i < nT && gSet.t[i].kind == 1 && gSet.t[i].wHost == host && gSet.t[i].wRestore;
+      if (give) { Rt& r = gRt[i]; r.snapHost = host; r.snapOn = s.on; r.snapBri = s.bri; r.snapR = s.r; r.snapG = s.g; r.snapB = s.b; }
+    }
+    if (!give) { goveeSessionClear(i); continue; }           // the target was changed or removed meanwhile: nothing to hand back
+    WledJob* j = new WledJob();
+    j->prepare = false; j->target = i; j->host = host; j->restore = true; j->govee = true;
+    postJob(j);
   }
 }
 
@@ -799,6 +826,7 @@ void relayLoop() {
   if (gotNew) { gNewPending = true; for (int i = 0; i < kMaxTargets; i++) gRt[i].converged = false; }
   const uint32_t now = millis();
   gWaitHintMs = 10;
+  if (!gGoveeBootDone && WiFi.status() == WL_CONNECTED) { int n0; { Lock l; n0 = gSet.nTargets; } goveeBootHandBack(n0); }   // once, before any stream is prepared
 
   struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; };
   TSnap sn[kMaxTargets];
