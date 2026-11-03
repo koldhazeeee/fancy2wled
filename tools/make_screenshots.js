@@ -14,7 +14,8 @@ const CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'];
 const exe = CANDIDATES.find(p => fs.existsSync(p));
 if (!exe) { console.log('no Chromium-based browser found'); process.exit(1); }
-const OUT = path.join(__dirname, '..', 'docs', 'images');
+const OUT = process.env.FWB_SHOT_OUT || path.join(__dirname, '..', 'docs', 'images');      // FWB_SHOT_OUT / FWB_SHOT_WIDTH: for trying a design at another size
+const WIDTH = parseInt(process.env.FWB_SHOT_WIDTH || '760', 10);
 const PORT = 9341;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -57,7 +58,7 @@ async function cdp(wsUrl) {
     const t = await (await fetch('http://127.0.0.1:' + PORT + '/json/new?' + encodeURIComponent(base + '/'), { method: 'PUT' })).json();
     const c = await cdp(t.webSocketDebuggerUrl);
     await c.send('Page.enable'); await c.send('Page.bringToFront'); await c.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-    await c.send('Emulation.setDeviceMetricsOverride', { width: 760, height: 1200, deviceScaleFactor: 2, mobile: false });
+    await c.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: 1200, deviceScaleFactor: 2, mobile: false });
     const scheme = async v => { await c.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: v }] }); await sleep(300); };
     const waitStatus = async () => { await sleep(3200); };      // the page polls the status every 2.5 s
     await scheme('dark');
@@ -72,7 +73,7 @@ async function cdp(wsUrl) {
       const pad = 14;
       const res = await c.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: Math.max(0, r.x - pad), y: Math.max(0, r.y - pad), width: r.w + 2 * pad, height: r.h + 2 * pad, scale: 1 } });
       fs.writeFileSync(path.join(OUT, file), Buffer.from(res.result.data, 'base64'));
-      console.log('wrote docs/images/' + file + '  (' + Math.round(fs.statSync(path.join(OUT, file)).size / 1024) + ' KB)');
+      console.log('wrote ' + path.join(OUT, file) + '  (' + Math.round(fs.statSync(path.join(OUT, file)).size / 1024) + ' KB)');
     }
     const select = async i => { await c.ev("var s=document.getElementById('tSel');s.value='" + i + "';s.dispatchEvent(new Event('change',{bubbles:true}));1"); await sleep(900); await waitStatus(); };
 

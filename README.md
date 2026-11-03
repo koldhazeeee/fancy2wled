@@ -64,7 +64,7 @@ The pictures are regenerated from the real page with `node tools/make_screenshot
    itself (otherwise browse to `http://192.168.5.5`). Choose your Wi-Fi, enter the password. The board restarts and joins it.
 3. **Open the setup page.** From any device on that network: **`http://fancy2wled.local`** (or the IP your router shows).
 4. **WLED:** press **Find** (or type its address), then **Check this WLED**. The **Targets** card at the top picks which target you are
-   editing; press **Add a target** for each further strip or WLED (up to four) and give it a name.
+   editing; press **Add target** for each further strip or WLED (up to four) and give it a name.
 5. **Your LEDs** (for the target you picked; the **Picture map** above shows which part of the screen each target will follow): say *where* they are (above the TV, below it, left, right, or all the way around), how long the run is (first LED +
    number of LEDs; e.g. the first 210 LEDs of the strip: first LED 0, length 210) and which part of the run covers the TV (e.g. LEDs
    83 to 163). Above the TV uses the *top* of the picture's colour map, below uses the *bottom*, left/right use that edge. Not sure

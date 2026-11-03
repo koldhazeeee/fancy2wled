@@ -5,13 +5,13 @@
 <link rel="stylesheet" href="/style.css">
 <style>
 .nudge{display:inline-flex;gap:4px;flex:0 0 auto}
-.nudge button{padding:6px 9px;font-size:.85rem}
+.nudge button{padding:4px 10px;min-height:34px;font-size:.85rem}
 .num{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:2 1 220px}
 .num input{flex:1 1 90px}
 input[type=range].wide{width:100%}
-.sticky{position:sticky;bottom:0;background:var(--bg);padding:8px 0;border-top:1px solid var(--line);margin-top:12px}
-.sec h3{font-size:.95rem;margin:1rem 0 .3rem}
-.legend{display:flex;gap:6px 16px;flex-wrap:wrap;margin:.3rem 0}
+.sticky{position:sticky;bottom:0;background:var(--bg);padding:10px 0 calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);margin-top:8px}
+.sec h3{font-size:.92rem;margin:22px 0 4px}
+.legend{display:flex;gap:6px 18px;flex-wrap:wrap;margin:14px 0 6px}
 .chip{display:inline-flex;align-items:center;gap:6px}
 .sw{width:14px;height:14px;border-radius:4px;display:inline-block;flex:0 0 auto}
 </style></head><body><main>
@@ -42,17 +42,17 @@ input[type=range].wide{width:100%}
 <div id="main" class="hidden">
 <div class="card">
   <h2>Targets</h2>
-  <p class="small mut">A target is a run of LEDs on a WLED, or a Govee light, that follows one part of the picture. Add one for each strip, for example a strip behind the TV and a cabinet light. The cards below edit the target you pick here; the <i>Look</i> settings are shared, and each target has its own brightness.</p>
-  <div class="row"><label for="tSel">Editing</label><select id="tSel"></select><button id="tAdd" class="sec">Add a target</button><button id="tDel" class="bad">Remove this target</button></div>
+  <p class="small mut">A target is a WLED strip or a Govee light that follows one part of the picture, for example a strip behind the TV and a cabinet light. The sections below edit the target you pick here. The <i>Look</i> settings are shared; each target has its own brightness.</p>
+  <div class="row"><label for="tSel">Editing</label><select id="tSel" style="flex:1 1 120px"></select><button id="tAdd" class="sec">Add target</button><button id="tDel" class="bad">Remove</button></div>
   <div class="row"><label for="tName">Name</label><input id="tName" maxlength="24" data-live="1"></div>
-  <div class="row"><label for="tKind">Type</label><select id="tKind" data-live="1"><option value="wled">WLED (a strip running WLED)</option><option value="govee">Govee light (LAN control, per segment)</option></select></div>
+  <div class="row"><label for="tKind">Type</label><select id="tKind" data-live="1"><option value="wled">WLED strip</option><option value="govee">Govee light</option></select></div>
   <div class="row"><label for="tOn">Stream to this target</label><input id="tOn" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
   <div class="row"><label for="tTrim">This target's brightness compared with the others <span id="tTrimV"></span></label><input id="tTrim" type="range" min="0" max="1.5" step="0.05" data-live="1"></div>
 </div>
 
 <div class="card" id="mapCard">
   <h2>Picture map</h2>
-  <p class="small mut">Which part of the picture each target follows. The grid is the Sync Box's 6 by 4 zones. A coloured block means that target's LEDs follow that zone; the darker the block, the more of its LEDs follow it (the corners usually come out darkest, because the stretch of strip past the TV holds the corner colour). The faded middle zones are never used: the box only drives the edges. Hover or tap a block for the numbers. The map follows your changes before you save them.</p>
+  <p class="small mut">Which part of the picture each target follows, on the Sync Box's 6 by 4 grid of zones. A darker block means more of that target's LEDs follow the zone. The faded middle zones are never used: the box only drives the edges. Tap a block for the numbers. The map follows your changes before you save them.</p>
   <div id="mapLegend" class="legend small"></div>
   <svg id="mapSvg" viewBox="0 0 500 312" role="img" aria-label="Which zones of the picture each target follows" style="width:100%;max-width:560px;display:block;margin:8px auto"></svg>
 </div>

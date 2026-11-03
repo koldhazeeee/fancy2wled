@@ -1,21 +1,52 @@
-:root{--bg:#0f1115;--fg:#e8eaf0;--mut:#9aa3b2;--card:#181b22;--line:#2a2f3a;--acc:#4da3ff;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#f5b942}
-@media (prefers-color-scheme:light){:root{--bg:#f4f5f8;--fg:#14171c;--mut:#566070;--card:#fff;--line:#d9dde5;--acc:#1668d6;--ok:#17915f;--bad:#c93030;--warn:#a96d00}}
+/* Fancy2WLED setup pages. Plain CSS on purpose: system fonts, no images, no animation, no shadows or gradients, so the board has almost nothing to serve
+   and the browser almost nothing to draw. Colours are variables because the picture map (an inline SVG) uses them too. */
+:root{color-scheme:dark;--bg:#0f1012;--card:#16181c;--ctl:#1b1d22;--fg:#e8e9ed;--mut:#9a9fab;--line:#2a2d34;--acc:#7aa7ff;--onacc:#0b1220;--ok:#4cc38a;--bad:#f27d78;--warn:#e3b341}
+@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#f6f7f9;--card:#fff;--ctl:#fff;--fg:#15171c;--mut:#5b6270;--line:#dde0e6;--acc:#2f62d9;--onacc:#fff;--ok:#12805a;--bad:#c0392b;--warn:#8a6100}}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:720px;margin:0 auto;padding:16px 16px 48px}
-h1{font-size:1.35rem;margin:.2rem 0 .8rem}h2{font-size:1.05rem;margin:0 0 .6rem}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:.5rem 0}
-.row>label{flex:1 1 150px;color:var(--mut);font-size:.9rem}
-input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0;flex:2 1 160px}
-input[type=range]{padding:0}
-button,.btn{font:inherit;color:#fff;background:var(--acc);border:0;border-radius:10px;padding:10px 16px;cursor:pointer;text-decoration:none;display:inline-block}
-button.sec,.btn.sec{background:transparent;color:var(--fg);border:1px solid var(--line)}
-button.bad{background:var(--bad)}button:disabled{opacity:.5;cursor:default}
-.pill{display:inline-block;border-radius:99px;padding:2px 10px;font-size:.82rem;border:1px solid var(--line);color:var(--mut)}
-.pill.ok{color:var(--ok);border-color:var(--ok)}.pill.bad{color:var(--bad);border-color:var(--bad)}.pill.warn{color:var(--warn);border-color:var(--warn)}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+main{max-width:680px;margin:0 auto;padding:20px 16px calc(40px + env(safe-area-inset-bottom))}
+h1{font-size:1.25rem;font-weight:650;letter-spacing:-.01em;margin:0 0 6px}
+h2{font-size:1rem;font-weight:650;margin:0 0 8px}
+h3{font-size:.92rem;font-weight:600;margin:20px 0 4px}
+p{margin:.45rem 0;max-width:64ch}
+b{font-weight:600}
+
+/* a section is a stretch of page with a hairline above it, not a box */
+.card{border-top:1px solid var(--line);padding:22px 0 16px;margin:0}
+#stat{border-top:0;padding:4px 0 18px}
+#boxWarn{border:1px solid var(--bad);border-radius:10px;padding:14px 16px;margin:8px 0 16px}
+#boxWarn h2{margin-bottom:4px}
+
+/* a row: the label above its control on a phone, beside it on a wider screen; a switch keeps its label and the switch on one line */
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:12px 0}
+.row>label{flex:1 1 100%;color:var(--mut);font-size:.9rem}
+.row:has(>input[type=checkbox]){flex-wrap:nowrap;justify-content:space-between}
+.row:has(>input[type=checkbox])>label{flex:1 1 auto}
+@media (min-width:600px){.row>label{flex:0 0 220px}}
+
+input,select{font:inherit;font-size:16px;color:var(--fg);background:var(--ctl);border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-height:40px;min-width:0;flex:1 1 180px}
+input[type=checkbox]{flex:0 0 auto;width:20px;height:20px;min-height:0;padding:0;accent-color:var(--acc)}
+input[type=range]{padding:0;min-height:28px;background:none;border:0;accent-color:var(--acc)}
+input[type=file]{padding:6px 8px}
+progress{width:100%;height:8px;accent-color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+button,.btn{font:inherit;font-weight:550;color:var(--onacc);background:var(--acc);border:1px solid transparent;border-radius:8px;padding:8px 16px;min-height:40px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+button:hover,.btn:hover{filter:brightness(1.08)}
+button.sec,.btn.sec{background:var(--ctl);color:var(--fg);border-color:var(--line)}
+button.sec:hover,.btn.sec:hover{border-color:var(--mut);filter:none}
+button.bad{background:transparent;color:var(--bad);border-color:var(--bad)}
+button:disabled{opacity:.45;cursor:default;filter:none}
+
+/* a status is a dot and a word, not a bordered pill */
+.pill{display:inline-flex;align-items:center;gap:6px;margin:0 14px 4px 0;font-size:.85rem;color:var(--mut)}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:0 0 auto}
+.pill.ok{color:var(--ok)}.pill.bad{color:var(--bad)}.pill.warn{color:var(--warn)}
+#stat .row{margin:0 0 6px}
+
 .mut{color:var(--mut)}.small{font-size:.85rem}.err{color:var(--bad)}.ok{color:var(--ok)}.warn{color:var(--warn)}
-.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden}.bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
-code{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden}.bar>i{display:block;height:100%;width:0;background:var(--acc)}
+code{font:.85em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--ctl);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
 ul{margin:.3rem 0 .3rem 1.2rem;padding:0}
 .hidden{display:none!important}
