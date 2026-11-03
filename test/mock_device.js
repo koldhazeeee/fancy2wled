@@ -57,8 +57,8 @@ function createDevice(opts) {
       if (p === '/api/status') {
         // a name points to some address (192.0.2.51) unless the test says it was not found yet; an IP address is its own address
         const addrOf = h => !h ? '' : (/^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : (state.nameNotFound ? '' : '192.0.2.51'));
-        const targets = state.cfg.targets.map(t => ({ name: t.name, kind: t.kind || 'wled', host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: t.kind === 'govee' ? t.wled.count : state.total, wledName: 'WLED' }));
-        return json(res, 200, { ver: 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: 'waiting for the Sync Box', https: false, heap: 1e5,
+        const targets = state.cfg.targets.map(t => ({ name: t.name, kind: t.kind || 'wled', host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: t.kind === 'govee' ? t.wled.count : ((state.totals && state.totals[t.wled.host]) || state.total), wledName: 'WLED' }));
+        return json(res, 200, { ver: state.version || 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: state.relayState || 'waiting for the Sync Box', https: false, heap: 1e5,
           enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
           features: { phoneCal: opts.phoneCal !== false },
           box: { fps: state.boxProblem ? 0 : 13.4, age: 50, sender: '192.0.2.20', problem: !!state.boxProblem, tvOff: !!state.tvOff, blackS: state.tvOff ? 31 : (state.blackS || 0), frames: { understood: 1200, newLayout: state.boxProblem ? 340 : 0, unreadable: 2 } }, targets, wled: { host: targets[0].host, ok: targets[0].ok, leds: state.total, name: 'WLED' } });
@@ -76,7 +76,7 @@ function createDevice(opts) {
         return json(res, 200, { name: 'Govee H61C3', sku: 'H61C3', device: 'AA:BB:CC:DD:EE:FF:00:11', wifi: '1.06.24', on: false, bri: 14 });
       }
       if (p === '/api/wifi/scan') return json(res, 200, { networks: ['TestNet', 'Other'] });
-      if (p === '/api/ota') return json(res, 200, { enabled: !!(state.otaOn && state.otaPass), passSet: !!state.otaPass, version: 'mock', slot: 'app0', imageState: state.imagePending ? 'pending' : 'valid', maxBytes: 3342336, rolledBack: !!state.rolledBack, busy: false });
+      if (p === '/api/ota') return json(res, 200, { enabled: !!(state.otaOn && state.otaPass), passSet: !!state.otaPass, version: state.version || 'mock', slot: 'app0', imageState: state.imagePending ? 'pending' : 'valid', maxBytes: 3342336, rolledBack: !!state.rolledBack, busy: false });
       res.writeHead(404); return res.end('nope');
     }
     if (req.method === 'POST' && p === '/api/ota') {       // the firmware upload: a raw body and the update password in a header, like the board

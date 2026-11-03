@@ -23,6 +23,25 @@ your lights and no PC has to stay on.
   can give you a diagnostics file, instead of just looking like a switched-off box ([docs/RESILIENCE.md](docs/RESILIENCE.md)).
 * *Optional:* **auto-calibration with your phone's camera** (a separate build, `atoms3-phonecal`; see [docs/CALIBRATION.md](docs/CALIBRATION.md)).
 
+## Screenshots
+
+The setup page you open from your phone or PC (here with made-up sample data; follows your system's light or dark setting):
+
+<p align="center"><img src="docs/images/overview-dark.png" alt="The setup page: status, the list of targets and the picture map showing which zones of the screen each target follows" width="520"></p>
+
+<table>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/wled-target.png" alt="A WLED target: address, brightness, what it follows"><br><sub>A WLED target (found by name or IP, set up from the page)</sub></td>
+<td width="50%" valign="top"><img src="docs/images/govee-target.png" alt="A Govee light as a target: IP address, segments"><br><sub>A Govee light as a target, followed per segment</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/look-and-tv-off.png" alt="The Look sliders and the When the TV is off card"><br><sub>The Look sliders and what happens when the TV is off</sub></td>
+<td width="50%" valign="top"><img src="docs/images/firmware-updates.png" alt="Firmware updates over Wi-Fi with an update password"><br><sub>Firmware updates over Wi-Fi, behind a password</sub></td>
+</tr>
+</table>
+
+The pictures are regenerated from the real page with `node tools/make_screenshots.js` (see *Building and testing*).
+
 > **Unofficial.** This project is not affiliated with or endorsed by FancyLEDs, Tuya or WLED. It was developed against a
 > FancyLEDs "3 Port 2.1 Fancy Sync Box" (FSB3P2.1) by observing traffic on the author's own network; other models or
 > firmware may differ ([protocol notes](docs/PROTOCOL.md)).
@@ -164,7 +183,8 @@ pio run -e atoms3                 # compile the firmware
 pio run -e atoms3-phonecal        # ... with the phone-camera calibration and the secure web server it needs
 ```
 
-`node test/mock_device.js` serves the web UI against a fake relay so you can work on it without hardware.
+`node test/mock_device.js` serves the web UI against a fake relay so you can work on it without hardware. `node tools/make_screenshots.js` regenerates the pictures in
+`docs/images` from the real page running against that fake relay, with made-up sample data (documentation addresses, no real devices), so no private information can end up in them.
 
 **Releases.** Bump `FWB_VERSION` in `platformio.ini`, commit, then `git tag v0.2.0 && git push origin v0.2.0` (the tag must match the version). The `release` workflow
 builds both firmwares and publishes a GitHub release with `fancy2wled-atoms3-<version>.bin`, `fancy2wled-atoms3-phonecal-<version>.bin` and `SHA256SUMS.txt`: the file

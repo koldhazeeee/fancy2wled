@@ -233,8 +233,8 @@ input[type=range].wide{width:100%}
   function svgEl(name,attrs,parent){var e=document.createElementNS(NS,name);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
   function tview(i){                       // a target as the page shows it: the one being edited comes from the form (so unsaved changes count)
     var t=(cfg&&cfg.targets&&cfg.targets[i])||{name:'WLED',enabled:true};
-    if(i===sel)return {name:$('tName').value||t.name,enabled:$('tOn').checked};
-    return {name:t.name,enabled:t.enabled!==false};
+    if(i===sel)return {name:$('tName').value||t.name,enabled:$('tOn').checked,unit:isGovee()?'segments':'LEDs'};
+    return {name:t.name,enabled:t.enabled!==false,unit:t.kind==='govee'?'segments':'LEDs'};
   }
   function drawMap(){
     var svg=$('mapSvg'),n=(cfg&&cfg.targets)?cfg.targets.length:1,leg=$('mapLegend');
@@ -252,7 +252,7 @@ input[type=range].wide{width:100%}
         var v=usage[ti][z],a=(0.2+0.8*v/mx[ti])*(tview(ti).enabled?1:0.35),sh=ch/users.length;
         var rc=svgEl('rect',{x:x+1,y:y+1+k*sh,width:cw-2,height:Math.max(1,sh-2),fill:COLORS[ti%COLORS.length],'fill-opacity':a.toFixed(2),'data-t':ti,'data-z':z,
           stroke:ti===sel?'var(--fg)':'none','stroke-opacity':0.8,'stroke-width':1.2},g);
-        svgEl('title',{},rc).textContent=tview(ti).name+': '+(Math.round(v*10)/10)+' LEDs ('+Math.round(100*v/tot[ti])+'% of its '+Math.round(tot[ti])+')'+(tview(ti).enabled?'':' - switched off');
+        svgEl('title',{},rc).textContent=tview(ti).name+': '+(Math.round(v*10)/10)+' '+tview(ti).unit+' ('+Math.round(100*v/tot[ti])+'% of its '+Math.round(tot[ti])+')'+(tview(ti).enabled?'':' - switched off');
       });
       var tx=svgEl('text',{x:x+5,y:y+13,'font-size':10,fill:'var(--fg)',opacity:0.75,stroke:'var(--bg)','stroke-width':3,'paint-order':'stroke'},g);tx.textContent=z;
     }
@@ -260,7 +260,7 @@ input[type=range].wide{width:100%}
       var tv=tview(i),chip=document.createElement('span'),sw=document.createElement('i'),b=document.createElement('b');
       chip.className='chip';sw.className='sw';sw.style.background=COLORS[i%COLORS.length];if(!tv.enabled)sw.style.opacity=0.35;
       b.textContent=tv.name;if(i===sel)b.style.textDecoration='underline';
-      chip.appendChild(sw);chip.appendChild(b);chip.appendChild(document.createTextNode(tv.enabled?(tot[i]>0?' '+Math.round(tot[i])+' LEDs':' (no LEDs set)'):' (off)'));
+      chip.appendChild(sw);chip.appendChild(b);chip.appendChild(document.createTextNode(tv.enabled?(tot[i]>0?' '+Math.round(tot[i])+' '+tv.unit:' (none set)'):' (off)'));
       leg.appendChild(chip);
     }
   }
