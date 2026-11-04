@@ -12,8 +12,8 @@ Frame layout (86..93 bytes), see docs/PROTOCOL.md for how it was worked out:
     The decoder does not check b4..b7 on purpose: the relay keeps working if the box changes them.
     plaintext = DATA xor KEY (key repeats)  =  06 04 06 + 24 x RGB
 
-The 24 RGB values are a 6 x 4 grid over the picture: zone = row * 6 + col,
-row 0 = top, col 0 = left.  Only the 20 border zones feed the box's own strip.
+The 24 RGB values are numbered as a 6 x 4 grid: zone = row * 6 + col, row 0 = top, col 0 = left.  Only the border zones feed the box's own strip.
+Each zone is an exact average over one window of the picture, and the windows do not tile it evenly: see "Where each zone looks" in docs/PROTOCOL.md.
 """
 import os
 

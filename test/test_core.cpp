@@ -402,7 +402,8 @@ int main(int argc, char** argv) {
     CHECK(topOnly && rightOnly, "a ceiling strip follows only zones 0-5, a right-hand strip only the right column");
     CHECK(interiorUnused, "the 8 inner zones are never used");
     CHECK(ut[0] > ut[1] && ut[5] > ut[4] && ut[0] > 40.f, "the corner zones carry the stretch of strip beyond the TV (zone 0: %.1f, zone 1: %.1f)", ut[0], ut[1]);
-    CHECK(fabsf(ur[5] - ur[23]) < 2.f && ur[11] > 40.f, "a right-hand strip spreads over its column (zone 5: %.1f, 11: %.1f)", ur[5], ur[11]);
+    // the box's zones are not laid out symmetrically (the two middle rows sit a little above the centre of the picture), so the two ends differ a little
+    CHECK(fabsf(ur[5] - ur[23]) < 8.f && ur[11] > 40.f && ur[17] > 40.f, "a right-hand strip spreads over its column (zones 5, 11, 17, 23: %.1f %.1f %.1f %.1f)", ur[5], ur[11], ur[17], ur[23]);
   }
   { // firmware updates: what is accepted as an image, the marker scan and the password rules
     uint8_t img[200] = {};

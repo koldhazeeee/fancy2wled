@@ -222,19 +222,26 @@ static const uint8_t* edgeZones(Edge e, int* k) {
 
 static inline int roundHalfUp(float x) { return (int)floorf(x + 0.5f); }
 
-// Zone j sits at t = (j + 0.5) / k along its edge. d is filled in by the caller.
+// Where along its edge each zone looks, as a fraction of the picture width (top, bottom) or height (left, right): the middle of the window the box averages
+// for that zone. The Sync Box does not cut the picture into an even 6 x 4 grid: measured with tools/sync_probe on 2026-11-04 (a white rectangle growing across a known picture): each zone is an exact average over a window and the windows do not tile the picture evenly. Across, six
+// windows 300 px wide of 1920 (x 0-300, 300-600, 600-900, 960-1260, 1260-1560, 1560-1860); down, the top and bottom zones average a thin band at the screen
+// edge (60 px of 1080), the middle rows y 240-480 and 540-780, and the left / right zones a 60 px strip. See docs/PROTOCOL.md.
+static const float kPosAcross[6] = {0.0797f, 0.2359f, 0.3922f, 0.5797f, 0.7359f, 0.8922f};   // top and bottom edge, left -> right
+static const float kPosDown[4] = {0.0287f, 0.3356f, 0.6134f, 0.9736f};                        // left and right edge, top -> bottom
+
+// A LED at t along its edge blends the two zones either side of it (before the first / after the last zone it holds that zone). d is filled in by the caller.
 static Entry interp(Edge e, float t) {
   int k;
   const uint8_t* z = edgeZones(e, &k);
-  float pos = t * k - 0.5f;
-  if (pos < 0.f) pos = 0.f;
-  if (pos > k - 1.f) pos = k - 1.f;
-  int j0 = (int)floorf(pos);
-  int j1 = j0 + 1 < k ? j0 + 1 : k - 1;
-  int f = roundHalfUp((pos - j0) * 255.f);
+  const float* p = (e == TOP || e == BOTTOM) ? kPosAcross : kPosDown;
+  if (t <= p[0]) return Entry{z[0], z[1], 0, 0};
+  if (t >= p[k - 1]) return Entry{z[k - 1], z[k - 1], 0, 0};
+  int j0 = 0;
+  while (j0 + 2 < k && t >= p[j0 + 1]) j0++;
+  int f = roundHalfUp((t - p[j0]) / (p[j0 + 1] - p[j0]) * 255.f);
   if (f < 0) f = 0;
   if (f > 255) f = 255;
-  return Entry{z[j0], z[j1], (uint8_t)f, 0};
+  return Entry{z[j0], z[j0 + 1], (uint8_t)f, 0};
 }
 
 static inline float clamp01(float x) { return x < 0.f ? 0.f : (x > 1.f ? 1.f : x); }

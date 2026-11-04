@@ -56,7 +56,8 @@ integrity check). Those three bytes are probably the grid size (6 columns, 4 row
 every box seen so far has the same grid.
 ## Zones
 
-The 24 zones are a **6 x 4 grid over the picture**: `zone = row * 6 + col`, row 0 at the top, col 0 on the left.
+The 24 zones are numbered as a **6 x 4 grid**: `zone = row * 6 + col`, row 0 at the top, col 0 on the left. (The areas of the picture they look at are
+not an even grid, see "Where each zone looks" below.)
 
 ```
  0  1  2  3  4  5
@@ -96,7 +97,31 @@ The box sends a frame about 14 times a second to `255.255.255.255` / the subnet 
 necessarily arrive evenly: on the measured network most arrived back-to-back or about 102 ms apart (the beacon interval), see
 [LATENCY.md](LATENCY.md). A receiver should use the newest frame and not assume a steady cadence.
 
+## Where each zone looks
+
+Measured with `tools/sync_probe` (a laptop's HDMI into the box, a white rectangle growing across a known picture, recorded on 2026-11-04): every zone is
+an exact **average over one window**, with no taper (the ramps are straight lines to within 0.2 %), and the windows do not tile the picture. On a
+1920 x 1080 picture:
+
+| Zones | Window (pixels) |
+|---|---|
+| 0-5 (top row) | y 0-60; x 0-300, 300-600, 600-900, 960-1260, 1260-1560, 1560-1860 |
+| 18-23 (bottom row) | y 1020-1080; the same six x windows |
+| 6-11 (second row) | y 240-480; zone 6 is a strip at x 0-60, zone 11 at x 1860-1920, zones 7-10 use the x windows of columns 1-4 |
+| 12-17 (third row) | y 540-780; zone 12 is a strip at x 0-60, zone 17 at x 1860-1920, zones 13-16 use the x windows of columns 1-4 |
+
+So there is a 60 px gap in the middle of the top and bottom edges, nothing covers the top right and bottom right 60 px corners, and the two middle rows sit a
+little above the middle of the picture. The relay places each zone at the middle of its window (`kPosAcross`, `kPosDown` in `src/core.cpp`). The positions
+are good to about 3-6 pixels; the picture was scaled up to 4K by the laptop's graphics driver on the way in, so they are positions on the picture, not
+input pixels.
+
 ## Colour processing in the box
+
+The numbers in this section come from real video (a streaming source). A controlled test with a PC as the source (`tools/sync_probe`, SDR, RGB 4:4:4)
+found something simpler: **the box subtracts a constant from the code values it receives** and does not expand limited range (output = input - 28 at
+the default speed of diffusion, - 26 at 100 %; everything below that reads 0; white 255 reads 227 / 229, and white of limited-range video, code 235, reads
+209). The box's brightness slider and its diffusion mode change nothing in the broadcast. How the box treats other signal types (YCbCr, HDR) has not been
+compared, which may explain the curve below.
 
 What comes out is not the raw picture:
 
@@ -104,7 +129,10 @@ What comes out is not the raw picture:
 * The maximum is about 200/255 for white and mixed colours (pure red/blue reach ~250).
 * Green is yellowish: full-screen green arrived as about `(117, 195, 11)`.
 * All 24 zones have identical gain and are neutral to within ~2 %.
-* Temporal smoothing: each frame the output moves 40 % of the way to the target, `y = 0.6 * previous y + 0.4 * target`, at about 14
+* Temporal smoothing: this is the box app's **Speed of Diffusion** (the diffusion mode, low / medium / high, changes nothing in the broadcast). At 40 %
+  each packet moves 40 % of the way to the target (a change shows 40, 64, 78, 87, 92 % over successive packets); at **100 % there is no smoothing at all**
+  (a change arrives in one packet, measured with `tools/sync_probe`). Wi-Fi drops some packets, and a gap of 200 ms between two received packets held three
+  steps, so the number of steps between packets is about the gap divided by 73 ms. At 40 %: each frame the output moves 40 % of the way to the target, `y = 0.6 * previous y + 0.4 * target`, at about 14
   frames a second (about 140 ms to half way, 350 ms to 90 %; 10-90 % rise is roughly 300 ms). Measured on a Sync Box FSB3P2.1 from 8,400
   pairs of consecutive same-direction changes in a 60 s capture: the ratio `d[n+1] / d[n]` peaks sharply at 0.6 (median 0.59), which is
   what a first-order filter gives while its input is constant. Undoing it needs only the previous frame:

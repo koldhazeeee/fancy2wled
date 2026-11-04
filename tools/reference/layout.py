@@ -19,13 +19,26 @@ DEAD = 0.02              # overshoot (picture widths) ignored before a LED count
 DEFAULT_ASPECT = 9.0 / 16.0
 
 
-def _interp(zones, t):
-    """Interpolate along an edge: zone j sits at t = (j + 0.5) / len(zones)."""
+# Where along its edge each zone looks, as a fraction of the picture width (top, bottom) or height (left, right): the middle of the window the box
+# averages for that zone (measured with tools/sync_probe on 2026-11-04 (a white rectangle growing across a known picture): each zone is an exact average over a window and the windows do not tile the picture evenly).
+POS_ACROSS = [0.0797, 0.2359, 0.3922, 0.5797, 0.7359, 0.8922]      # top and bottom edge, left -> right
+POS_DOWN = [0.0287, 0.3356, 0.6134, 0.9736]                         # left and right edge, top -> bottom
+EDGE_POS = {"top": POS_ACROSS, "bottom": POS_ACROSS, "left": POS_DOWN, "right": POS_DOWN}
+
+
+def _interp(edge, t):
+    """Blend the two zones either side of position t along an edge (before the first / after the last zone: that zone alone). Returns (zone a, zone b, f)."""
+    zones, p = EDGE_ZONES[edge], EDGE_POS[edge]
     k = len(zones)
-    pos = min(max(t * k - 0.5, 0.0), k - 1.0)
-    j0 = int(math.floor(pos))
-    j1 = min(j0 + 1, k - 1)
-    return zones[j0], zones[j1], int(math.floor((pos - j0) * 255 + 0.5))
+    if t <= p[0]:
+        return zones[0], zones[1], 0
+    if t >= p[k - 1]:
+        return zones[k - 1], zones[k - 1], 0
+    j0 = 0
+    while j0 + 2 < k and t >= p[j0 + 1]:
+        j0 += 1
+    f = int(math.floor((t - p[j0]) / (p[j0 + 1] - p[j0]) * 255 + 0.5))
+    return zones[j0], zones[j0 + 1], min(255, max(0, f))
 
 
 def edge_of(u, v):
@@ -55,7 +68,7 @@ def uv_to_entry(u, v, aspect=DEFAULT_ASPECT, edge=None):
         t, over = cu, max(0.0, -u, u - 1.0)               # overshoot along the edge, in picture widths
     else:
         t, over = cv, max(0.0, -v, v - 1.0) * aspect
-    a, b, f = _interp(EDGE_ZONES[edge], t)
+    a, b, f = _interp(edge, t)
     over = max(0.0, over - DEAD)
     d = int(math.floor(min(over, OUT_MAX) / OUT_MAX * 255 + 0.5))
     return [a, b, f, d]
@@ -105,12 +118,11 @@ def table_loop(count, start_corner="top-left", direction="clockwise", sides=None
     top, right, bottom, left = side_counts(count, aspect, sides)
     perimeter = []                                # clockwise from the top-left corner
     for edge, n in (("top", top), ("right", right), ("bottom", bottom), ("left", left)):
-        zones = EDGE_ZONES[edge]
         for i in range(n):
             t = (i + 0.5) / n
             if edge in ("bottom", "left"):        # these edges are walked right->left / bottom->top
                 t = 1.0 - t
-            a, b, f = _interp(zones, t)
+            a, b, f = _interp(edge, t)
             perimeter.append([a, b, f, 0])
     offsets = {"top-left": 0, "top-right": top, "bottom-right": top + right, "bottom-left": top + right + bottom}
     if start_corner not in offsets:

@@ -324,9 +324,16 @@
   /* ------------------------------------------------------- uv -> table rule */
   var EDGE = { top: [0, 1, 2, 3, 4, 5], right: [5, 11, 17, 23], bottom: [18, 19, 20, 21, 22, 23], left: [0, 6, 12, 18] };
   function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
+  // Where along its edge each zone looks (fraction of the picture width for top / bottom, height for left / right): the middle of the window the box
+  // averages for that zone. Not an even grid: measured with tools/sync_probe, see docs/PROTOCOL.md. Same numbers as core.cpp.
+  var POS_ACROSS = [0.0797, 0.2359, 0.3922, 0.5797, 0.7359, 0.8922], POS_DOWN = [0.0287, 0.3356, 0.6134, 0.9736];
+  var EDGE_POS = { top: POS_ACROSS, bottom: POS_ACROSS, left: POS_DOWN, right: POS_DOWN };
   function interp(edge, t) {
-    var z = EDGE[edge], k = z.length, pos = Math.min(Math.max(t * k - 0.5, 0), k - 1), j0 = Math.floor(pos), j1 = Math.min(j0 + 1, k - 1);
-    return [z[j0], z[j1], Math.min(255, Math.max(0, Math.floor((pos - j0) * 255 + 0.5)))];
+    var z = EDGE[edge], p = EDGE_POS[edge], k = z.length, j0 = 0;
+    if (t <= p[0]) return [z[0], z[1], 0];
+    if (t >= p[k - 1]) return [z[k - 1], z[k - 1], 0];
+    while (j0 + 2 < k && t >= p[j0 + 1]) j0++;
+    return [z[j0], z[j0 + 1], Math.min(255, Math.max(0, Math.floor((t - p[j0]) / (p[j0 + 1] - p[j0]) * 255 + 0.5)))];
   }
   function edgeOf(u, v) {
     var cu = clamp01(u), cv = clamp01(v);
