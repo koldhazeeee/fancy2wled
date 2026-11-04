@@ -121,7 +121,8 @@ static bool setOnOff(const IPAddress& ip, bool on) {
 }
 
 bool goveePrepare(const IPAddress& ip, bool turnOn, int briPct, GoveeState& before) {
-  const bool ok = goveeStatus(ip, before);
+  bool ok = goveeStatus(ip, before);
+  for (int k = 0; k < 2 && !ok; k++) { delay(400); ok = goveeStatus(ip, before); }     // UDP gets lost: without this state the light could not be put back later
   if (turnOn && !(ok && before.on)) { control(ip, cmdJson("turn", "{\"value\":1}")); delay(300); }
   if (briPct >= 1 && briPct <= 100) { control(ip, cmdJson("brightness", String("{\"value\":") + briPct + "}")); delay(300); }
   goveeStream(ip, true);

@@ -461,6 +461,12 @@ void saturateColours(float* rgb, int n, float sat) {
   }
 }
 
+void darkOutside(float* rgb, int n, int first, int last) {
+  if (!rgb || first < 0 || last < first) return;
+  for (int i = 0; i < n; i++)
+    if (i < first || i > last) rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = 0.f;
+}
+
 void zoneUsage(const Entry* t, int count, float out[kZones]) {
   for (int z = 0; z < kZones; z++) out[z] = 0.f;
   for (int i = 0; i < count; i++) {

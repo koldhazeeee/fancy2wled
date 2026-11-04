@@ -1,4 +1,5 @@
 .pio/
+web_gz/
 .vscode/
 __pycache__/
 *.pyc

@@ -141,6 +141,9 @@ float leadBoost(float y, float yPrev, float boost);
 // grey or brown in between. This blends along the colour wheel instead: the hue takes the shorter way round from one colour to the other (red -> orange ->
 // yellow -> green), saturation and brightness blend straight. A grey or black end has no hue of its own and takes the other end's. w = 0 gives a, 1 gives b.
 void vividBlend(const float a[3], const float b[3], float w, float out[3]);
+// Switches off every LED (n colours, 3 floats each) outside the TV part first..last (the strip's own numbers within the run). Nothing happens when
+// no TV part is set (first < 0), so a strip without one never goes dark.
+void darkOutside(float* rgb, int n, int first, int last);
 
 // How soft the colour changes where one zone ends and the next begins. Each LED blends two zones (colour = zone[a] * (1 - f/255) + zone[b] * (f/255), f
 // running from 0 at the first zone's centre to 255 at the next one's, the line between them at 127.5). percent steepens that around the line: 0 leaves

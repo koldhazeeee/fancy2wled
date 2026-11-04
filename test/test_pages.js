@@ -184,7 +184,7 @@ async function cdp(wsUrl) {
     check('govee: a target is a WLED unless you say otherwise', (await ota(sel('tKind') + '.value')) === 'wled' && /Check this WLED/.test(await text('wCheck')) && !(await hidden('wStartRow')));
     await setType('govee');
     check('govee: choosing the type changes the labels and hides what only a WLED strip has', (await text('wTitle')) === 'Govee light' && /IP address/.test(await text('wHostLbl')) && /Check this light/.test(await text('wCheck')) &&
-      !(await hidden('gNote')) && !(await hidden('gIntro')) && (await hidden('ledIntro')) && (await hidden('wStartRow')) && (await hidden('findWrap')) && (await hidden('markRow')), await text('wTitle'));
+      !(await hidden('gNote')) && !(await hidden('gIntro')) && (await hidden('ledIntro')) && (await hidden('wStartRow')) && !(await hidden('findWrap')) && (await hidden('markRow')), await text('wTitle'));
     check('govee: sensible starting values: 20 segments, entry 0 at the right-hand end', (await ota(sel('wCount') + '.value')) === '20' && (await ota(sel('lSide') + '.value')) === '1' && /segments/.test(await text('wCountLbl')));
     await ota(sel('wHost') + ".value='my-light.local'; " + sel('wHost') + ".dispatchEvent(new Event('input',{bubbles:true})); " + click('save')); await sleep(500);
     check('govee: a name instead of an IP address is refused on the page', /IP address/.test(await text('saveMsg')) && dev.state.cfg.targets[0].kind === 'wled', await text('saveMsg'));
@@ -194,7 +194,19 @@ async function cdp(wsUrl) {
     check('govee: Find lists the lights found on the network', /Govee H61C3 \(192\.0\.2\.60\)/.test(await text('wList')), await text('wList'));
     await ota(sel('wList') + ".querySelector('button').click(); 1"); await sleep(700);
     check('govee: picking one fills in its address and checks it (model, firmware, state)', (await ota(sel('wHost') + '.value')) === '192.0.2.60' && /Govee H61C3 \| firmware 1\.06\.24 \| off, brightness 14 %/.test(await text('wInfo')), await text('wInfo'));
+    // models: the segment count of a tested model is filled in (over the starting 20), offered when the count was changed, and an unknown model says so
+    const segs = () => ota(sel('wCount') + '.value'), modelTxt = () => text('wModel');
+    check('govee model: a tested model with a count you set yourself is not overwritten, the right number is offered (H61C3: 42)', (await segs()) === '70' && /H61C3 \(RGBIC neon rope, 10 ft\) has 42 segments; you have 70\./.test(await modelTxt()) && /Use 42/.test(await ota(sel('wModel') + '.querySelector("button").textContent')), await modelTxt());
+    await ota(sel('wModel') + '.querySelector("button").click(); 1'); await sleep(300);
+    check('govee model: pressing the offer sets it', (await segs()) === '42' && /as set/.test(await modelTxt()), await modelTxt());
+    await ota(osv('wCount', '20') + click('wCheck')); await sleep(600);
+    check('govee model: over the starting 20 it is simply filled in (H61C3: 42)', (await segs()) === '42' && /has 42 segments; set here/.test(await modelTxt()), await modelTxt());
+    await ota(osv('wHost', '192.0.2.61') + osv('wCount', '20') + click('wCheck')); await sleep(600);
+    check('govee model: H61B5 (16.4 ft strip) has 50 segments', (await segs()) === '50' && /H61B5 \(RGBIC strip with covers, 16\.4 ft\) has 50 segments; set here/.test(await modelTxt()) && /Govee H61B5/.test(await text('wInfo')), await modelTxt());
+    await ota(osv('wHost', '192.0.2.62') + osv('wCount', '20') + click('wCheck')); await sleep(600);
+    check('govee model: an unknown model keeps the count and says it is a guess', (await segs()) === '20' && /H9999 is not in the list of tested models/.test(await modelTxt()) && /docs\/GOVEE\.md/.test(await modelTxt()), await modelTxt());
     await ota(osv('wHost', '192.0.2.99') + click('wCheck')); await sleep(600);
+    check('govee model: a note from an earlier check is cleared when the next check fails', (await modelTxt()) === '', await modelTxt());
     check('govee: a light that does not answer says what to check', /did not answer.*LAN control/.test(await text('wInfo')), await text('wInfo'));
     await ota(osv('wHost', '192.0.2.60') + osv('wCount', '20') + osv('wBri', '60') + click('save')); await sleep(700);
     const g0 = dev.state.cfg.targets[0];
@@ -205,7 +217,36 @@ async function cdp(wsUrl) {
     function location_reload() { return "location.reload(); 1"; }
     await sleep(1800);
     check('govee: after a reload the page comes back as a Govee target', (await ota(sel('tKind') + '.value')) === 'govee' && (await text('wTitle')) === 'Govee light' && (await ota(sel('wCount') + '.value')) === '20');
+    // ---- the part of the strip in use, and the segment finder
+    const fire = (id, ev) => sel(id) + ".dispatchEvent(new Event('" + ev + "',{bubbles:true})); ";
+    await ota(osv('wCount', '50') + osv('tvFirst', '0') + osv('tvLast', '24') + sel('tDark') + '.checked=true; ' + fire('tDark', 'change') + click('save')); await sleep(700);
+    const gs = dev.state.cfg.targets[0];
+    check('govee strip: the part along the picture and "keep the rest dark" are saved', gs.layout.spanFirst === 0 && gs.layout.spanLast === 24 && gs.darkOutside === true && gs.wled.count === 50, JSON.stringify([gs.layout.spanFirst, gs.layout.spanLast, gs.darkOutside, gs.wled.count]));
+    check('govee strip: a Govee light gets its own wording and the dark box, the WLED text is hidden', /strip follows the picture/.test(await text('tvHead')) && !(await hidden('tvIntroG')) && (await hidden('tvIntro')) && !(await hidden('darkRow')) && /First segment along the picture/.test(await text('tvFirstLbl')) && /segment numbers go/.test(await text('dirLbl')), await text('tvHead'));
+    check('govee strip: it says how much strip that is and that the rest stays dark', /25 segments follow the picture \(about 98 in of the strip\)\. The other 25 stay dark\./.test(await text('tvNote')), await text('tvNote'));
+    await ota(sel('tDark') + '.checked=false; ' + fire('tDark', 'change') + '1'); await sleep(300);
+    check('govee strip: without the box the rest holds the colour of the zone at its end', /The other 25 hold the colour of the zone at their end\./.test(await text('tvNote')), await text('tvNote'));
+    await ota(sel('tDark') + '.checked=true; ' + fire('tDark', 'change') + '1'); await sleep(200);
+    dev.state.calLed = null; dev.state.calBegin = null;
+    check('govee finder: it is offered for a Govee light, worded for segments', !(await hidden('findWrap')) && /Find my segments/.test(await text('fOpen')) && /Need help finding the segments/.test(await text('fHead')));
+    await ota(sel('fOpen') + '.click(); 1'); await sleep(700);
+    check('govee finder: opening it starts a session on this target with one segment lit', dev.state.calBegin && dev.state.calBegin.target === 0 && (await ota(sel('fSize') + '.value')) === '1' && !(await hidden('fBox')) && (await hidden('fRunRow')) && !(await hidden('fAltRow')), JSON.stringify(dev.state.calBegin));
+    check('govee finder: it names the segment and where it is on the strip', /Lit: segment 0 \(0 to 4 in from the start of the strip\)/.test(await text('fTxt')) && dev.state.calLed && dev.state.calLed.start === 0 && dev.state.calLed.count === 1 && dev.state.calLed.alt === false, (await text('fTxt')) + ' ' + JSON.stringify(dev.state.calLed));
+    await ota(sel('fPos') + ".value='7'; " + fire('fPos', 'input') + '1'); await sleep(400);
+    check('govee finder: moving the slider moves the lit segment', dev.state.calLed.start === 7 && dev.state.calLed.count === 1 && /Lit: segment 7 \(28 to 31 in/.test(await text('fTxt')), (await text('fTxt')) + ' ' + JSON.stringify(dev.state.calLed));
+    await ota(sel('fSize') + ".value='3'; " + fire('fSize', 'input') + '1'); await sleep(400);
+    check('govee finder: several segments can be lit at once', dev.state.calLed.count === 3 && /Lit: segments 7 to 9/.test(await text('fTxt')), await text('fTxt'));
+    await ota(sel('fAlt') + '.click(); 1'); await sleep(400);
+    check('govee finder: "show every segment" sends the alternating pattern', dev.state.calLed.alt === true && /every segment, alternately red and blue/.test(await text('fTxt')) && /Back to the segments/.test(await text('fAlt')), await text('fTxt'));
+    await ota(sel('fAlt') + '.click(); 1'); await sleep(400);
+    check('govee finder: ... and back to the chosen segments', dev.state.calLed.alt === false && /Lit: segments 7 to 9/.test(await text('fTxt')) && /Show every segment/.test(await text('fAlt')));
+    await ota(sel('fPos') + ".value='3'; " + fire('fPos', 'input') + sel('fTvFirst') + '.click(); 1'); await sleep(300);
+    check('govee finder: "the picture starts here" fills in the first segment', (await ota(sel('tvFirst') + '.value')) === '3');
+    await ota(sel('fClose') + '.click(); 1'); await sleep(400);
+    check('govee finder: Done ends the session', dev.state.calActive === false && (await hidden('fBox')));
+    await ota(osv('tvFirst', '') + osv('tvLast', '') + sel('tDark') + ".checked=false; " + fire('tDark', 'change') + '1'); await sleep(200);     // leave nothing behind for the WLED tests below
     await setType('wled');
+    check('wled: switching back restores the WLED wording, the run buttons and no dark box', !(await hidden('tvIntro')) && (await hidden('tvIntroG')) && (await hidden('darkRow')) && /LED numbers go/.test(await text('dirLbl')) && /Find my LEDs/.test(await text('fOpen')) && !(await hidden('fRunRow')) && (await hidden('fAltRow')) && /Which part of the run covers the TV/.test(await text('tvHead')));
     check('govee: switching back restores the WLED labels', (await text('wTitle')) === 'WLED' && /Check this WLED/.test(await text('wCheck')) && !(await hidden('wStartRow')) && !(await hidden('findWrap')) && !(await hidden('ledIntro')) && (await hidden('gIntro')));
     await ota(osv('wHost', '192.0.2.50') + osv('wCount', '150') + osv('wBri', '-1') + sel('lSide') + ".value='0'; " + sel('tSharp') + ".value='0'; " + sel('tVivid') + ".checked=false; " + click('save')); await sleep(700);
     // ---- zone edges and saturation, per target

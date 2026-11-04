@@ -197,7 +197,7 @@ to choose for *Update firmware* on the setup page ([docs/OTA.md](docs/OTA.md)). 
 
 ## How it works
 
-* `web/` - the UI (setup; with `atoms3-phonecal` also the phone calibration and the TV screen), compiled into the firmware.
+* `web/` - the UI (setup; with `atoms3-phonecal` also the phone calibration and the TV screen), compressed (`tools/gzip_web.py`, run by every build) and compiled into the firmware.
 * `src/core.cpp` - frame decoding, zone -> LED mapping, DDP packets (no Arduino dependencies, tested on a PC).
 * `src/relay.cpp` - UDP in (sleeps until a packet arrives), reaction boost, then for every target: layout, time-based smoothing, brightness trim, DDP out (identical frames are not resent). Turning WLEDs on / handing them back runs in a background task so a missing WLED never delays the others. Also the LED finder, markers and test pattern.
 * `src/webserver.cpp` - HTTP on :80 (and, in the phone-calibration build, HTTPS on :443 with a self-signed key generated on first boot), JSON API.

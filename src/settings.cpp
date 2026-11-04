@@ -41,6 +41,7 @@ static void loadTarget(Target& t, int i) {
   if (t.sharp < 0) t.sharp = 0;
   if (t.sharp > 100) t.sharp = 100;
   t.vivid = gB("lVivid", t.kind == 1);
+  t.darkOutside = gB("tDark", false);
   t.sat = gF("tSat", 1.f);
   if (t.sat < 0.f) t.sat = 0.f;
   if (t.sat > 3.f) t.sat = 3.f;
@@ -85,6 +86,7 @@ static void saveTarget(const Target& t, int i) {
   prefs.putInt(K("lSharp", i).c_str(), t.sharp);
   prefs.putFloat(K("tSat", i).c_str(), t.sat);
   prefs.putBool(K("lVivid", i).c_str(), t.vivid);
+  prefs.putBool(K("tDark", i).c_str(), t.darkOutside);
   prefs.putBool(K("tOn", i).c_str(), t.enabled);
   prefs.putFloat(K("tTrim", i).c_str(), t.trim);
   prefs.putString(K("wHost", i).c_str(), t.wHost);
@@ -260,6 +262,7 @@ static void targetToJson(const Target& t, int i, JsonObject o) {
   o["sharp"] = t.sharp;
   o["sat"] = t.sat;
   o["vivid"] = t.vivid;
+  o["darkOutside"] = t.darkOutside;
   o["enabled"] = t.enabled;
   o["trim"] = t.trim;
   JsonObject w = o["wled"].to<JsonObject>();
@@ -340,6 +343,7 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
   if (!x["sharp"].isNull()) n.sharp = (int)clampf(x["sharp"].as<float>(), 0.f, 100.f);
   if (!x["sat"].isNull()) n.sat = clampf(x["sat"].as<float>(), 0.f, 3.f);
   if (!x["vivid"].isNull()) n.vivid = x["vivid"].as<bool>();
+  if (!x["darkOutside"].isNull()) n.darkOutside = x["darkOutside"].as<bool>();
   if (!x["enabled"].isNull()) n.enabled = x["enabled"].as<bool>();
   if (!x["trim"].isNull()) n.trim = clampf(x["trim"].as<float>(), 0.f, 2.f);
 
@@ -427,7 +431,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
       if (e.length()) return e;
     }
   } else if (!d["wled"].isNull() || !d["layout"].isNull() || !d["name"].isNull() || !d["trim"].isNull() || !d["enabled"].isNull() || !d["kind"].isNull() ||
-             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull()) {
+             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull() || !d["darkOutside"].isNull()) {
     const int ti = d["target"] | 0;                   // which target the top-level wled / layout / name / trim apply to
     if (ti < 0 || ti >= n.nTargets) return "There is no target " + String(ti + 1);
     String e = applyTargetJson(n.t[ti], ti, d, d["wled"], d["layout"]);

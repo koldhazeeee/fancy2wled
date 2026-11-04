@@ -11,6 +11,8 @@ jobs:
         with: { node-version: '24' }
       - name: Sources are plain ASCII, and hold no real device addresses
         run: node test/test_lint.js
+      - name: The setup page compresses for the firmware
+        run: python test/test_gzip_web.py
       - name: C++ core vs golden vectors
         run: python test/run_core_tests.py
       - name: Calibration maths + simulated camera

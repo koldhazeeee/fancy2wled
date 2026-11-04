@@ -76,6 +76,7 @@ struct Cal {                                   // the LED finder / phone calibra
   uint32_t lastCmd = 0, lastSend = 0;
   int total = 0, start = 0, count = 0;
   bool dirty = true;
+  bool alt = false;                            // show every LED / segment alternately red and blue instead of one white block
   bool endPending = false;
   char screen[8] = "idle";
   bool snapOn = false;
@@ -740,15 +741,20 @@ static void markSendFrame(int i) {
 
 static void calSendFrame(int i) {
   int total, start, count;
+  bool alt;
   {
     Lock l;
     Cal& c = gRt[i].cal;
-    total = c.total; start = c.start; count = c.count; c.dirty = false; c.lastSend = millis();
+    total = c.total; start = c.start; count = c.count; alt = c.alt; c.dirty = false; c.lastSend = millis();
     gRt[i].lastLen = 0;
   }
   if (total <= 0) return;
   memset(gPayload, 0, (size_t)total * 3);
-  for (int q = start; q < start + count && q < total; q++) { gPayload[q * 3] = gPayload[q * 3 + 1] = gPayload[q * 3 + 2] = 255; }
+  if (alt) {                                                                  // every LED / segment in turn red and blue: where each one starts and ends
+    for (int q = 0; q < total; q++) gPayload[q * 3 + (q % 2 == 0 ? 0 : 2)] = 255;
+  } else {
+    for (int q = start; q < start + count && q < total; q++) { gPayload[q * 3] = gPayload[q * 3 + 1] = gPayload[q * 3 + 2] = 255; }
+  }
   ddpSend(i, gPayload, (size_t)total * 3, 0, false);
 }
 
@@ -828,7 +834,7 @@ void relayLoop() {
   gWaitHintMs = 10;
   if (!gGoveeBootDone && WiFi.status() == WL_CONNECTED) { int n0; { Lock l; n0 = gSet.nTargets; } goveeBootHandBack(n0); }   // once, before any stream is prepared
 
-  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; };
+  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; };
   TSnap sn[kMaxTargets];
   int nT, fps, tvMode;
   bool globalOn, tvOff;
@@ -841,7 +847,7 @@ void relayLoop() {
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
       const Target& t = gSet.t[i];
-      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind, t.sat, t.vivid};
+      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind, t.sat, t.vivid, t.darkOutside, t.spanFirst, t.spanLast};
     }
   }
   for (int i = nT; i < kMaxTargets; i++) {                  // targets that no longer exist: hand their WLED back and free their memory
@@ -866,6 +872,10 @@ void relayLoop() {
       bool dirty, wd;
       { Lock l; dirty = r.cal.dirty; wd = now - r.cal.lastCmd > kCalWatchdogMs; }
       if (wd) { calEnd(); continue; }
+      if (sn[i].kind == 1 && !r.prepared) {                  // a Govee light: switch it on and into streaming first (a WLED takes the frames as they are)
+        String host; { Lock l; host = gSet.t[i].wHost; }
+        requestPrepare(i, host, true, 60, sn[i].restore);
+      }
       if (dirty || now - r.cal.lastSend > 150) calSendFrame(i);
       continue;
     }
@@ -939,6 +949,7 @@ void relayLoop() {
         if (r.smoothGen != gSettingsGen) { r.smooth = smoothInfo(gTable[i], n, gSet.smoothOut); r.smoothGen = gSettingsGen; }
         applyTable(gTable[i], n, zones, r.tgt, r.smooth, sn[i].vivid);
         if (sn[i].sat != 1.f) saturateColours(r.tgt, n, sn[i].sat);                  // this target's own saturation, on top of the shared one
+        if (sn[i].darkOut) darkOutside(r.tgt, n, sn[i].spanFirst, sn[i].spanLast);   // the part of the strip that is not along the picture stays dark
         r.computedGen = gSettingsGen;
         const float smo = gSet.kSmo;
         const float trim = sn[i].trim;
@@ -1004,12 +1015,35 @@ void relayWait(uint32_t maxMs) {
 }
 
 // ---------------------------------------------------------------- finder / calibration API
+// A Govee light: the finder lights its segments. The light is switched on and put into streaming by the relay step below (the same preparation
+// the picture uses) and handed back by finishCal(); here the session is only opened.
+static String calBeginGovee(int target, const String& host, int segs, int* total) {
+  IPAddress ip;
+  if (host.length() == 0) return "Set the light's IP address first (on the setup page).";
+  if (!ip.fromString(host)) return "A Govee light is addressed by its IP address, for example 192.168.1.60.";
+  if (segs < 1) return "Set the number of segments first.";
+  if (segs > fwb::kGoveeMaxSegments) segs = fwb::kGoveeMaxSegments;
+  Lock l;
+  if (gCalTarget >= 0 && gCalTarget != target && gRt[gCalTarget].cal.active) { gRt[gCalTarget].cal.active = false; gRt[gCalTarget].cal.endPending = true; }
+  Rt& r = gRt[target];
+  r.cal = Cal();
+  r.cal.active = true;
+  r.cal.total = segs;
+  r.cal.dirty = true;
+  r.cal.lastCmd = millis();
+  strcpy(r.cal.screen, "black");
+  r.testUntil = 0;
+  gCalTarget = target;
+  *total = segs;
+  return "";
+}
+
 String calBegin(int target, int* total) {
   String host;
   {
     Lock l;
     if (target < 0 || target >= gSet.nTargets) return "There is no such target.";
-    if (gSet.t[target].kind == 1) return "The LED finder is for WLED strips.";
+    if (gSet.t[target].kind == 1) { const String h = gSet.t[target].wHost; const int segs = gSet.t[target].wCount; return calBeginGovee(target, h, segs, total); }
     host = gSet.t[target].wHost;
   }
   if (host.length() == 0) return "Set the WLED address first (on the setup page).";
@@ -1039,12 +1073,13 @@ String calBegin(int target, int* total) {
   return "";
 }
 
-void calLed(int start, int count) {
+void calLed(int start, int count, bool alt) {
   Lock l;
   if (gCalTarget < 0 || !gRt[gCalTarget].cal.active) return;
   Cal& c = gRt[gCalTarget].cal;
   c.start = start < 0 ? 0 : start;
   c.count = count < 0 ? 0 : count;
+  c.alt = alt;
   c.dirty = true;
   c.lastCmd = millis();
 }
@@ -1076,17 +1111,26 @@ void calEnd() {
 }
 
 static void finishCal(int i) {
-  bool snapOn;
+  bool snapOn, govee;
   int snapBri, total;
   String host;
   {
     Lock l;
     Cal& c = gRt[i].cal;
     snapOn = c.snapOn; snapBri = c.snapBri; total = c.total; host = gSet.t[i].wHost;
+    govee = gSet.t[i].kind == 1;
     c.endPending = false;
     if (gCalTarget == i) gCalTarget = -1;
   }
   if (total > 0) { memset(gPayload, 0, (size_t)total * 3); ddpSend(i, gPayload, (size_t)total * 3, 0, false); }   // switch off what we lit
+  if (govee) {                                                  // hand the light back like at the end of a stream (the picture prepares it again if it is still on)
+    if (gRt[i].prepared) requestRestore(i);
+    Rt& rg = gRt[i];
+    rg.curValid = false;
+    rg.converged = false;
+    rg.lastLen = 0;
+    return;
+  }
   if (host.length() > 0) {
     WledJob* j = new WledJob();
     j->prepare = false; j->target = i; j->host = host; j->restore = true; j->explicitSnap = true; j->snapOn = snapOn; j->snapBri = snapBri;

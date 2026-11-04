@@ -71,6 +71,7 @@ input[type=range].wide{width:100%}
   <div id="wResolved" class="small mut hidden"></div>
   <div id="wList" class="row"></div>
   <div class="row"><label>Check</label><button id="wCheck" class="sec">Check this WLED</button><span id="wInfo" class="small mut"></span></div>
+  <div id="wModel" class="small"></div>
   <div class="row"><label for="wOn" id="wOnLbl">Switch WLED on while relaying</label><input id="wOn" type="checkbox" style="flex:0 0 auto"></div>
   <div class="row"><label for="wBri" id="wBriLbl">Set WLED brightness (0-255, -1 = leave it)</label><input id="wBri" type="number" min="-1" max="255"></div>
   <div class="row"><label for="wRestore" id="wRestoreLbl">Put WLED back how it was when I stop</label><input id="wRestore" type="checkbox" style="flex:0 0 auto"></div>
@@ -80,7 +81,7 @@ input[type=range].wide{width:100%}
   <h2>Your LEDs</h2>
   <p class="small mut" id="ledIntro">Your WLED has <b id="totLeds">?</b> LEDs, numbered from 0. Tell the board which of them are part of the TV lighting, where they are, and which part of them covers the TV.</p>
 
-  <p class="small mut hidden" id="gIntro">A Govee light is controlled in <b>segments</b>: the board sends a number of colours and the light stretches them evenly over its whole length, so more segments follow the picture in finer detail. 20 is a good start. Tell the board where the light is, and which end of it is which.</p>
+  <p class="small mut hidden" id="gIntro">A Govee light is controlled in <b>segments</b>: the board sends a number of colours and the light stretches them evenly over its whole length, so more segments follow the picture in finer detail. <i>Check this light</i> fills in the right number for the models that have been tested; for any other, 20 is a good start. Tell the board where the light is, and which end of it is which.</p>
 
   <h3>1. Where are the LEDs?</h3>
   <div class="row"><label for="lPlace">The LEDs are</label><select id="lPlace" data-live="1">
@@ -100,12 +101,14 @@ input[type=range].wide{width:100%}
   <div id="rangeNote" class="small"></div>
 
   <div id="lLinear">
-    <h3>3. Which part of the run covers the TV?</h3>
-    <p class="small mut">Give the strip's own LED numbers where the TV starts and ends (<span id="endsTxt"></span>). Along that part the colours follow the picture exactly; the LEDs before and after it fade smoothly (see <i>Smooth beyond the TV</i> below). Leave both empty if the whole run is exactly as long as the TV.</p>
+    <h3 id="tvHead">3. Which part of the run covers the TV?</h3>
+    <p class="small mut" id="tvIntro">Give the strip's own LED numbers where the TV starts and ends (<span id="endsTxt"></span>). Along that part the colours follow the picture exactly; the LEDs before and after it fade smoothly (see <i>Smooth beyond the TV</i> below). Leave both empty if the whole run is exactly as long as the TV.</p>
+    <p class="small mut hidden" id="tvIntroG">The picture is spread over the part of the strip that runs along the screen's edge. Give the first and last segment of that part (segment 0 is where the light starts); the segments outside it hold the colour of the zone at that end, or stay dark if you tick the box below. If the whole strip runs along the edge, leave both empty. <i>Find my segments</i> below shows where each segment starts and ends on the strip.</p>
     <div class="row"><label for="tvFirst"><span id="tvFirstLbl">TV starts at LED</span></label><div class="num"><input id="tvFirst" type="number" data-live="1"><span class="nudge" data-nudge="tvFirst"></span></div></div>
     <div class="row"><label for="tvLast"><span id="tvLastLbl">TV ends at LED</span></label><div class="num"><input id="tvLast" type="number" data-live="1"><span class="nudge" data-nudge="tvLast"></span></div></div>
-    <div class="row"><label>Slide the TV part along the run</label><span class="nudge" id="mover"></span></div>
+    <div class="row"><label id="moverLbl">Slide the TV part along the run</label><span class="nudge" id="mover"></span></div>
     <div id="tvNote" class="small"></div>
+    <div class="row hidden" id="darkRow"><label for="tDark" id="darkLbl">Keep the segments outside it dark</label><input id="tDark" type="checkbox" data-live="1" style="flex:0 0 auto"></div>
     <div class="row" id="markRow"><button id="markBtn" class="sec">Show markers on the LEDs</button><button id="markMidBtn" class="sec">Show the middle of the TV</button><span class="small mut">When you change these numbers, <b style="color:#e5484d">red</b> LEDs light up on the strip where the TV starts and ends, and <b style="color:#3b82f6">blue</b> ones where the run starts and ends. The middle button adds a <b style="color:#22a559">green</b> LED at the exact middle of the TV part, to check that it sits in the middle of the screen.</span></div>
     <div class="row"><label for="lSide" id="dirLbl">The LED numbers go</label><select id="lSide" data-live="1"><option value="0"></option><option value="1"></option></select></div>
   </div>
@@ -120,14 +123,15 @@ input[type=range].wide{width:100%}
   <p class="small mut hidden" id="layNote"></p>
 
   <div id="findWrap">
-  <h3>Need help finding the numbers?</h3>
+  <h3 id="fHead">Need help finding the numbers?</h3>
   <div class="row"><button id="fOpen" class="sec">Find my LEDs: light up a block I can move</button></div>
   <div id="fBox" class="hidden">
-    <p class="small mut">A block of white LEDs is lit on the strip. Drag the slider until it sits where you want, then press one of the buttons to use that spot.</p>
-    <div class="row"><label for="fSize">Block size</label><input id="fSize" type="number" min="1" max="50" value="10"></div>
+    <p class="small mut" id="fIntro">A block of white LEDs is lit on the strip. Drag the slider until it sits where you want, then press one of the buttons to use that spot.</p>
+    <div class="row"><label for="fSize" id="fSizeLbl">Block size</label><input id="fSize" type="number" min="1" max="50" value="10"></div>
     <input id="fPos" class="wide" type="range" min="0" max="599" value="0">
     <div class="row"><span id="fTxt" class="small"></span><span class="nudge" data-nudge="fPos"></span></div>
-    <div class="row"><button id="fFirst" class="sec">Run starts here</button><button id="fLast" class="sec">Run ends here</button></div>
+    <div class="row hidden" id="fAltRow"><button id="fAlt" class="sec">Show every segment, alternately red and blue</button></div>
+    <div class="row" id="fRunRow"><button id="fFirst" class="sec">Run starts here</button><button id="fLast" class="sec">Run ends here</button></div>
     <div class="row"><button id="fTvFirst" class="sec">TV starts here</button><button id="fTvLast" class="sec">TV ends here</button><button id="fClose">Done</button></div>
   </div>
   </div>
@@ -381,16 +385,27 @@ input[type=range].wide{width:100%}
     $('runHead').textContent=g?'2. How many segments?':runHeadTxt;
     if(g)$('runNote').textContent='The board sends this many colours; the light stretches them over its whole length. More segments = finer detail (the light has its own number of real segments, so going far beyond it gains nothing). 1 to 60.';else $('runNote').innerHTML=runNoteHtml;
     $('wCountLbl').textContent=g?'Number of segments':'Length of the run (number of LEDs)';
-    show('wStartRow',!g);show('markRow',!g);show('findWrap',!g);
+    show('wStartRow',!g);show('markRow',!g);
+    show('tvIntro',!g);show('tvIntroG',g);show('darkRow',g);                   // the "part along the picture" wording and the dark-rest box are for a Govee light
+    $('tvHead').textContent=g?'3. Which part of the strip follows the picture?':'3. Which part of the run covers the TV?';
+    $('moverLbl').textContent=g?'Slide that part along the strip':'Slide the TV part along the run';
+    $('fHead').textContent=g?'Need help finding the segments?':'Need help finding the numbers?';
+    $('fOpen').textContent=g?'Find my segments: light up the ones I choose':'Find my LEDs: light up a block I can move';
+    $('fIntro').textContent=g?'The segments you choose are lit white on the strip. Set "Segments lit" to 1 to see exactly where one segment starts and ends, or show every segment in alternating colours. Move the slider to the segment you want, then press a button to use that spot.':'A block of white LEDs is lit on the strip. Drag the slider until it sits where you want, then press one of the buttons to use that spot.';
+    $('fSizeLbl').textContent=g?'Segments lit':'Block size';
+    $('fSize').max=g?60:50;
+    show('fRunRow',!g);show('fAltRow',g);
+    $('fTvFirst').textContent=g?'The picture starts here':'TV starts here';
+    $('fTvLast').textContent=g?'The picture ends here':'TV ends here';
   }
   function labels(){
     var p=place(),v=PLACE[p].vertical;
     $('placeNote').textContent=PLACE[p].note;
     $('endsTxt').textContent=v?'its top end and its bottom end':'its left end and its right end, as you face the TV';
     var u=isGovee()?'segment':'LED';
-    $('tvFirstLbl').textContent=v?'TV top is at '+u:'TV left edge is at '+u;
-    $('tvLastLbl').textContent=v?'TV bottom is at '+u:'TV right edge is at '+u;
-    $('dirLbl').textContent=v?'The LED numbers go':'The LED numbers go (as you face the TV)';
+    if(isGovee()){$('tvFirstLbl').textContent='First segment along the picture';$('tvLastLbl').textContent='Last segment along the picture';}
+    else{$('tvFirstLbl').textContent=v?'TV top is at '+u:'TV left edge is at '+u;$('tvLastLbl').textContent=v?'TV bottom is at '+u:'TV right edge is at '+u;}
+    $('dirLbl').textContent=(isGovee()?'The segment numbers go':'The LED numbers go')+(v?'':' (as you face the TV)');
     var o=$('lSide').options;o[0].textContent=v?'from top to bottom':'from left to right';o[1].textContent=v?'from bottom to top':'from right to left';
     show('lLinear',linear());show('lLoop',p==='loop');
   }
@@ -433,7 +448,10 @@ input[type=range].wide{width:100%}
     if(linear()&&c>0){
       var s=tvSpan();
       if(pr&&!/do not all exist/.test(pr))t.innerHTML='<span class="err">'+pr+'</span>';
+      else if(s.set&&isGovee()){var gw=s.last-s.first+1,si=segIn(c),gdk=$('tDark').checked;
+        t.innerHTML='<span class="mut">'+gw+' segments follow the picture'+(si?' (about '+Math.round(gw*si)+' in of the strip)':'')+'. The other '+(c-gw)+' '+(gdk?'stay dark.':'hold the colour of the zone at their end.')+'</span>';}
       else if(s.set){var w=s.last-s.first+1;t.innerHTML='<span class="mut">The TV covers '+w+' LEDs ('+Math.round(100*w/c)+'% of the run). '+s.first+' before it and '+(c-1-s.last)+' after it fade smoothly.</span>';}
+      else if(isGovee())t.innerHTML='<span class="mut">The whole strip follows the picture.</span>';
       else t.innerHTML='<span class="mut">The whole run is treated as exactly as long as the TV: nothing fades.</span>';
     }else t.textContent='';
   }
@@ -447,7 +465,7 @@ input[type=range].wide{width:100%}
     var T=list[sel],W=T.wled;
     $('tSel').innerHTML=list.map(function(t,i){return '<option value="'+i+'">'+esc(t.name)+'</option>';}).join('');$('tSel').value=String(sel);
     $('tDel').disabled=list.length<2;$('tAdd').disabled=list.length>=4;
-    $('tName').value=T.name;$('tKind').value=T.kind||'wled';$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;$('tSharp').value=T.sharp==null?0:T.sharp;$('tSat').value=T.sat==null?1:T.sat;$('tVivid').checked=!!T.vivid;
+    $('tName').value=T.name;$('tKind').value=T.kind||'wled';$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;$('tSharp').value=T.sharp==null?0:T.sharp;$('tSat').value=T.sat==null?1:T.sat;$('tVivid').checked=!!T.vivid;$('tDark').checked=!!T.darkOutside;
     $('wHost').value=W.host;$('wStart').value=W.start;$('wCount').value=W.count;$('wOn').checked=W.turnOn;$('wBri').value=W.brightness;$('wRestore').checked=W.restore;
     var L=T.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
     $('tvFirst').value=L.spanFirst>=0?L.spanFirst+W.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+W.start:'';
@@ -468,7 +486,7 @@ input[type=range].wide{width:100%}
     lay={type:p==='loop'?'loop':(p==='table'?'table':'linear'),led0Right:$('lSide').value==='1',spanFirst:linear()?s.first:-1,spanLast:linear()?s.last:-1,
       corner:num('lCorner',0),ccw:$('lDir').value==='1',sides:[num('lS0',0),num('lS1',0),num('lS2',0),num('lS3',0)],shift:num('lShift',0)};
     if(linear())lay.edge=p;
-    return {target:sel,name:$('tName').value.trim(),kind:$('tKind').value,enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),sharp:num('tSharp',0),sat:parseFloat($('tSat').value),vivid:$('tVivid').checked,wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
+    return {target:sel,name:$('tName').value.trim(),kind:$('tKind').value,enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),sharp:num('tSharp',0),sat:parseFloat($('tSat').value),vivid:$('tVivid').checked,darkOutside:$('tDark').checked,wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
       relay:{tvOff:{mode:$('tvMode').value,seconds:num('tvSecs',15)}},
       look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,smoothOut:parseInt($('kOut').value,10)}};
@@ -602,23 +620,34 @@ input[type=range].wide{width:100%}
   buildNudges();
 
   /* ---------------------------------------------------------------- finder: a block of LEDs I can move */
-  var finderTimer=null;
+  var finderTimer=null, altMode=false, fSizeMem={wled:10,govee:1};   // the block size last used for each kind: a WLED is searched in blocks of 10, a Govee light one segment at a time
+  var ALT_ON='Show every segment, alternately red and blue', ALT_OFF='Back to the segments I choose';
   function finderSend(){
-    var size=Math.max(1,Math.min(50,num('fSize',10))),pos=num('fPos',0);
-    $('fTxt').textContent='Lit: LEDs '+pos+' to '+(pos+size-1);
+    var g=isGovee(),size=Math.max(1,Math.min(g?60:50,num('fSize',10))),pos=num('fPos',0);
+    fSizeMem[g?'govee':'wled']=size;
+    if(g){
+      var si=segIn(num('wCount',0)),last=pos+size-1;
+      $('fTxt').textContent=altMode?'Lit: every segment, alternately red and blue (segment 0 is red)':
+        'Lit: '+(size===1?'segment '+pos:'segments '+pos+' to '+last)+(si?' ('+Math.round(pos*si)+' to '+Math.round((last+1)*si)+' in from the start of the strip)':'');
+    }else $('fTxt').textContent='Lit: LEDs '+pos+' to '+(pos+size-1);
     clearTimeout(finderTimer);
-    finderTimer=setTimeout(function(){j('/api/cal/led',{start:pos,count:size}).catch(function(){});},60);
+    finderTimer=setTimeout(function(){j('/api/cal/led',{start:pos,count:size,alt:g&&altMode}).catch(function(){});},60);
   }
   $('fOpen').onclick=async function(){
     try{
       if(testing){testing=false;$('test').textContent='Start rainbow test';try{await j('/api/test',{pattern:'off',target:sel});}catch(e){}}
-      var d=await j('/api/cal/begin',{target:sel});totalLeds=d.total;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);
-      finder=true;show('fBox',true);show('fOpen',false);$('fPos').value=Math.min(num('wStart',0),Math.max(0,totalLeds-1));finderSend();
+      var d=await j('/api/cal/begin',{target:sel}),tot=d.total;
+      if(!isGovee()){totalLeds=tot;$('totLeds').textContent=tot;}      // (a Govee light's segments are not LEDs of a WLED: the "only has LEDs" check must not see them)
+      $('fPos').max=Math.max(0,tot-1);
+      altMode=false;$('fAlt').textContent=ALT_ON;
+      $('fSize').value=fSizeMem[isGovee()?'govee':'wled'];
+      finder=true;show('fBox',true);show('fOpen',false);$('fPos').value=Math.min(num('wStart',0),Math.max(0,tot-1));finderSend();
       finderBeat=setInterval(function(){finderSend();},10000);       // keep the session alive
     }catch(e){msg('<span class="err">'+e.message+'</span>');}
   };
+  $('fAlt').onclick=function(){altMode=!altMode;$('fAlt').textContent=altMode?ALT_OFF:ALT_ON;finderSend();};
   async function finderStop(){
-    if(!finder)return;finder=false;clearInterval(finderBeat);show('fBox',false);show('fOpen',true);
+    if(!finder)return;finder=false;altMode=false;clearInterval(finderBeat);show('fBox',false);show('fOpen',true);
     try{await j('/api/cal/end',{});}catch(e){}
   }
   function setNum(id,v){$(id).value=v;fire(id);}
@@ -710,11 +739,26 @@ input[type=range].wide{width:100%}
       d.devices.forEach(function(x){var b=document.createElement('button');b.className='sec';b.textContent=x.name+' ('+x.ip+')';b.onclick=function(){$('wHost').value=x.host||x.ip;changed();$('wCheck').click();};$('wList').appendChild(b);});
     }catch(e){$('wList').textContent=e.message;}
   };
+  /* Govee models whose number of segments was measured on a real light (a stripe of alternating colours, counted by eye). The light is not
+     asked: the LAN API does not report it. Anything not in this list is a guess, so it is said so. See docs/GOVEE.md to add one. */
+  var GOVEE_MODELS={H61C3:{segs:42,desc:'RGBIC neon rope, 10 ft',lenIn:120},H61B5:{segs:50,desc:'RGBIC strip with covers, 16.4 ft',lenIn:196.8}};
+  function segIn(count){for(var k in GOVEE_MODELS)if(GOVEE_MODELS[k].segs===count)return GOVEE_MODELS[k].lenIn/count;return 0;}   // inches per segment, when the count is a tested model's
+  function modelNote(sku){
+    var n=$('wModel'),m=GOVEE_MODELS[sku],c=num('wCount',0);n.innerHTML='';
+    if(!m){n.innerHTML='<span class="mut">'+(sku?esc(sku)+' is not in the list of tested models':'The model is unknown')+', so the number of segments is a guess. 20 is a safe start; docs/GOVEE.md shows how to find your light\'s real number.</span>';return;}
+    var what=esc(sku)+' ('+m.desc+') has '+m.segs+' segments';
+    if(c<1||c===20){$('wCount').value=m.segs;changed();n.innerHTML='<span class="ok">'+what+'; set here.</span>';return;}   // 20 is only the starting value: replace it
+    if(c===m.segs){n.innerHTML='<span class="ok">'+what+', as set.</span>';return;}
+    n.innerHTML='<span class="mut">'+what+'; you have '+c+'. </span>';
+    var b=document.createElement('button');b.className='sec';b.type='button';b.textContent='Use '+m.segs;
+    b.onclick=function(){$('wCount').value=m.segs;changed();modelNote(sku);};n.appendChild(b);
+  }
   $('wCheck').onclick=async function(){
-    $('wInfo').textContent='Checking...';
+    $('wInfo').textContent='Checking...';$('wModel').innerHTML='';
     if(isGovee()){
       try{var gd=await j('/api/govee/info?host='+encodeURIComponent($('wHost').value.trim()));
         $('wInfo').innerHTML='<span class="ok">'+esc(gd.name)+(gd.wifi?' | firmware '+esc(gd.wifi):'')+' | '+(gd.on?'on':'off')+', brightness '+gd.bri+' %</span>';
+        modelNote(gd.sku||'');
       }catch(e){$('wInfo').innerHTML='<span class="err">'+esc(e.message)+'</span>';}
       return;
     }

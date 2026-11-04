@@ -2,6 +2,7 @@
 // Both servers use the same handlers. Everything is JSON; POSTs must be application/json (blocks cross-site form posts).
 #include <WiFi.h>
 #include <esp_http_server.h>
+#include <lwip/sockets.h>
 
 #include "app.h"
 
@@ -12,9 +13,10 @@
 #define FWB_HAS_HTTPS 1
 #endif
 
-#define ASSET(name)                                                    \
-  extern const char name##_start[] asm("_binary_web_" #name "_start"); \
-  extern const char name##_end[] asm("_binary_web_" #name "_end");
+// The pages are embedded gzip-compressed (tools/gzip_web.py makes web_gz/<file>.gz from web/<file> at every build; platformio.ini embeds them).
+#define ASSET(name)                                                           \
+  extern const char name##_start[] asm("_binary_web_gz_" #name "_gz_start"); \
+  extern const char name##_end[] asm("_binary_web_gz_" #name "_gz_end");
 ASSET(index_html)
 ASSET(style_css)
 #if FWB_PHONE_CAL
@@ -84,8 +86,31 @@ static bool readJson(httpd_req_t* req, JsonDocument& doc, String& err) {
   }
 
 // ------------------------------------------------------------------ pages
+// A page is sent compressed (every browser accepts gzip) with an ETag made from its content. The browser keeps its copy but asks every time
+// whether it is still current ("no-cache" means "check first", not "do not keep"); when it is, the answer is "304 Not Modified" and no page
+// goes over the air. Because the ETag comes from the content, a new firmware (or a rebuilt page) is picked up at once.
+static uint32_t assetTag(const char* p, size_t n) {
+  uint32_t h = 2166136261u;                                     // FNV-1a
+  for (size_t i = 0; i < n; i++) { h ^= (uint8_t)p[i]; h *= 16777619u; }
+  return h ? h : 1u;
+}
+static esp_err_t sendAsset(httpd_req_t* req, const char* type, const char* gz, size_t len, uint32_t& tag) {
+  if (!tag) tag = assetTag(gz, len);                           // once per page (a repeat by the other server task gives the same value)
+  char etag[16];
+  snprintf(etag, sizeof etag, "\"%08x\"", (unsigned)tag);
+  httpd_resp_set_hdr(req, "ETag", etag);                       // (the header is sent before this function returns)
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+  char had[80] = {0};
+  if (httpd_req_get_hdr_value_str(req, "If-None-Match", had, sizeof had) == ESP_OK && strstr(had, etag)) {
+    httpd_resp_set_status(req, "304 Not Modified");
+    return httpd_resp_send(req, nullptr, 0);
+  }
+  httpd_resp_set_type(req, type);
+  httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+  return httpd_resp_send(req, gz, len);
+}
 #define PAGE(fn, type, sym) \
-  static esp_err_t fn(httpd_req_t* req) { return sendBody(req, type, sym##_start, (size_t)(sym##_end - sym##_start) - 1); }
+  static esp_err_t fn(httpd_req_t* req) { static uint32_t tag = 0; return sendAsset(req, type, sym##_start, (size_t)(sym##_end - sym##_start), tag); }
 PAGE(h_index, "text/html; charset=utf-8", index_html)
 PAGE(h_style, "text/css", style_css)
 #if FWB_PHONE_CAL
@@ -347,7 +372,7 @@ static esp_err_t h_cal_begin(httpd_req_t* req) {
 }
 static esp_err_t h_cal_led(httpd_req_t* req) {
   NEED_JSON(doc);
-  calLed(doc["start"] | 0, doc["count"] | 0);
+  calLed(doc["start"] | 0, doc["count"] | 0, doc["alt"] | false);
   return sendOk(req);
 }
 #if FWB_PHONE_CAL
@@ -578,10 +603,19 @@ template <typename T>
 static void setServerCert(T& c, const uint8_t* p, size_t n, long) { c.cacert_pem = p; c.cacert_len = n; }
 #endif
 
+// Every new connection gets TCP_NODELAY. A reply is written in two pieces (headers, then the body); without this the second small piece
+// waits until the browser acknowledges the first, which measured about 65 ms of delay on every small reply (/api/status, /api/zones).
+static esp_err_t onOpen(httpd_handle_t, int fd) {
+  int one = 1;
+  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+  return ESP_OK;
+}
+
 void webBegin() {
   // Few sockets on purpose: lwIP on the ESP32 only has 10 in total (shared with UDP and the WLED client).
   httpd_config_t c = HTTPD_DEFAULT_CONFIG();
   c.server_port = 80;
+  c.open_fn = onOpen;
   c.max_open_sockets = 2;
   c.lru_purge_enable = true;
   c.max_uri_handlers = 40;

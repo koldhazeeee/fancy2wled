@@ -34,7 +34,7 @@ function usageOf(wled, layout, sharp) {
 }
 
 function newTarget(i) {
-  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1, sharp: 0, sat: 1, vivid: false,
+  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1, sharp: 0, sat: 1, vivid: false, darkOutside: false,
     wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
     layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false } };
   Object.defineProperty(t, 'usage', { enumerable: true, get() { return usageOf(this.wled, this.layout, this.sharp); } });   // like the firmware, derived from the settings
@@ -84,7 +84,8 @@ function createDevice(opts) {
       if (p === '/api/govee/info') {
         state.goveeInfoCalls = (state.goveeInfoCalls || 0) + 1;
         if (url.searchParams.get('host') === '192.0.2.99') return json(res, 502, { error: 'The light at 192.0.2.99 did not answer. Check the address, and that LAN control is switched on for it in the Govee Home app.' });
-        return json(res, 200, { name: 'Govee H61C3', sku: 'H61C3', device: 'AA:BB:CC:DD:EE:FF:00:11', wifi: '1.06.24', on: false, bri: 14 });
+        const sku = { '192.0.2.61': 'H61B5', '192.0.2.62': 'H9999' }[url.searchParams.get('host')] || 'H61C3';     // .61 a second tested model, .62 one that is not in the page's list
+        return json(res, 200, { name: 'Govee ' + sku, sku, device: 'AA:BB:CC:DD:EE:FF:00:11', wifi: '1.06.24', on: false, bri: 14 });
       }
       if (p === '/api/wifi/scan') return json(res, 200, { networks: ['TestNet', 'Other'] });
       if (p === '/api/ota') return json(res, 200, { enabled: !!(state.otaOn && state.otaPass), passSet: !!state.otaPass, version: state.version || 'mock', slot: 'app0', imageState: state.imagePending ? 'pending' : 'valid', maxBytes: 3342336, rolledBack: !!state.rolledBack, busy: false });
@@ -134,6 +135,7 @@ function createDevice(opts) {
           if (d.sharp !== undefined) T.sharp = Math.min(100, Math.max(0, d.sharp | 0));
           if (d.sat !== undefined) T.sat = Math.min(3, Math.max(0, +d.sat));
           if (d.vivid !== undefined) T.vivid = !!d.vivid;
+          if (d.darkOutside !== undefined) T.darkOutside = !!d.darkOutside;
           if (d.enabled !== undefined) T.enabled = d.enabled;
           if (d.trim !== undefined) T.trim = d.trim;
           if (d.wled) {
@@ -218,8 +220,13 @@ function createDevice(opts) {
         }
         if (p === '/api/test') { state.test = d; return json(res, 200, { ok: true }); }
         if (p === '/api/mark') { state.mark = d; state.marks = (state.marks || 0) + 1; return json(res, 200, { ok: true }); }
-        if (p === '/api/cal/begin') { state.calActive = true; state.screen = 'black'; return json(res, 200, { total: state.total }); }
-        if (p === '/api/cal/led') return json(res, 200, { ok: true });
+        if (p === '/api/cal/begin') {
+          const tg = state.cfg.targets[d.target || 0];
+          state.calBegin = d;
+          state.calActive = true; state.screen = 'black';
+          return json(res, 200, { total: tg && tg.kind === 'govee' ? tg.wled.count : state.total });     // a Govee light: its number of segments
+        }
+        if (p === '/api/cal/led') { state.calLed = d; state.calLeds = (state.calLeds || 0) + 1; return json(res, 200, { ok: true }); }
         if (p === '/api/cal/screen') { state.screen = d.mode; return json(res, 200, { ok: true }); }
         if (p === '/api/cal/end') { state.calActive = false; state.screen = 'idle'; return json(res, 200, { ok: true }); }
         return json(res, 200, { ok: true });

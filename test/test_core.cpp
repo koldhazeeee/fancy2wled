@@ -481,7 +481,28 @@ int main(int argc, char** argv) {
     CHECK(c3[0] > 200 && c3[1] < 100 && c3[3] == 50 && c3[4] == 50 && c3[5] == 50, "saturation 1.5 pushes a colour away from its grey; a grey stays grey");
     float c4[3] = {250, 10, 0};
     saturateColours(c4, 1, 3.f);
-    CHECK(c4[0] <= 255.f && c4[1] >= 0.f && c4[2] >= 0.f, "results stay between 0 and 255"); }  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
+    CHECK(c4[0] <= 255.f && c4[1] >= 0.f && c4[2] >= 0.f, "results stay between 0 and 255"); }  { // darkOutside: only what lies outside the TV part goes dark
+    float d1[30];
+    for (int k = 0; k < 30; k++) d1[k] = 100.f + k;
+    darkOutside(d1, 10, 3, 6);
+    bool inside = true, outside = true;
+    for (int i = 0; i < 10; i++)
+      for (int c = 0; c < 3; c++) {
+        const bool in = i >= 3 && i <= 6;
+        if (in && d1[i * 3 + c] != 100.f + i * 3 + c) inside = false;
+        if (!in && d1[i * 3 + c] != 0.f) outside = false;
+      }
+    CHECK(inside, "darkOutside leaves the LEDs of the TV part (3..6) untouched");
+    CHECK(outside, "darkOutside switches off the LEDs before and after it (0..2, 7..9)");
+    float d2[6] = {1, 2, 3, 4, 5, 6};
+    darkOutside(d2, 2, -1, -1);
+    CHECK(d2[0] == 1 && d2[5] == 6, "no TV part set: nothing goes dark");
+    darkOutside(d2, 2, 5, 3);
+    CHECK(d2[0] == 1 && d2[5] == 6, "an upside-down TV part is ignored");
+    float d3[6] = {1, 2, 3, 4, 5, 6};
+    darkOutside(d3, 2, 0, 9);
+    CHECK(d3[0] == 1 && d3[5] == 6, "a TV part longer than the strip darkens nothing");
+    darkOutside(nullptr, 2, 0, 1); }  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
     struct { const char* in; const char* want; } b64[] = {{"", ""}, {"f", "Zg=="}, {"fo", "Zm8="}, {"foo", "Zm9v"}, {"foob", "Zm9vYg=="}, {"fooba", "Zm9vYmE="}, {"foobar", "Zm9vYmFy"}};
     for (const auto& c : b64) {
       char o[32];
