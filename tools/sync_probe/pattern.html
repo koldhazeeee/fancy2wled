@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sync probe</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  canvas { display: block; position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Shows the test plan from /plan full screen (see tools/sync_probe/plan.py) and reports when each pattern was drawn, using the
+// browser's high resolution clock. The probe measures how that clock relates to its own with the /sync calls, so the times in
+// the log can be compared with the moments the Sync Box's packets arrived.
+(function () {
+  'use strict';
+  var PW = 1920, PH = 1080;
+  var cv = document.getElementById('c');
+  var ctx = cv.getContext('2d', { alpha: false });
+  var plan = [];
+  var log = { events: [], sync: [], sync_end: [], env: {} };
+  var sx = 1, sy = 1;
+
+  function size() {
+    var d = window.devicePixelRatio || 1;
+    cv.width = Math.round(window.innerWidth * d);
+    cv.height = Math.round(window.innerHeight * d);
+    sx = cv.width / PW;
+    sy = cv.height / PH;
+  }
+  function rgb(c) { return 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')'; }
+  function rect(x, y, w, h, c) {
+    var x0 = Math.round(x * sx), y0 = Math.round(y * sy), x1 = Math.round((x + w) * sx), y1 = Math.round((y + h) * sy);
+    ctx.fillStyle = rgb(c);
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  }
+  function draw(seg, relMs, state) {
+    var i;
+    if (seg.kind === 'rects') {
+      rect(0, 0, PW, PH, seg.bg);
+      for (i = 0; i < seg.rects.length; i++) rect(seg.rects[i].x, seg.rects[i].y, seg.rects[i].w, seg.rects[i].h, seg.rects[i].rgb);
+    } else if (seg.kind === 'grad') {
+      var g = seg.axis === 'x' ? ctx.createLinearGradient(0, 0, cv.width, 0) : ctx.createLinearGradient(0, 0, 0, cv.height);
+      g.addColorStop(0, rgb(seg['from']));
+      g.addColorStop(1, rgb(seg.to));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+    } else if (seg.kind === 'flash') {
+      rect(0, 0, PW, PH, state % 2 === 0 ? seg.lo : seg.hi);
+    } else if (seg.kind === 'bar') {
+      rect(0, 0, PW, PH, seg.bg);
+      var p = -seg.width + seg.speed * relMs / 1000;
+      if (seg.axis === 'x') rect(p, 0, seg.width, PH, seg.rgb); else rect(0, p, PW, seg.width, seg.rgb);
+    }
+  }
+
+  async function syncRound(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var p0 = performance.now();
+      var r = await fetch('/sync', { cache: 'no-store' });
+      var j = await r.json();
+      var p1 = performance.now();
+      out.push([p0, p1, j.s]);
+    }
+    return out;
+  }
+
+  var si = -1, segStart = 0, stateN = 0, stateFrames = 0, drawn = false, frames = 0, longFrames = 0, lastTs = 0;
+
+  function begin(i, ts) {
+    si = i; segStart = ts; stateN = 0; stateFrames = 0; drawn = false;
+    log.events.push({ e: 'seg', i: i, t: ts });
+    fetch('/progress?i=' + i + '&n=' + plan.length, { cache: 'no-store' }).catch(function () {});
+  }
+
+  async function finish() {
+    rect(0, 0, PW, PH, [0, 0, 0]);
+    log.env.frames = frames;
+    log.env.long_frames = longFrames;
+    log.sync_end = await syncRound(20);
+    await fetch('/log', { method: 'POST', body: JSON.stringify(log) });
+  }
+
+  function frame(ts) {
+    if (lastTs && ts - lastTs > 25) longFrames++;       // a frame at 60 Hz lasts 16.7 ms: much more means the browser missed one
+    lastTs = ts;
+    frames++;
+    if (si < 0) begin(0, ts);
+    var seg = plan[si], end = false;
+    if (seg.kind === 'flash') {
+      if (stateFrames >= seg.period_frames) {
+        stateN++; stateFrames = 0; drawn = false;
+        if (stateN >= seg.states) end = true; else log.events.push({ e: 'state', i: si, k: stateN, t: ts });
+      }
+    } else if (ts - segStart >= seg.dur_ms) {
+      end = true;
+    }
+    if (end) {
+      if (si + 1 >= plan.length) { finish(); return; }
+      begin(si + 1, ts);
+      seg = plan[si];
+    }
+    if (!drawn || seg.kind === 'bar') { draw(seg, ts - segStart, stateN); drawn = true; }
+    if (seg.kind === 'flash') stateFrames++;
+    requestAnimationFrame(frame);
+  }
+
+  async function main() {
+    plan = await (await fetch('/plan', { cache: 'no-store' })).json();
+    size();
+    window.addEventListener('resize', function () { size(); drawn = false; });
+    log.env = {
+      innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio,
+      screenWidth: screen.width, screenHeight: screen.height, colorDepth: screen.colorDepth,
+      hdr: !!(window.matchMedia && window.matchMedia('(dynamic-range: high)').matches),
+      wideGamut: !!(window.matchMedia && window.matchMedia('(color-gamut: p3)').matches),
+      userAgent: navigator.userAgent
+    };
+    rect(0, 0, PW, PH, [0, 0, 0]);
+    log.sync = await syncRound(40);
+    requestAnimationFrame(frame);
+  }
+  main();
+})();
+</script>
+</body>
+</html>
