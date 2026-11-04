@@ -744,7 +744,36 @@ int main(int argc, char** argv) {
     CHECK(ok, "with boost 1 the target is rebuilt exactly on every frame (worst error %.4f)", worst);
     CHECK(fabsf(leadBoost(80.f, 0.f, 0.5f) - 140.f) < 1e-3f, "boost 0.5 goes half way to the target: first frame 80 -> 140 (200 is the target)");
     CHECK(leadBoost(10.f, 200.f, 1.f) == 0.f && leadBoost(250.f, 50.f, 1.f) == 255.f, "the result stays a valid colour");
-    CHECK(leadBoost(100.f, 0.f, 7.f) == leadBoost(100.f, 0.f, 1.f) && leadBoost(100.f, 0.f, -3.f) == 100.f, "boost is limited to 0..1"); }
+    CHECK(leadBoost(100.f, 0.f, 7.f) == leadBoost(100.f, 0.f, 1.f) && leadBoost(100.f, 0.f, -3.f) == 100.f, "boost is limited to 0..1");
+    // other box speeds: y = (1 - s) * previous + s * target, so the target is rebuilt exactly from the packet before it, whatever the speed
+    { float worst = 0.f;
+      const int speeds[] = {10, 25, 40, 60, 90};
+      for (int sp : speeds) {
+        const float s = sp / 100.f;
+        float y = 0.f;
+        for (int n = 0; n < 12; n++) {
+          const float prev = y;
+          y = (1.f - s) * y + s * 200.f;
+          const float est = leadBoost(y, prev, 1.f, sp, 1);
+          const float err = fabsf(est - 200.f);
+          if (err > worst) worst = err;
+        }
+      }
+      CHECK(worst < 0.01f, "at every box speed the target is rebuilt exactly (worst error %.4f)", worst); }
+    CHECK(leadBoost(200.f, 0.f, 1.f, 100, 1) == 200.f && leadBoost(55.f, 20.f, 1.f, 100, 1) == 55.f, "box speed 100 %%: the box does not smooth, nothing is added");
+    CHECK(leadBoost(120.f, 40.f, 1.f, 40, 0) == 120.f, "no steps (a pause): the packets do not follow each other, nothing is added");
+    // packets lost in between: after m steps the target is rebuilt from the last packet that arrived
+    { const float s = 0.4f;
+      float y = 0.f;
+      for (int n = 0; n < 2; n++) y = (1.f - s) * y + s * 200.f;       // two packets of the change were seen: 80, 128
+      const float seen = y;
+      float after = seen;
+      for (int n = 0; n < 3; n++) after = (1.f - s) * after + s * 200.f;     // three more steps happen, only the last one arrives
+      CHECK(fabsf(leadBoost(after, seen, 1.f, 40, 3) - 200.f) < 0.01f, "three steps between two packets: the target is still rebuilt exactly");
+      CHECK(leadBoost(after, seen, 1.f, 40, 1) > 200.f + 15.f, "...and counting them as one overshoots (that is why the steps are counted)"); }
+    CHECK(boxStepsForGap(0) == 1 && boxStepsForGap(2) == 1 && boxStepsForGap(73) == 1 && boxStepsForGap(100) == 1 && boxStepsForGap(120) == 1, "packets together or a normal gap apart: one step");
+    CHECK(boxStepsForGap(146) == 2 && boxStepsForGap(203) == 3 && boxStepsForGap(300) == 4, "a gap of two or three periods: that many steps (measured: 200 ms held 3)");
+    CHECK(boxStepsForGap(600) == 8 && boxStepsForGap(601) == 0, "a pause of more than 600 ms: no extrapolation"); }
   { Entry t[10]; int bad[4] = {1, 1, 1, 1};
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }

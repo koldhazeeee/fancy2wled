@@ -69,6 +69,7 @@ struct Settings {
   // look (shared by all targets; each target has its own brightness trim)
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
+  int boxSpeed = 40;                   // the box's own "Speed of Diffusion" 10..100 % (how far each packet moves towards the new picture): what Reaction boost undoes; 100 = the box does not smooth
   int motion = 0;                      // motion smoothing 0..100 %: slide between the Sync Box's pictures instead of jumping, shown that share of one picture interval late (0 = off; while on it replaces smoothing over time and the reaction boost)
   int smoothOut = 100;                 // 0 = off .. 100: LEDs beyond the TV settle on their end-corner zone colour (softens the hand-over at the TV edge)
   int fps = 30;

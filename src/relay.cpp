@@ -766,8 +766,8 @@ static bool pollBox() {
   }
   bool got = false;
   float boost;
-  int motionPct;
-  { Lock l; boost = gSet.kBoost; motionPct = gSet.motion; }
+  int motionPct, boxSpeed;
+  { Lock l; boost = gSet.kBoost; motionPct = gSet.motion; boxSpeed = gSet.boxSpeed; }
   uint8_t buf[300];                                       // longer than any frame seen (86-93 bytes) so a bigger one is not cut short
   for (int guard = 0; guard < 16; guard++) {
     sockaddr_in sa;
@@ -789,6 +789,7 @@ static bool pollBox() {
       blackFrame(gBlack, z, now);                                  // TV off detection: black for long enough = the TV is off
       memcpy(gRaw, z, sizeof gRaw);                                // the raw box output (calibration and /api/zones use this)
       gSender = from;
+      const int steps = boxStepsForGap(now - gLastFrame);          // the box's smoothing steps since the previous packet (more than one if packets were lost)
       if (gHave && now - gLastFrame < 2000) gIntervalMs = gIntervalMs == 0 ? (now - gLastFrame) : gIntervalMs * 0.9f + (now - gLastFrame) * 0.1f;
       gLastFrame = now;
       gLastFrameUs = micros();
@@ -798,7 +799,7 @@ static bool pollBox() {
       float f[kZones][3];                                          // what the lights should follow: the box's value, or (boost) the colour it is aiming at
       for (int q = 0; q < kZones; q++)
         for (int c = 0; c < 3; c++) {
-          f[q][c] = (boost > 0.f && motionPct == 0 && gPrevValid) ? leadBoost(z[q][c], gPrevY[q][c], boost) : (float)z[q][c];   // (motion smoothing replaces the boost)
+          f[q][c] = (boost > 0.f && motionPct == 0 && gPrevValid) ? leadBoost(z[q][c], gPrevY[q][c], boost, boxSpeed, steps) : (float)z[q][c];   // (motion smoothing replaces the boost)
           gPrevY[q][c] = z[q][c];
         }
       gPrevValid = true;

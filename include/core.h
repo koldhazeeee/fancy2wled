@@ -130,12 +130,20 @@ SmoothInfo smoothInfo(const Entry* table, int count, int percent);   // percent:
 // the same result as one big step, so an extra frame in between ticks does not change how the lights feel.
 float smoothDecay(float smoothing, float dtMs, float refMs);
 
-// The Sync Box smooths its own output before broadcasting it: each frame it moves 40 % of the way to the new colour
-// (y = 0.6 * previous y + 0.4 * target; measured on a real box, see docs/PROTOCOL.md). That is most of the delay between the picture and
-// the lights. Undoing it needs only the previous frame: target = y + k * (y - previous y) with k = 0.6 / 0.4 = 1.5. `boost` blends
-// between the box's own (smoothed) value (0) and the reconstructed target (1). The result is clamped to a valid colour.
+// The Sync Box smooths its own output before broadcasting it: with its "Speed of Diffusion" set to s, every packet moves s of the way from the last
+// one to the new colour (y = (1 - s) * previous y + s * target; at the default 40 % the packets of a change show 40, 64, 78, 87, 92 % ...). Measured with
+// tools/sync_probe, which also showed that at 100 % the box does not smooth at all. That smoothing is most of the delay between the picture and the lights.
+// Undoing it needs only the previous packet: after m packets of smoothing target = y + k * (y - previous y) with k = q^m / (1 - q^m), q = 1 - s
+// (m = 1, s = 0.4: k = 0.6 / 0.4 = 1.5). `boost` blends between the box's own (smoothed) value (0) and the reconstructed target (1).
+// speedPercent is the box's setting (10..100; 100 = nothing to undo); steps = how many smoothing steps lie between the two packets (see boxStepsForGap).
+// The result is clamped to a valid colour. One case cannot be told from the stream: when the packet just before a change is lost, the first packet after
+// it already holds two steps while looking like one, so that single frame overshoots (about 60 % of the change at boost 1; boost 0.6 halves it).
 constexpr float kBoxLead = 1.5f;
-float leadBoost(float y, float yPrev, float boost);
+float leadBoost(float y, float yPrev, float boost, int speedPercent = 40, int steps = 1);
+// How many smoothing steps happened between two packets that arrived gapMs apart: the box makes one about every 73 ms (13.7 packets a second) and the
+// link drops some, so a long gap holds several (measured: a gap of 200 ms held 3 steps). Packets that arrive together, or a normal 100 ms apart, are
+// one step apart. 0 = a pause of more than 600 ms: the colours were not following each other, do not extrapolate across it.
+int boxStepsForGap(uint32_t gapMs);
 
 // Vivid blending between two zone colours. Mixing two colours in RGB (red and green half and half is a dull dark yellow) turns unlike hues into
 // grey or brown in between. This blends along the colour wheel instead: the hue takes the shorter way round from one colour to the other (red -> orange ->

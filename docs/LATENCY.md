@@ -9,7 +9,7 @@ When the picture changes colour, the lights follow after:
 
 | Step | Delay | Can the relay change it? |
 |---|---|---|
-| 1. The Sync Box smooths its own output | **about 140 ms to half way, 350 ms to 90 %** | Yes: *Reaction boost* undoes it |
+| 1. The Sync Box smooths its own output | **about 140 ms to half way, 350 ms to 90 %** at its default speed of 40 %; **none at 100 %** | Yes: set the box's *Speed of Diffusion* to 100 %, or *Reaction boost* undoes it |
 | 2. The broadcast reaches the relay over Wi-Fi | **about 50 ms on average** here (bursts every ~102 ms, see below) | No, it is the network |
 | 3. The relay turns the frame into LED colours and sends it | **3 ms on average, 6 ms at worst** (it was 17 / 32 ms before the relay sent frames the moment they arrive) | Done |
 | 4. The relay's packet crosses Wi-Fi to WLED | a few ms | No |
@@ -20,9 +20,27 @@ The Sync Box is by far the biggest part. It does not broadcast the picture colou
 frame (about 14 a second) its output moves 40 % of the way to the real colour (`new = 0.6 * old + 0.4 * target`, measured over
 thousands of frames, see [PROTOCOL.md](PROTOCOL.md)). That is why the box's own strip looks soft, and why mirroring it lags.
 
+## Best: switch the box's smoothing off
+
+The box app has **Speed of Diffusion** (the diffusion mode next to it changes nothing in the broadcast). Measured with `tools/sync_probe` (a laptop's HDMI
+into the box, patterns of known timing, each change looked at on its own):
+
+| Speed of Diffusion | A change rises from 10 % to 90 % in | Half of a change is shown after | 90 % after |
+|---|---|---|---|
+| 40 % | 210-300 ms, with half-way packets in nearly every change | 255-280 ms | 445-465 ms |
+| **100 %** | **0 ms, no half-way packets** | **204 ms** | **204 ms** |
+
+(The times include the laptop's own output and a Wi-Fi link that delivers broadcasts in bursts; compare the two rows, not the absolute numbers.) At 100 % the
+box broadcasts the real picture, one packet after the other, so there is nothing left to undo. Set **Box speed** on the setup page to the same number as in
+the box's app, and leave *Reaction boost* at 0 (it does nothing at a box speed of 100). *Motion smoothing* below then does the smoothing, once, in the
+relay.
+
 ## Reaction boost
 
-Because the filter is known, it can be run backwards: `target = y + 1.5 * (y - previous y)`. Setup page -> Look -> **Reaction
+If you keep the box slower than 100 %, the smoothing can be undone in software. **Box speed** (Look) must match the box's app; the default 40 % is the box's
+default.
+
+Because the filter is known, it can be run backwards: `target = y + k * (y - previous y)`, with k = 1.5 at a box speed of 40 % (k = q^m / (1 - q^m) for a speed s, q = 1 - s, m = the packets' smoothing steps apart). Setup page -> Look -> **Reaction
 boost** (also a number in Home Assistant) blends from the box's own value (0 %) to the rebuilt target (100 %). A step from black to
 red, measured at the relay's output with `tools/latency_test.py` (milliseconds after the change was sent):
 
@@ -35,6 +53,11 @@ red, measured at the relay's output with `tools/latency_test.py` (milliseconds a
 The trade-off: the lights react like the picture does, not like the box's soft strip. Fast flashes look sharper, and a scene that
 fades to black can drop to black a little early. 50-70 % is a good place to start; it is off by default so nothing changes until you
 turn it up. It needs only the previous frame, so it adds no delay of its own.
+
+Packets that Wi-Fi drops are handled by counting the steps from the gap between the received packets (a gap of 200 ms held three steps). Tested on
+recordings made at 40 %: the undone steps rise instantly like a box at 100 % does, and at 100 % boost almost every packet is rebuilt to within a few percent.
+One case cannot be seen in the stream: when the packet just before a change is lost, the first packet after it already holds two steps but has a normal gap,
+so that one frame overshoots (up to about 60 % of the change at boost 100, about 25 % at boost 60, which is why 50-70 is the good place to start).
 
 ## Motion smoothing and blur
 

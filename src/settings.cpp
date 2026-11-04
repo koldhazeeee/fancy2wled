@@ -141,6 +141,9 @@ static void loadFromFlash() {
   s.kSat = gF("kSat", 1.f);
   s.kSmo = gF("kSmo", 0.5f);
   s.kBoost = gF("kBoost", 0.f);
+  s.boxSpeed = gI("kBsp", 40);
+  if (s.boxSpeed < 10) s.boxSpeed = 10;
+  if (s.boxSpeed > 100) s.boxSpeed = 100;
   s.motion = gI("kMot", 0);
   if (s.motion < 0) s.motion = 0;
   if (s.motion > 100) s.motion = 100;
@@ -194,6 +197,7 @@ void settingsSave() {
   prefs.putFloat("kSmo", s.kSmo);
   prefs.putFloat("kBoost", s.kBoost);
   prefs.putInt("kMot", s.motion);
+  prefs.putInt("kBsp", s.boxSpeed);
   prefs.putBool("enabled", s.enabled);
   prefs.putInt("tvMode", s.tvMode);
   prefs.putInt("tvSecs", s.tvSecs);
@@ -313,6 +317,7 @@ void settingsToJson(JsonDocument& d) {
   k["smoothing"] = s.kSmo;
   k["boost"] = s.kBoost;
   k["motion"] = s.motion;
+  k["boxSpeed"] = s.boxSpeed;
   k["smoothOut"] = s.smoothOut;
   d["box"]["host"] = s.boxHost;
   d["relay"]["enabled"] = s.enabled;
@@ -458,6 +463,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["smoothing"].isNull()) n.kSmo = clampf(k["smoothing"].as<float>(), 0.f, 0.95f);
   if (!k["boost"].isNull()) n.kBoost = clampf(k["boost"].as<float>(), 0.f, 1.f);
   if (!k["motion"].isNull()) n.motion = (int)clampf(k["motion"].as<float>(), 0.f, 100.f);
+  if (!k["boxSpeed"].isNull()) n.boxSpeed = (int)clampf(k["boxSpeed"].as<float>(), 10.f, 100.f);
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
   if (!b["host"].isNull()) n.boxHost = b["host"].as<String>();
   if (!d["relay"]["enabled"].isNull()) n.enabled = d["relay"]["enabled"].as<bool>();

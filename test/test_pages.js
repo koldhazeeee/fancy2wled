@@ -309,6 +309,14 @@ async function cdp(wsUrl) {
     await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
     check('index: Save sends the boost as a fraction (0.6)', dev.state.lastConfigPost && dev.state.lastConfigPost.look && Math.abs(dev.state.lastConfigPost.look.boost - 0.6) < 1e-9, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
     await p.ev("var b=document.getElementById('kBoost'); b.value='0'; b.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(500);
+    // the box's own speed, which the boost has to undo
+    check('index: box speed starts at 40% (the box app default)', (await p.ev("document.getElementById('kBsp').value")) === '40' && /40%/.test(await p.ev("document.getElementById('kBspV').textContent")));
+    await p.ev("var b=document.getElementById('kBsp'); b.value='100'; b.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
+    check('index: at 100% the label says the box does not smooth', /100%.*does not smooth/.test(await p.ev("document.getElementById('kBspV').textContent")), await p.ev("document.getElementById('kBspV').textContent"));
+    dev.state.lastConfigPost = null;
+    await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+    check('index: Save sends the box speed', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.boxSpeed === 100, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+    await p.ev("var b=document.getElementById('kBsp'); b.value='40'; b.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(500);
     // nudge buttons + range check
     check('index: nudge buttons are built', (await p.ev("document.querySelectorAll('.nudge button').length")) >= 24);
     await p.ev("document.getElementById('wStart').value='0'; document.querySelector('[data-nudge=wStart] button:last-child').click(); 1");

@@ -644,10 +644,23 @@ void zoneUsage(const Entry* t, int count, float out[kZones]) {
   }
 }
 
-float leadBoost(float y, float yPrev, float boost) {
+float leadBoost(float y, float yPrev, float boost, int speedPercent, int steps) {
   const float b = boost < 0.f ? 0.f : (boost > 1.f ? 1.f : boost);
-  const float v = y + b * kBoxLead * (y - yPrev);
+  float k = 0.f;                                          // nothing to undo at 100 % or when the packets did not follow each other
+  if (speedPercent < 100 && steps > 0) {
+    const float q = 1.f - (speedPercent < 10 ? 10 : speedPercent) / 100.f;
+    float qm = 1.f;
+    for (int i = 0; i < (steps > 8 ? 8 : steps); i++) qm *= q;
+    k = qm / (1.f - qm);
+  }
+  const float v = y + b * k * (y - yPrev);
   return v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+}
+
+int boxStepsForGap(uint32_t gapMs) {
+  if (gapMs > 600) return 0;
+  const int n = (int)((float)gapMs / 73.f + 0.35f);
+  return n < 1 ? 1 : n;
 }
 
 float smoothDecay(float smoothing, float dtMs, float refMs) {
