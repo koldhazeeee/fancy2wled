@@ -8,8 +8,10 @@ your lights and no PC has to stay on.
 * **Set up from your phone**: join the board's Wi-Fi, pick your network, find your WLED. Done.
 * **Up to four targets**: a strip behind the TV, a cabinet light, a second WLED. Each has its own LEDs, its own part of the picture
   to follow (the top, bottom, left or right edge, or all the way around) and its own brightness. One WLED can serve several targets.
-* **See what each target follows**: a *picture map* on the setup page shows the TV as the Sync Box's 6 by 4 grid with the zones every target pulls
-  from, each zone filled with the colour the box is sending **live** and each target a coloured bar under the zones it follows (shaded by how many of its LEDs use the zone). It redraws as you edit, before you save; the live colours are only fetched while the map is on screen.
+* **See what each target follows**: a *picture map* on the setup page draws the Sync Box's 24 zones **where each one really looks at the picture** (not an even
+  grid, see [What the Sync Box sends](#what-the-sync-box-sends)) with the zones every target pulls from, each zone filled with the colour the box is sending **live**
+  and each target a coloured bar under the zones it follows (shaded by how many of its LEDs use the zone). **Click a zone** to light the LEDs that follow it on your
+  WLED strips. It redraws as you edit, before you save; the live colours are only fetched while the map is on screen.
 * **Govee lights too**: a target can be a Govee light on your network (LAN control), followed per segment like a WLED strip ([docs/GOVEE.md](docs/GOVEE.md)).
 * **Updates over Wi-Fi**: after the first USB flash, upload `firmware.bin` on the setup page or push it with PlatformIO. Off until you set an update password;
   a new firmware that fails to start is undone by the board itself ([docs/OTA.md](docs/OTA.md)).
@@ -17,8 +19,8 @@ your lights and no PC has to stay on.
   a delay you choose (15 s by default) the WLEDs are handed back to how they were, or switched off, and they return with the first colour. Home Assistant gets a *TV on* sensor.
 * **Find your LEDs by sight**: a block of lit LEDs you slide along the strip, and red / blue markers that show where the run and the TV
   part start and end.
-* Streams ~30 fps to WLED over DDP, with smoothing, brightness/gamma/saturation and a **reaction boost** that cuts the delay
-  ([why the lights lag](docs/LATENCY.md)).
+* Streams ~30 fps to WLED over DDP, with smoothing, brightness/gamma/saturation, **motion smoothing**, and a way to **undo the box's own smoothing** (set the box's
+  *Speed of Diffusion* to 100 %, or tell the relay its speed and use the **reaction boost**) so the lights are not a fraction of a second behind ([why the lights lag](docs/LATENCY.md)).
 * **Tells you when the box changes**: if a Sync Box firmware update changes what it broadcasts, the relay says so (setup page, red LED, Home Assistant) and
   can give you a diagnostics file, instead of just looking like a switched-off box ([docs/RESILIENCE.md](docs/RESILIENCE.md)).
 * *Optional:* **auto-calibration with your phone's camera** (a separate build, `atoms3-phonecal`; see [docs/CALIBRATION.md](docs/CALIBRATION.md)).
@@ -73,7 +75,8 @@ The pictures are regenerated from the real page with `node tools/make_screenshot
    the strip where the TV starts and ends and a few **blue** ones where the run starts and ends (for about 8 seconds, or press
    *Show markers on the LEDs*), so you can see exactly which LEDs you are choosing. To check that the strip is centred on the TV, press
    *Show the middle of the TV*: one **green** LED lights at the exact middle of the TV part (two when it has an even number of LEDs),
-   and it should sit in the middle of the screen.
+   and it should sit in the middle of the screen. The first and last LED of the TV part should line up with the left and right edge of the *picture* (the lit
+   screen, not the outside of the frame): the outermost of the three red LEDs at each end marks that edge.
 6. **Check it:** press **Start rainbow test**: red shows at the TV's left edge through to violet at its right edge on the target you are
    editing, and every change (the +1/+10 buttons, *slide the TV part along the run*, LED numbers, where the LEDs are, look) updates
    live without being saved. Press **Save** when it looks right (stopping the test without saving discards the changes).
@@ -117,12 +120,31 @@ usual, then open the setup page and press **Import config**. The page shows a su
   with a message and nothing on the board changes.
 * The file is plain JSON (`format`, `version`, `config`, optional `table`), so you can also keep it in version control or edit it.
 
+## What the Sync Box sends
+
+The box broadcasts **24 colours**, about 14 times a second, and nothing else. It does not send the picture. This was measured with `tools/sync_probe`, which shows
+known pictures to a box (a laptop's HDMI into its input) and records what it broadcasts; the numbers are in [docs/PROTOCOL.md](docs/PROTOCOL.md) and [docs/LATENCY.md](docs/LATENCY.md).
+
+* **Each zone is an exact average over one window of the picture, and the windows are not an even grid.** The zones are numbered `row * 6 + col` (0-5 along the top),
+  but on a 1920 x 1080 picture they look at:
+  * the top row (0-5) and the bottom row (18-23): a band 60 px high at the screen edge, as six windows 300 px wide (x 0-300, 300-600, 600-900, 960-1260, 1260-1560, 1560-1860);
+  * the two middle rows: windows 240 px high (y 240-480 and 540-780), with the left and right zones (6, 12, 11, 17) only 60 px strips at the screen edge;
+  * everything in between is never sent, so something bright in a gap does not change the lights until it reaches a window. The picture map draws exactly this.
+* **The box smooths in time.** Its app's *Speed of Diffusion* sets how far each packet moves towards the new picture: at the default 40 % a change takes about 0.4 s to
+  arrive; at **100 % it does not smooth at all**. The app's diffusion mode and its brightness slider change nothing in the broadcast.
+* **The box lowers the levels.** It subtracts about 26-28 from every colour value and does not expand limited-range video: white 255 arrives as about 227 (209 for
+  limited-range video such as a console or streaming stick), and the darkest 30 or so levels arrive as 0. Hue and saturation are kept. The relay does not
+  compensate for this yet; raise *Brightness* if you want full white.
+* **So the limit is 24 numbers.** No software can rebuild the full picture from them, and the box throws the rest away before it broadcasts. What the relay can do is
+  place those 24 values accurately along each edge (it does, using the measured windows), take the box's smoothing out, and smooth movement itself. Lighting from the real image
+  would need a different source, such as an HDMI splitter feeding a capture card.
+
 ## Settings
 
 | Setting | Meaning |
 |---|---|
 | WLED address | IP or `name.local` of your WLED (a pasted `http://wled-ceiling.local/` is cleaned up). **Prefer the name** (set it in WLED under Config > WiFi Setup > mDNS address): the board looks it up again every minute, so a WLED that gets a new IP from your router is found again on its own. The page shows which address the name points to. The *Find* button fills in the name. |
-| Picture map | not a setting (apart from a tick box for the live colours, remembered in your browser): the TV as a 6 by 4 grid; each zone shows the colour the box is sending right now (`GET /api/zones`, twice a second, only while the map is on screen), zones no target follows are faded, and each target is a bar in its colour under the zones it follows, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`) |
+| Picture map | not a setting (apart from a tick box for the live colours, remembered in your browser): the 24 zones drawn where the box really looks; each zone shows the colour the box is sending right now (`GET /api/zones`, twice a second, only while the map is on screen), zones no target follows are faded, and each target is a bar in its colour under the zones it follows, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`). **Click a zone** to light the LEDs that follow it in white on your WLED strips for 8 seconds (click again to switch it off; `POST /api/zonemark`; Govee lights are left alone) |
 | When the TV is off | what to do when the picture has been completely black for the chosen number of seconds (3-600, default 15): **hand the WLEDs back** as they were before sync started (default), **switch them off**, or do nothing (the *TV on* sensor still works). They return with the first frame that has any colour. A long black screen counts as "TV off" too, so raise the delay if that bothers you. Inferred from the picture, not a signal from the box: see [PROTOCOL.md](docs/PROTOCOL.md) |
 | Firmware updates | off until an **update password** (8-64 characters) is set; then tick *Allow firmware updates over Wi-Fi* and upload `firmware.bin` here, or run `pio run -e atoms3-ota -t upload` with `FANCY2WLED_OTA_PASSWORD` set. Changing the password needs the current one; a config file cannot set it. Details, safety rules and rollback: [docs/OTA.md](docs/OTA.md) |
 | Target type | **WLED** (a strip running WLED, streamed over DDP) or **Govee light** (LAN control; streamed per segment, 1-60 segments, addressed by IP; see [docs/GOVEE.md](docs/GOVEE.md)) |
@@ -138,8 +160,8 @@ usual, then open the setup page and press **Import config**. The page shows a su
 | Set WLED brightness | WLED's own master brightness (the relay's colours are scaled by it); -1 leaves it alone |
 | Put WLED back how it was | when the box goes quiet, restore WLED's previous on/off + brightness |
 | Layout | a straight line, around the TV, or (with the phone-calibration build) a table measured by the phone |
-| Brightness / gamma / saturation | 1.0 = copy the box exactly. The box tops out around 200/255 for white; raise brightness if you want full white |
-| Smoothing over time | 0 = instant, 0.9 = slow fades (the box itself already smooths ~0.3 s) |
+| Brightness / gamma / saturation | 1.0 = copy the box exactly. The box lowers every colour value by about 26-28, so white arrives as about 227 (209 for limited-range video); raise brightness if you want full white |
+| Smoothing over time | 0 = instant, 0.9 = slow fades (the box itself already smooths: a change takes about 0.4 s to arrive at its default speed, none at 100 %) |
 | Box speed | The box app's *Speed of Diffusion* (default 40 %): enter the same number here. **Better: set the box's speed to 100 %**, then it does not smooth at all and the lights follow the real picture. See [docs/LATENCY.md](docs/LATENCY.md) |
 | Reaction boost | 0 = follow the box exactly (default), 100 = undo the box's own smoothing so the lights react as fast as the picture (needs *Box speed* below 100). Try 50-70. See [docs/LATENCY.md](docs/LATENCY.md) |
 | Motion smoothing | 0 = off (default). The box sends a new picture only about every 100 ms; this slides the lights from one picture to the next instead of jumping, shown that share of one picture interval late (100 = one interval, about 100 ms), so movement looks continuous. Replaces *Smoothing over time* and *Reaction boost* while on. About 2.7 times smoother than the default on recorded video; against the default smoothing the delay is similar, but against *Reaction boost* the lights react about 60 ms later, so lower it if you care more about speed than smoothness. See [docs/LATENCY.md](docs/LATENCY.md) |
@@ -152,8 +174,9 @@ what it sends. Press **Download diagnostics** on the setup page and attach the f
 captures: [docs/RESILIENCE.md](docs/RESILIENCE.md).
 
 **The lights lag behind the picture.** Most of that delay is the Sync Box smoothing its own colours, then the Wi-Fi network delivering
-its broadcast in bursts. Turn up **Reaction boost** (Look) and see [docs/LATENCY.md](docs/LATENCY.md) for where the time goes, what to change
-on your network, and how to measure it (`tools/latency_test.py`).
+its broadcast in bursts. **Best fix: set the box's *Speed of Diffusion* to 100 % in its app** and *Box speed* to 100 on the setup page (Look): the box then sends the real
+picture and *Motion smoothing* can do the smoothing in one place. If you keep the box slower, set *Box speed* to its number and turn up **Reaction boost**. See
+[docs/LATENCY.md](docs/LATENCY.md) for where the time goes, what to change on your network, and how to measure it (`tools/latency_test.py`).
 
 **"Sync Box: nothing yet".** The box broadcasts to the local subnet. The relay must be on the same Wi-Fi *and* the same
 subnet/VLAN. Broadcasts do not cross routers, and some access points / "client isolation" / "multicast-to-unicast" settings
@@ -206,7 +229,7 @@ to choose for *Update firmware* on the setup page ([docs/OTA.md](docs/OTA.md)). 
 * `src/webserver.cpp` - HTTP on :80 (and, in the phone-calibration build, HTTPS on :443 with a self-signed key generated on first boot), JSON API.
 * `src/mqtt_ha.cpp` - Home Assistant over MQTT (discovery, state, commands), runs in its own task.
 * `src/perf.cpp` - optional performance statistics (CPU load per core, memory, frame timing), only active when switched on.
-* `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator, `check_mqtt.py` (checks the board's MQTT discovery), `latency_test.py` (measures how fast the output follows a step), `capture_frames.py` and `check_capture.py` (record the box's broadcast and compare captures, see [docs/RESILIENCE.md](docs/RESILIENCE.md)).
+* `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator, `check_mqtt.py` (checks the board's MQTT discovery), `latency_test.py` (measures how fast the output follows a step), `capture_frames.py` and `check_capture.py` (record the box's broadcast and compare captures, see [docs/RESILIENCE.md](docs/RESILIENCE.md)), and `sync_probe/` (shows known test pictures full screen on a laptop whose HDMI feeds the box and records what the box broadcasts, then reports its delay, smoothing, levels and the window each zone looks at: `python tools/sync_probe/probe.py --yes`; its flicker tests flash the whole screen at up to 30 Hz, leave them out with `--no-flash`).
 
 (Phone-calibration build:) the image analysis runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only
 lights LEDs on request and stores the resulting table.
