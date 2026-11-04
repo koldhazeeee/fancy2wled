@@ -179,6 +179,16 @@ static esp_err_t h_status(httpd_req_t* req) {
     o["ok"] = s.targets[i].ok;
     o["leds"] = s.targets[i].leds;
     o["wledName"] = s.targets[i].wledName;
+    // delay tracking (docs/LATENCY.md); a field is left out until it has been measured
+    const TargetStatus& ts = s.targets[i];
+    auto tenth = [](float v) { return ((int)(v * 10.f + 0.5f)) / 10.f; };
+    JsonObject la = o["lat"].to<JsonObject>();
+    if (ts.ageAvgMs >= 0) { la["ageMs"] = tenth(ts.ageAvgMs); la["ageMaxMs"] = tenth(ts.ageMaxMs); }
+    if (ts.rttSamples > 0) {
+      la["probes"] = ts.rttSamples; la["lost"] = ts.rttLost; la["probeAgeS"] = ts.rttAgeS;
+      if (ts.rttAvgMs >= 0) { la["rttMs"] = tenth(ts.rttAvgMs); la["rttMinMs"] = tenth(ts.rttMinMs); la["rttMaxMs"] = tenth(ts.rttMaxMs); }
+    }
+    if (ts.showMs >= 0) la["showMs"] = tenth(ts.showMs);
   }
   JsonObject w = d["wled"].to<JsonObject>();       // the first target, under its old name (tools written for one target)
   w["host"] = s.targets[0].host;

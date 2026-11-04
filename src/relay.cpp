@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <lwip/sockets.h>
 
 #include "app.h"
@@ -121,6 +122,14 @@ struct Rt {
   bool wledOk = false;
   int wledLeds = 0;
   String wledName;
+  // Delay tracking (docs/LATENCY.md). The age of each Sync Box frame when this target's packet for it leaves, over 5 s windows; round trips to the target.
+  uint32_t ageSumUs = 0, ageN = 0, ageMaxUs = 0, ageWinMs = 0, ageFrame = 0;   // the window being filled (relay task only)
+  float pubAgeAvgMs = -1, pubAgeMaxMs = -1;    // the last finished window (under Lock)
+  RttRing rtt;                                 // the last probe round trips (under Lock)
+  uint32_t probeMs = 0, rttMs = 0;             // when a probe was last queued; when the latest one finished (under Lock for rttMs)
+  bool probing = false;                        // a probe is queued or running (under Lock)
+  int probeCount = 0;                          // probes so far: every sixth one of a WLED also reads its refresh rate
+  int wledFps = 0;                             // the refresh rate WLED last reported (0 = unknown)
   Cal cal;
   uint32_t testUntil = 0;
   Mark mark;
@@ -185,10 +194,12 @@ WledInfo wledQuery(const String& host) {
   filter["name"] = true;
   filter["leds"]["count"] = true;
   filter["leds"]["rgbw"] = true;
+  filter["leds"]["fps"] = true;
   JsonDocument doc;
   if (deserializeJson(doc, body, DeserializationOption::Filter(filter))) { r.error = "That did not look like a WLED device."; return r; }
   if (doc["leds"]["count"].isNull()) { r.error = "That did not look like a WLED device."; return r; }
   r.leds = doc["leds"]["count"].as<int>();
+  r.fps = doc["leds"]["fps"] | 0;
   r.rgbw = doc["leds"]["rgbw"].as<bool>();
   r.name = doc["name"].as<String>();
   r.ver = doc["ver"].as<String>();
@@ -382,6 +393,8 @@ struct WledJob {
   bool keepSnap = false;                           // (prepare) the WLED was switched off by us: keep the state remembered before, not "off"
   bool govee = false;                              // the target is a Govee light, not a WLED
   int segments = 0;                                // (Govee) its number of segments
+  bool probe = false;                              // a delay probe: one round trip to the target (and, for a WLED, now and then its refresh rate)
+  bool probeFps = false;
 };
 static QueueHandle_t gJobs = nullptr;
 
@@ -468,10 +481,76 @@ static void goveeBootHandBack(int nT) {
   }
 }
 
+// ---- delay probes
+// The time to open a TCP connection to a port (the connect call returns when the SYN-ACK is back: a round trip through the network and the
+// other side's network stack, without waiting for any application). -1 = no answer within timeoutMs.
+static float tcpRttMs(const String& addr, uint16_t port, int timeoutMs) {
+  IPAddress ip;
+  if (!ip.fromString(addr) && !WiFi.hostByName(addr.c_str(), ip)) return -1.f;
+  const int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (s < 0) return -1.f;
+  fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK);
+  sockaddr_in to = {};
+  to.sin_family = AF_INET;
+  to.sin_port = htons(port);
+  to.sin_addr.s_addr = (uint32_t)ip;
+  float ms = -1.f;
+  const uint32_t t0 = micros();
+  const int rc = connect(s, (sockaddr*)&to, sizeof to);
+  if (rc == 0) ms = (micros() - t0) / 1000.f;
+  else if (errno == EINPROGRESS) {
+    fd_set wf;
+    FD_ZERO(&wf);
+    FD_SET(s, &wf);
+    timeval tv;
+    tv.tv_sec = timeoutMs / 1000;
+    tv.tv_usec = (timeoutMs % 1000) * 1000;
+    if (select(s + 1, nullptr, &wf, nullptr, &tv) > 0) {
+      int err = 0;
+      socklen_t el = sizeof err;
+      getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &el);
+      if (err == 0) ms = (micros() - t0) / 1000.f;
+    }
+  }
+  close(s);
+  return ms;
+}
+
+static void probeJob(WledJob* j) {
+  float ms = -1.f;
+  int fps = 0;
+  if (j->govee) {
+    IPAddress ip;
+    if (ip.fromString(j->host)) ms = goveeRttMs(ip);
+  } else {
+    String addr;
+    workerAddress(j->target, j->host, false, addr);
+    ms = tcpRttMs(addr, 80, 800);
+    if (j->probeFps && ms >= 0.f) {                                  // WLED's own refresh rate while it is streaming (it changes with the LEDs and the load)
+      String body;
+      if (httpGet(addr, "/json/info", body)) {
+        JsonDocument filter;
+        filter["leds"]["fps"] = true;
+        JsonDocument doc;
+        if (!deserializeJson(doc, body, DeserializationOption::Filter(filter))) fps = doc["leds"]["fps"] | 0;
+      }
+    }
+  }
+  Lock l;
+  Rt& r = gRt[j->target];
+  r.probing = false;
+  if (r.hostCache != j->host) return;                                // the target was changed meanwhile: this answer belongs to the old one
+  rttAdd(r.rtt, ms);
+  r.rttMs = millis();
+  if (r.rttMs == 0) r.rttMs = 1;
+  if (fps > 0) r.wledFps = fps;
+}
+
 static void wledWorker(void*) {
   for (;;) {
     WledJob* j = nullptr;
     if (xQueueReceive(gJobs, &j, portMAX_DELAY) != pdTRUE || !j) continue;
+    if (j->probe) { probeJob(j); delete j; continue; }
     if (j->govee) { goveeJob(j); delete j; continue; }
     if (j->resolveOnly) {
       String addr;
@@ -483,7 +562,7 @@ static void wledWorker(void*) {
         Rt& r = gRt[j->target];
         if (j->target < gSet.nTargets && gSet.t[j->target].wHost == j->host) {
           r.wledOk = wi.ok;
-          if (wi.ok) { r.wledLeds = wi.leds; r.wledName = wi.name; }
+          if (wi.ok) { r.wledLeds = wi.leds; r.wledName = wi.name; if (wi.fps > 0) r.wledFps = wi.fps; }
         }
       }
     } else if (j->prepare) {
@@ -496,7 +575,7 @@ static void wledWorker(void*) {
         if (r.hostCache == j->host) {
           r.wledOk = wi.ok;
           if (wi.ok) {
-            r.wledLeds = wi.leds; r.wledName = wi.name;
+            r.wledLeds = wi.leds; r.wledName = wi.name; if (wi.fps > 0) r.wledFps = wi.fps;
             if (!(j->keepSnap && r.snapHost == j->host)) { r.snapHost = j->host; r.snapOn = wi.on; r.snapBri = wi.bri; }   // after "TV off" the WLED reads as off: that is not what to hand back
           }
         }
@@ -549,6 +628,25 @@ static void housekeeping(int nT) {
   for (int i = 0; i < nT; i++) {
     Rt& r = gRt[i];
     syncAddress(i);
+    // delay tracking: publish the finished 5 s window of frame ages, and send a probe now and then while this target is being streamed to
+    if (now - r.ageWinMs >= 5000) {
+      Lock l;
+      if (r.ageN) { r.pubAgeAvgMs = r.ageSumUs / 1000.f / r.ageN; r.pubAgeMaxMs = r.ageMaxUs / 1000.f; }
+      r.ageSumUs = r.ageN = r.ageMaxUs = 0;
+      r.ageWinMs = now;
+    }
+    if (r.prepared && r.hostCache.length() > 0) {
+      const bool gv = r.kindCache == 1;
+      bool busy2;
+      { Lock l; busy2 = r.probing; }
+      if (!busy2 && now - r.probeMs >= (gv ? 30000u : 10000u)) {
+        r.probeMs = now;
+        WledJob* pj = new WledJob();
+        pj->probe = true; pj->target = i; pj->host = r.hostCache; pj->govee = gv; pj->probeFps = !gv && (r.probeCount++ % 6 == 0);
+        { Lock l; r.probing = true; }
+        if (!postJob(pj)) { Lock l; r.probing = false; }
+      }
+    }
     if (!r.hostIsName) continue;
     bool busy;
     uint32_t known, since;
@@ -798,6 +896,11 @@ void relayStatus(RelayStatus& s, bool detail) {
     ts.kind = t.kind;
     ts.ok = r.wledOk;
     ts.leds = r.wledLeds;
+    ts.ageAvgMs = r.pubAgeAvgMs; ts.ageMaxMs = r.pubAgeMaxMs;
+    { const RttSummary q = rttSummary(r.rtt);
+      ts.rttSamples = q.samples; ts.rttLost = q.lost; ts.rttAvgMs = q.avgMs; ts.rttMinMs = q.minMs; ts.rttMaxMs = q.maxMs; }
+    ts.rttAgeS = r.rttMs ? (int)((now - r.rttMs) / 1000) : -1;
+    ts.showMs = t.kind == 0 ? wledShowMs(r.wledLeds, (float)r.wledFps) : -1.f;
     if (detail) {
       ts.name = t.name; ts.host = t.wHost; ts.wledName = r.wledName;
       const uint32_t a = r.ipRaw;
@@ -984,6 +1087,12 @@ void relayLoop() {
       const uint32_t ps0 = gPerfOn ? micros() : 0;
       ddpSend(i, gPayload, len, sn[i].start, sn[i].whiteMin);
       if (gPerfOn) sendUs += micros() - ps0;
+      if (r.ageFrame != gFrames) {                                       // the first packet that carries the newest Sync Box frame to this target
+        r.ageFrame = gFrames;
+        const uint32_t age = micros() - gLastFrameUs;
+        r.ageSumUs += age; r.ageN++;
+        if (age > r.ageMaxUs) r.ageMaxUs = age;
+      }
       sentAny = true;
       if (r.lastCap >= (int)len && r.last) {
         memcpy(r.last, gPayload, len);

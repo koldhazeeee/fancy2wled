@@ -67,11 +67,41 @@ if your model allows it. The relay can do nothing about it, but it always uses t
 * *Config -> LED Preferences -> Target refresh rate* should not be lower than the strip can do. *Config -> WiFi Setup -> Disable
   WiFi sleep* should be on (it is by default on ESP32).
 
+## Delay to each target (setup page)
+
+The status card at the top of the setup page has a collapsible **Delay to the lights** with one line per target, measured while the TV is on. It counts
+from the moment a Sync Box frame reaches the board:
+
+* **board**: the time from reading a frame to handing the packet that carries it for this target to the network (average, and the worst of the last
+  5 seconds when it is more than twice the average). This is a measurement. The first target is sent first; each next one adds its own colour mixing and send.
+* **network**: half of a probe's round trip to the target. A probe goes out every 10 s (a WLED: how long a TCP connection to its port 80 takes to open; the
+  board never sends it anything else) and the page shows the average of the last 20, with how many went unanswered. Half a round trip is an
+  assumption (both ways take equally long), not a measurement of one way.
+* **strip refresh** (a WLED): a model. WLED clocks the strip out at about 30 microseconds per LED over its whole configured length, and a frame that arrives
+  waits on average half a refresh for the next one (the refresh rate is read from WLED now and then). It is not a measurement of the strip.
+* **a Govee light** has no frame acknowledgement, so only the board's share is measured, plus how long the light takes to answer a status question
+  (once every 30 s). That time includes the light's own processing, so it is not added up. A Govee light takes at most about 12 frames a second, so a new
+  frame can wait up to 80 ms for its turn; this shows in the board's share (28-38 ms on average on the two lights it was tried on).
+
+The same numbers are in `/api/status` under each target's `lat`. On the setup this was developed on, the TV strip showed board 4.5 ms + network 9 ms +
+strip refresh 42 ms = about 56 ms, and the Cabinet about 52 ms.
+
+Not included: the Sync Box's own smoothing (above), and the Wi-Fi hop from the box to the board. Neither can be seen from the board: the frames carry no
+timestamp, and the box and the board do not share a clock.
+
 ## Measuring it yourself
 
 * **Delay inside the relay and the shape of the Wi-Fi delivery**: switch on *Performance stats (debug)*. `Delay to WLED` is the
   time from a Sync Box frame arriving to the packet that carries it leaving; `gap_hist` in the `<prefix>/perf` message is the
   histogram of the gaps between Sync Box frames.
+* **From the Sync Box's broadcast to a WLED strip really changing**: `python tools/latency_e2e.py fancy2wled.local` (play something moving while it
+  runs, 40 s by default). It listens to the box's broadcast and, over the WebSocket the WLED web page uses for its live view, to each WLED strip, on this
+  computer's clock, and reports the delay at which the two match best (cross-correlation of the changes in brightness; it also prints the result for each
+  third of the run, so you can see how steady it is). It sends nothing and changes nothing. A negative number means the strip is ahead of the broadcast
+  (the reaction boost looks forward). Limits: a Wi-Fi adapter in power-save can hold broadcasts back, which would make the delay look longer than the relay
+  sees it; the live view is about 20 frames a second, so the result is an average over many frames, not one frame's delay; a Govee light has no live view.
+  On the setup it was developed on it gave about 65 ms for the TV strip and 50 ms for the Cabinet, with the board's own numbers adding up to about 56
+  and 52 ms.
 * **End to end at the relay's output**: `python tools/latency_test.py fancy2wled.local`. It plays the part of the Sync Box and of WLED,
   sends black/red steps shaped like the real box's output and prints how long the output takes to follow. Run it at different
   *Reaction boost* and *Smoothing over time* settings. It puts your settings back when it finishes.

@@ -49,4 +49,6 @@ button:disabled{opacity:.45;cursor:default;filter:none}
 .bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden}.bar>i{display:block;height:100%;width:0;background:var(--acc)}
 code{font:.85em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--ctl);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
 ul{margin:.3rem 0 .3rem 1.2rem;padding:0}
+summary{cursor:pointer;color:var(--mut);margin-top:.5rem}
+details>div{margin:.3rem 0}
 .hidden{display:none!important}

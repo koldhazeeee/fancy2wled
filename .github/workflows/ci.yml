@@ -11,6 +11,8 @@ jobs:
         with: { node-version: '24' }
       - name: Sources are plain ASCII, and hold no real device addresses
         run: node test/test_lint.js
+      - name: The delay measuring tool finds a known delay
+        run: python test/test_latency_e2e.py
       - name: The setup page compresses for the firmware
         run: python test/test_gzip_web.py
       - name: C++ core vs golden vectors

@@ -163,6 +163,25 @@ void zoneUsage(const Entry* table, int count, float out[kZones]);
 // out[i*3 + c] = colour of LED i.
 void applyTable(const Entry* table, int count, const float zones[kZones][3], float* out, const SmoothInfo& smooth, bool vivid = false);   // vivid: blend zones with vividBlend()
 
+// ---- delay tracking --------------------------------------------------------
+// The last kRttSamples round trips to one target (a probe packet there and back, in milliseconds; a probe that got no answer counts as lost).
+// The one-way network delay is taken as half of it. Plain arrays, no allocation.
+constexpr int kRttSamples = 20;
+struct RttRing {
+  float ms[kRttSamples] = {};       // < 0 = lost
+  int head = 0, count = 0;          // next slot to write; how many slots hold a probe (up to kRttSamples)
+};
+struct RttSummary {
+  int samples = 0, lost = 0;        // probes in the ring; how many of them got no answer
+  float avgMs = -1, minMs = -1, maxMs = -1;   // over the answered ones (-1 = none answered yet)
+};
+void rttAdd(RttRing& r, float ms);
+RttSummary rttSummary(const RttRing& r);
+// An estimate of how long a WLED needs to show a frame it has received: it clocks the LEDs out one after the other (about 30 microseconds each for
+// WS281x strips, over the strip's whole configured length) and a received frame waits on average half a refresh for the next one. fps = the refresh rate
+// WLED reports (0 = unknown: only the clocking-out time is counted). It is a model, not a measurement.
+float wledShowMs(int totalLeds, float fps);
+
 // ---- DDP (UDP 4048) ---------------------------------------------------------
 constexpr size_t kDdpHeader = 10;
 constexpr size_t kDdpMaxData = 1440;

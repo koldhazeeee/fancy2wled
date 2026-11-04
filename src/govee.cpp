@@ -109,6 +109,26 @@ bool goveeStatus(const IPAddress& ip, GoveeState& st) {
   return got;
 }
 
+// One status question and the time until the answer (the delay tracking probe). A lost question or answer is reported as -1, not retried: the share
+// of lost ones is part of what is being measured.
+float goveeRttMs(const IPAddress& ip) {
+  GLock l;
+  const int s = openReplySocket();
+  if (s < 0) return -1.f;
+  JsonDocument doc;
+  float rtt = -1.f;
+  const uint32_t t0 = micros();
+  sendTo(s, (uint32_t)ip, fwb::kGoveeControlPort, "{\"msg\":{\"cmd\":\"devStatus\",\"data\":{}}}");
+  const uint32_t end = millis() + 900;
+  while (rtt < 0.f && (int32_t)(end - millis()) > 0) {
+    uint32_t from = 0;
+    if (!recvJson(s, doc, &from, end - millis()) || from != (uint32_t)ip) continue;
+    if (String(doc["msg"]["cmd"] | "") == "devStatus") rtt = (micros() - t0) / 1000.f;
+  }
+  close(s);
+  return rtt;
+}
+
 // Put the light on or off and look until it says so (the first command is sometimes lost). Returns whether it was confirmed.
 static bool setOnOff(const IPAddress& ip, bool on) {
   for (int attempt = 0; attempt < 5; attempt++) {

@@ -20,6 +20,10 @@ input[type=range].wide{width:100%}
 <div class="card" id="stat">
   <div class="row"><span id="pWifi" class="pill">Wi-Fi</span><span id="pBox" class="pill">Sync Box</span><span id="wPills"></span><span id="pState" class="pill"></span><button id="syncBtn" class="sec hidden">Pause sync</button></div>
   <div id="statTxt" class="small mut"></div>
+  <details id="latBox" class="small"><summary>Delay to the lights</summary>
+    <div id="latList" class="mut"></div>
+    <p class="small mut">Counted from the moment a Sync Box frame reaches the board. Not included: the box's own smoothing and the Wi-Fi hop from the box to the board (see docs/LATENCY.md). The board's share is measured; the network share is half of a probe's round trip and the strip refresh is an estimate, so this is not a measurement of the light itself. A Govee light takes at most about 12 frames a second, so a new frame can wait up to 80 ms for its turn.</p>
+  </details>
 </div>
 
 <div class="card hidden" id="boxWarn">
@@ -318,6 +322,22 @@ input[type=range].wide{width:100%}
     },250);
   }
 
+  /* ---------------------------------------------------------------- delay to the lights (the board's "lat" numbers per target) */
+  function latText(t){
+    var l=t.lat||{};
+    if(t.enabled===false||!t.ok||(l.ageMs==null&&l.rttMs==null))return '';
+    var parts=[],tot=0,whole=true;
+    if(l.ageMs!=null){parts.push('board '+l.ageMs.toFixed(1)+' ms'+(l.ageMaxMs>2*l.ageMs?' (up to '+Math.round(l.ageMaxMs)+')':''));tot+=l.ageMs;}else whole=false;
+    if(t.kind==='govee'){                                   // a light: what a status question costs includes its own processing, so there is no total
+      if(l.rttMs!=null)parts.push('the light answers a status question in '+Math.round(l.rttMs)+' ms'+(l.lost?' ('+l.lost+' of '+l.probes+' went unanswered)':''));
+      else if(l.lost>0)parts.push('the light did not answer '+l.lost+' status question'+(l.lost>1?'s':'')+' (some models do not while they stream)');
+      return parts.join(' + ');
+    }
+    if(l.rttMs!=null){parts.push('network about '+(l.rttMs/2).toFixed(0)+' ms (round trip '+l.rttMs.toFixed(0)+' ms'+(l.lost?', '+l.lost+' of '+l.probes+' lost':'')+')');tot+=l.rttMs/2;}else whole=false;
+    if(l.showMs!=null){parts.push('strip refresh about '+l.showMs.toFixed(0)+' ms');tot+=l.showMs;}else whole=false;
+    return parts.join(' + ')+(whole?' = about '+Math.round(tot)+' ms':'');
+  }
+
   /* ---------------------------------------------------------------- status */
   async function status(){
     try{
@@ -336,6 +356,8 @@ input[type=range].wide{width:100%}
         else{var nn=t.kind==='govee'?'light':'WLED';sp.className='pill '+(t.host?'bad':'warn');sp.textContent=nm+(t.host?nn+' unreachable':nn+' not set');}
         box.appendChild(sp);
       });
+      var lh='';ts.forEach(function(t){var x=latText(t);if(x)lh+='<div><b>'+esc(t.name)+'</b>: '+esc(x)+'</div>';});
+      $('latList').innerHTML=lh||'Nothing measured yet: the delay is measured while the TV is on.';
       pill('pState','',s.state);
       $('statTxt').textContent=(s.ip||'')+'  |  '+s.hostname+'.local  |  signal '+s.rssi+' dBm  |  firmware '+s.ver+(s.box.sender?'  |  box at '+s.box.sender:'');
       var bx=s.box||{},tvn=$('tvNow');

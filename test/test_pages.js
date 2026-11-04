@@ -213,6 +213,11 @@ async function cdp(wsUrl) {
     check('govee: Save stores the type, the address, the segments and that the strip starts at the right', g0.kind === 'govee' && g0.wled.host === '192.0.2.60' && g0.wled.count === 20 && g0.wled.start === 0 && g0.layout.led0Right === true && g0.wled.brightness === 60, JSON.stringify([g0.kind, g0.wled, g0.layout.led0Right]));
     await sleep(3000);
     check('govee: the status pill counts segments, not LEDs', /Govee 20 segments/.test(await text('wPills')), await text('wPills'));
+    check('delay: nothing is measured yet, and it says so', /Nothing measured yet/.test(await text('latList')), await text('latList'));
+    dev.state.lat = { [dev.state.cfg.targets[0].name]: { ageMs: 38.1, ageMaxMs: 40, probes: 2, lost: 1, probeAgeS: 15, rttMs: 134.3, rttMinMs: 134.3, rttMaxMs: 134.3 } }; await sleep(3200);
+    check('delay: a Govee light shows the board share and how fast it answers, but no total', /Target 1/.test(await text('latList')) && /board 38\.1 ms/.test(await text('latList')) && /the light answers a status question in 134 ms \(1 of 2 went unanswered\)/.test(await text('latList')) && !/= about/.test(await text('latList')), await text('latList'));
+    dev.state.lat = { [dev.state.cfg.targets[0].name]: { ageMs: 11, ageMaxMs: 75.9, probes: 3, lost: 3, probeAgeS: 0 } }; await sleep(3200);
+    check('delay: a Govee light that never answers a status question says so instead of showing nothing', /board 11\.0 ms \(up to 76\) \+ the light did not answer 3 status questions \(some models do not while they stream\)/.test(await text('latList')) && !/= about/.test(await text('latList')), await text('latList'));
     await ota(location_reload());
     function location_reload() { return "location.reload(); 1"; }
     await sleep(1800);
@@ -272,6 +277,13 @@ async function cdp(wsUrl) {
     check('look: ... again, after they were set smooth', (await ota(sel('tSharp') + '.value')) === '100', await ota(sel('tSharp') + '.value'));
     await setType('wled');
     await ota(sel('tSharp') + ".value='0'; " + sel('tSat') + ".value='1'; " + sel('tVivid') + ".checked=false; " + sel('tSharp') + ".dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(300);    check('govee: back to the WLED setup for the tests below', dev.state.cfg.targets[0].kind === 'wled' && dev.state.cfg.targets[0].wled.host === '192.0.2.50' && dev.state.cfg.targets[0].wled.count === 150 && dev.state.cfg.targets[0].layout.led0Right === false, JSON.stringify(dev.state.cfg.targets[0].wled));
+    dev.state.lat = { [dev.state.cfg.targets[0].name]: { ageMs: 4.5, ageMaxMs: 37.2, probes: 7, lost: 0, probeAgeS: 5, rttMs: 18.8, rttMinMs: 9.3, rttMaxMs: 41, showMs: 41.8 } }; await sleep(3200);
+    check('delay: a WLED adds up the board, half the round trip and the strip refresh', /board 4\.5 ms \(up to 37\) \+ network about 9 ms \(round trip 19 ms\) \+ strip refresh about 42 ms = about 56 ms/.test(await text('latList')), await text('latList'));
+    dev.state.lat = { [dev.state.cfg.targets[0].name]: { ageMs: 4.5, ageMaxMs: 6, probes: 5, lost: 2, probeAgeS: 5, rttMs: 20, rttMinMs: 10, rttMaxMs: 30, showMs: 30 } }; await sleep(3200);
+    check('delay: lost probes are reported, and a small spread is not shown as "up to"', /board 4\.5 ms \+ network about 10 ms \(round trip 20 ms, 2 of 5 lost\)/.test(await text('latList')), await text('latList'));
+    dev.state.lat = { [dev.state.cfg.targets[0].name]: { ageMs: 4.4, ageMaxMs: 10, probes: 3, lost: 3, probeAgeS: 2 } }; await sleep(3200);
+    check('delay: a target whose probes all went unanswered still shows the board share, and says so (no network part, no total)', /board 4\.4 ms \(up to 10\)/.test(await text('latList')) && !/network about/.test(await text('latList')) && !/= about/.test(await text('latList')), await text('latList'));
+    dev.state.lat = {};
     // smoothing slider is part of the live preview
     await p.ev("var o=document.getElementById('kOut'); o.value='40'; o.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
     check('index: smooth-beyond-TV slider shows its value', /40%/.test(await p.ev("document.getElementById('kOutV').textContent")));

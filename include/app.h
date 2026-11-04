@@ -128,6 +128,7 @@ bool goveeStatus(const IPAddress& ip, GoveeState& st);                      // a
 bool goveePrepare(const IPAddress& ip, bool turnOn, int briPct, GoveeState& before);   // remembers its state, switches it on, starts streaming
 void goveeRestore(const IPAddress& ip, bool restore, bool haveSnap, const GoveeState& snap, bool forceOff);   // stops streaming, puts it back (or off)
 void goveeStream(const IPAddress& ip, bool on);
+float goveeRttMs(const IPAddress& ip);                                      // one status question to the light and how long the answer took (ms); -1 = no answer within about a second
 // The state a light was in before this board took it over, kept in flash for as long as the board streams to it. A board that restarts while
 // streaming (update, crash, power cut) cannot hand the light back; without this the next start would take the light's streaming state for its
 // original one. At the next start the light is handed back from this record. One record per target number.
@@ -152,7 +153,14 @@ struct OtaInfo { bool enabled, passSet, rolledBack; String version, slot, imageS
 void otaInfo(OtaInfo& o);
 
 // ---------------------------------------------------------------- relay
-struct TargetStatus { bool enabled = true, ok = false; int kind = 0; int leds = 0; String name, host, wledName, ip; int ipAgeS = -1; };   // ip: the address in use (a name's current address)
+struct TargetStatus {
+  bool enabled = true, ok = false; int kind = 0; int leds = 0; String name, host, wledName, ip; int ipAgeS = -1;   // ip: the address in use (a name's current address)
+  // Delay tracking (docs/LATENCY.md). -1 = not measured yet.
+  float ageAvgMs = -1, ageMaxMs = -1;                                  // a Sync Box frame read -> the packet that carries it handed to the network, over the last few seconds
+  float rttAvgMs = -1, rttMinMs = -1, rttMaxMs = -1;                   // probe round trips to this target (a TCP connect to a WLED, a status question to a Govee light)
+  int rttSamples = 0, rttLost = 0, rttAgeS = -1;                       // probes in the last 20; how many got no answer; seconds since the latest
+  float showMs = -1;                                                   // a WLED: the modelled time to show a received frame (wledShowMs)
+};
 struct RelayStatus {
   bool tvOff = false;                       // the picture has been black for the configured time (frames are still arriving)
   int tvBlackS = 0;                         // how long it has been black so far, in seconds (0 = not black)
@@ -179,7 +187,7 @@ void relayDiagnostics(JsonObject d);                       // counters and a few
 void relayStatus(RelayStatus& s, bool detail = false);    // detail: also names, hosts and the sender (allocates Strings; the web page wants them, the LED and MQTT do not)
 bool relayZones(uint8_t zones[fwb::kZones][3], uint32_t* ageMs);   // latest decoded frame
 // WLED queries used by the web UI
-struct WledInfo { bool ok = false; String name, ver, error; int leds = 0; bool rgbw = false, on = false; int bri = 0; };
+struct WledInfo { bool ok = false; String name, ver, error; int leds = 0; bool rgbw = false, on = false; int bri = 0; int fps = 0; };   // fps: the refresh rate WLED reports
 WledInfo wledQuery(const String& host);
 int wledDiscover(String& jsonOut);          // mDNS scan, writes a JSON array
 

@@ -461,6 +461,36 @@ void saturateColours(float* rgb, int n, float sat) {
   }
 }
 
+void rttAdd(RttRing& r, float ms) {
+  r.ms[r.head] = ms < 0.f ? -1.f : ms;
+  r.head = (r.head + 1) % kRttSamples;
+  if (r.count < kRttSamples) r.count++;
+}
+
+RttSummary rttSummary(const RttRing& r) {
+  RttSummary s;
+  s.samples = r.count;
+  float sum = 0.f;
+  int ok = 0;
+  for (int i = 0; i < r.count; i++) {
+    const float v = r.ms[i];                         // (while the ring is not full the used slots are 0..count-1)
+    if (v < 0.f) { s.lost++; continue; }
+    sum += v;
+    if (ok == 0 || v < s.minMs) s.minMs = v;
+    if (ok == 0 || v > s.maxMs) s.maxMs = v;
+    ok++;
+  }
+  if (ok) s.avgMs = sum / ok;
+  return s;
+}
+
+float wledShowMs(int totalLeds, float fps) {
+  if (totalLeds < 1) return -1.f;
+  const float clock = totalLeds * 0.030f;            // WS281x: 30 microseconds per LED
+  const float wait = fps > 1.f ? 500.f / fps : 0.f;  // on average half a refresh until the received frame is picked up
+  return clock + wait;
+}
+
 void darkOutside(float* rgb, int n, int first, int last) {
   if (!rgb || first < 0 || last < first) return;
   for (int i = 0; i < n; i++)

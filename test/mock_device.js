@@ -68,7 +68,7 @@ function createDevice(opts) {
       if (p === '/api/status') {
         // a name points to some address (192.0.2.51) unless the test says it was not found yet; an IP address is its own address
         const addrOf = h => !h ? '' : (/^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : (state.nameNotFound ? '' : '192.0.2.51'));
-        const targets = state.cfg.targets.map(t => ({ name: t.name, kind: t.kind || 'wled', host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: t.kind === 'govee' ? t.wled.count : ((state.totals && state.totals[t.wled.host]) || state.total), wledName: 'WLED' }));
+        const targets = state.cfg.targets.map(t => ({ name: t.name, kind: t.kind || 'wled', host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: t.kind === 'govee' ? t.wled.count : ((state.totals && state.totals[t.wled.host]) || state.total), wledName: 'WLED', lat: (state.lat && state.lat[t.name]) || {} }));   // delay tracking: state.lat[name] = the "lat" object the board reports
         return json(res, 200, { ver: state.version || 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: state.relayState || 'waiting for the Sync Box', https: false, heap: 1e5,
           enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
           features: { phoneCal: opts.phoneCal !== false },

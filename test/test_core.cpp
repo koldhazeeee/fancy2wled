@@ -502,7 +502,25 @@ int main(int argc, char** argv) {
     float d3[6] = {1, 2, 3, 4, 5, 6};
     darkOutside(d3, 2, 0, 9);
     CHECK(d3[0] == 1 && d3[5] == 6, "a TV part longer than the strip darkens nothing");
-    darkOutside(nullptr, 2, 0, 1); }  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
+    darkOutside(nullptr, 2, 0, 1); }  { // delay tracking: the ring of round trips, and the model of how long a WLED needs to show a frame
+    RttRing r;
+    const RttSummary s0 = rttSummary(r);
+    CHECK(s0.samples == 0 && s0.lost == 0 && s0.avgMs < 0 && s0.minMs < 0 && s0.maxMs < 0, "no probe yet: nothing to report");
+    rttAdd(r, 4.f); rttAdd(r, 6.f); rttAdd(r, 5.f);
+    const RttSummary s1 = rttSummary(r);
+    CHECK(s1.samples == 3 && s1.lost == 0 && fabsf(s1.avgMs - 5.f) < 1e-4f && s1.minMs == 4.f && s1.maxMs == 6.f, "three probes: avg %.2f min %.2f max %.2f", s1.avgMs, s1.minMs, s1.maxMs);
+    rttAdd(r, -1.f);
+    const RttSummary s2 = rttSummary(r);
+    CHECK(s2.samples == 4 && s2.lost == 1 && fabsf(s2.avgMs - 5.f) < 1e-4f && s2.minMs == 4.f && s2.maxMs == 6.f, "a lost probe is counted as lost and left out of the times");
+    for (int i = 0; i < 3 * kRttSamples; i++) rttAdd(r, 10.f);
+    const RttSummary s3 = rttSummary(r);
+    CHECK(s3.samples == kRttSamples && s3.lost == 0 && s3.avgMs == 10.f && s3.minMs == 10.f && s3.maxMs == 10.f, "only the last %d probes count (the older ones are overwritten)", kRttSamples);
+    RttRing lost;
+    for (int i = 0; i < 5; i++) rttAdd(lost, -5.f);
+    const RttSummary s4 = rttSummary(lost);
+    CHECK(s4.samples == 5 && s4.lost == 5 && s4.avgMs < 0, "every probe lost: no times, 5 of 5 lost");
+    CHECK(fabsf(wledShowMs(600, 35.f) - (18.f + 500.f / 35.f)) < 1e-3f, "600 LEDs at 35 fps: 18 ms clocking out + half a refresh = %.1f ms", wledShowMs(600, 35.f));
+    CHECK(fabsf(wledShowMs(210, 0.f) - 6.3f) < 1e-3f && wledShowMs(0, 30.f) < 0.f && wledShowMs(-3, 30.f) < 0.f, "fps unknown: only the clocking out; no LEDs: no estimate"); }  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
     struct { const char* in; const char* want; } b64[] = {{"", ""}, {"f", "Zg=="}, {"fo", "Zm8="}, {"foo", "Zm9v"}, {"foob", "Zm9vYg=="}, {"fooba", "Zm9vYmE="}, {"foobar", "Zm9vYmFy"}};
     for (const auto& c : b64) {
       char o[32];
