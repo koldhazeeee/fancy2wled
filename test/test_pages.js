@@ -162,11 +162,11 @@ async function cdp(wsUrl) {
       await toMap();
       check('live map: every zone shows the colour the box is sending', (await fillOf(3)) === 'rgb(30,225,40)' && (await fillOf(20)) === 'rgb(200,55,40)', await fillOf(3));
       check('live map: a zone a target follows is full, one nobody follows is faded', (await ota(grp(0) + ".getAttribute('opacity')")) === '1' && (await ota(grp(8) + ".getAttribute('opacity')")) === '0.4');
-      check('live map: the target is a bar under the colour, not a block over it', (await ota("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('height')")) === '8');
+      check('live map: the target is a bar under the colour, not a block over it (a short one on the thin top band)', (await ota("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('height')")) === '4');
       check('live map: tapping a zone gives its colour in words', (await ota(grp(3) + ".querySelector('rect > title').textContent")) === 'Zone 3: red 30, green 225, blue 40');
       check('live map: a note explains what the colours are', /Each zone shows the colour the Sync Box is sending/.test(await text('mapLiveNote')), await text('mapLiveNote'));
       await ota("var c=document.getElementById('mapLiveOn'); c.checked=false; c.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(400);
-      check('live map: switched off, the zones are plain and the targets are blocks over them again', (await fillOf(3)) === 'var(--bg)' && (await ota("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('height')")) !== '8');
+      check('live map: switched off, the zones are plain and the targets are blocks over them again', (await fillOf(3)) === 'var(--bg)' && (await ota("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('height')")) !== '4');
       const before = zonesCalls(); await sleep(1700);
       check('live map: switched off, the page stops asking the board for the colours', zonesCalls() === before, zonesCalls() + ' vs ' + before);
       await ota("location.reload(); 1"); await sleep(1900); await toMap();
@@ -427,7 +427,14 @@ async function cdp(wsUrl) {
     {
       const zonesOf = t => p.ev("JSON.stringify([...new Set(Array.from(document.querySelectorAll('#mapSvg rect[data-t=\"" + t + "\"]')).map(r => +r.getAttribute('data-z')))].sort((a,b)=>a-b))");
       const alphaOf = (t, z) => p.ev("+document.querySelector('#mapSvg rect[data-t=\"" + t + "\"][data-z=\"" + z + "\"]').getAttribute('fill-opacity')");
-      check('map: a 6 by 4 grid is drawn', (await p.ev("document.querySelectorAll('#mapSvg g[data-zone]').length")) === 24);
+      check('map: all 24 zones are drawn', (await p.ev("document.querySelectorAll('#mapSvg g[data-zone]').length")) === 24);
+      // where each zone sits is where the box really looks, not an even grid
+      const box = z => p.ev("(function(){var r=document.querySelector('#mapSvg g[data-zone=\"" + z + "\"] rect'); return JSON.stringify([+r.getAttribute('x'), +r.getAttribute('y'), +r.getAttribute('width'), +r.getAttribute('height')].map(function(v){return Math.round(v*10)/10;}));})()");
+      const nominal = JSON.stringify([14, 14, 78.7, 65.5]);
+      check('map: the top-left zone is a thin band along the top edge, not a quarter of the height', (await box(0)) !== nominal && JSON.parse(await box(0))[3] < 20, await box(0));
+      check('map: there is a gap between zones 2 and 3 (the middle of the picture is not looked at)', JSON.parse(await box(3))[0] > JSON.parse(await box(2))[0] + JSON.parse(await box(2))[2] + 5, await box(2) + ' ' + await box(3));
+      check('map: the side zones of the middle rows are thin strips at the screen edge', JSON.parse(await box(6))[2] < 20 && JSON.parse(await box(11))[2] < 20 && JSON.parse(await box(11))[0] > 450, await box(6) + ' ' + await box(11));
+      check('map: the middle rows sit above the centre (their windows are y 240-480 and 540-780 of 1080)', JSON.parse(await box(7))[1] < 14 + 262 * 0.25 && JSON.parse(await box(13))[1] > 14 + 262 * 0.45, await box(7) + ' ' + await box(13));
       check('map: a ceiling strip highlights the top row (zones 0-5) and nothing else', (await zonesOf(0)) === '[0,1,2,3,4,5]', await zonesOf(0));
       check('map: the 8 middle zones are faded (never used)', (await p.ev("document.querySelector('#mapSvg g[data-zone=\"7\"]').getAttribute('opacity')")) === '0.4' && (await p.ev("document.querySelector('#mapSvg g[data-zone=\"0\"]').getAttribute('opacity')")) === '1');
       check('map: the zone with the stretch past the TV is shaded darker than a middle one', (await alphaOf(0, 0)) > (await alphaOf(0, 2)), (await alphaOf(0, 0)) + ' vs ' + (await alphaOf(0, 2)));

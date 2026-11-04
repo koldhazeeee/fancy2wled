@@ -63,7 +63,7 @@ input[type=range].wide{width:100%}
 
 <div class="card" id="mapCard">
   <h2>Picture map</h2>
-  <p class="small mut">The Sync Box's picture as a 6 by 4 grid of zones, and which part of it each target follows. The box only drives the edges, so the middle zones are never used. Tap a zone for its colour, or a target's bar for how many of its LEDs follow it. The map follows your changes before you save them.</p>
+  <p class="small mut">The 24 zones of the Sync Box, drawn where each one really looks at the picture (the box averages those areas and never sends the parts in between), and which of them each target follows. The box only drives the edges, so the middle zones are never used. Tap a zone for its colour, or a target's bar for how many of its LEDs follow it. The map follows your changes before you save them.</p>
   <div class="row"><label for="mapLiveOn">Show the colours the Sync Box is sending, live</label><input id="mapLiveOn" type="checkbox" style="flex:0 0 auto" checked></div>
   <p class="small mut" id="mapLiveNote"></p>
   <div id="mapLegend" class="legend small"></div>
@@ -284,16 +284,24 @@ input[type=range].wide{width:100%}
     setTimeout(liveTick,500);
   }
   if(window.IntersectionObserver)new IntersectionObserver(function(en){mapVisible=en[0].isIntersecting;}).observe($('mapCard'));
+  /* Where each zone looks (measured, see docs/PROTOCOL.md), in pixels of a 1920 x 1080 picture: the same windows as the board's layout maths. */
+  var ZX=[[0,300],[300,600],[600,900],[960,1260],[1260,1560],[1560,1860]],ZY=[[0,60],[240,480],[540,780],[1020,1080]];
+  function zoneBox(z){                      // [x, y, width, height]
+    var r=(z/6)|0,c=z%6,y0=ZY[r][0],h=ZY[r][1]-ZY[r][0];
+    if((r===1||r===2)&&c===0)return[0,y0,60,h];          // the left and right zones of the middle rows are 60 px strips at the screen edge
+    if((r===1||r===2)&&c===5)return[1860,y0,60,h];
+    return[ZX[c][0],y0,ZX[c][1]-ZX[c][0],h];
+  }
   function drawMap(){
     var svg=$('mapSvg'),n=(cfg&&cfg.targets)?cfg.targets.length:1,leg=$('mapLegend');
     while(svg.firstChild)svg.removeChild(svg.firstChild);leg.innerHTML='';
-    var X=14,Y=14,W=472,H=262,cw=W/6,ch=H/4,tot=[],mx=[],i,z;
+    var X=14,Y=14,W=472,H=262,tot=[],mx=[],i,z;
     for(i=0;i<n;i++){var u=usage[i]||[],s=0,m=0;for(z=0;z<24;z++){var v=u[z]||0;s+=v;if(v>m)m=v;}tot[i]=s;mx[i]=m;}
     svgEl('rect',{x:4,y:4,width:492,height:282,rx:14,fill:'none',stroke:'var(--mut)','stroke-width':3},svg);          // the TV
     svgEl('path',{d:'M200 292 H300 M250 286 V292',stroke:'var(--mut)','stroke-width':3,fill:'none','stroke-linecap':'round'},svg);
     cells=[];
     for(z=0;z<24;z++){
-      var r=(z/6)|0,c=z%6,x=X+c*cw,y=Y+r*ch,inner=(r===1||r===2)&&c>=1&&c<=4;
+      var r=(z/6)|0,c=z%6,zb=zoneBox(z),x=X+zb[0]*W/1920,y=Y+zb[1]*H/1080,cw=zb[2]*W/1920,ch=zb[3]*H/1080,bh=ch<30?4:8,inner=(r===1||r===2)&&c>=1&&c<=4;
       var users=[];for(i=0;i<n;i++)if((usage[i]||[])[z]>0.05)users.push(i);
       // live view: a zone no target follows is faded, the targets are a bar under the colour; otherwise the old look, a tinted block per target
       var g=svgEl('g',{'data-zone':z,opacity:liveOn?(users.length?1:0.4):(inner?0.4:1)},svg);
@@ -301,12 +309,12 @@ input[type=range].wide{width:100%}
       var cellTitle=svgEl('title',{},cell);
       users.forEach(function(ti,k){
         var v=usage[ti][z],a=(0.2+0.8*v/mx[ti])*(tview(ti).enabled?1:0.35),sh=ch/users.length,sw2=(cw-2)/users.length,bar=liveOn;
-        var rc=svgEl('rect',bar?{x:x+1+k*sw2,y:y+ch-9,width:Math.max(1,sw2),height:8,fill:COLORS[ti%COLORS.length],'fill-opacity':Math.max(0.35,a).toFixed(2),'data-t':ti,'data-z':z,stroke:ti===sel?'var(--fg)':'none','stroke-opacity':0.8,'stroke-width':1.2}
+        var rc=svgEl('rect',bar?{x:x+1+k*sw2,y:y+ch-bh-1,width:Math.max(1,sw2),height:bh,fill:COLORS[ti%COLORS.length],'fill-opacity':Math.max(0.35,a).toFixed(2),'data-t':ti,'data-z':z,stroke:ti===sel?'var(--fg)':'none','stroke-opacity':0.8,'stroke-width':1.2}
           :{x:x+1,y:y+1+k*sh,width:cw-2,height:Math.max(1,sh-2),fill:COLORS[ti%COLORS.length],'fill-opacity':a.toFixed(2),'data-t':ti,'data-z':z,
           stroke:ti===sel?'var(--fg)':'none','stroke-opacity':0.8,'stroke-width':1.2},g);
         svgEl('title',{},rc).textContent=tview(ti).name+': '+(Math.round(v*10)/10)+' '+tview(ti).unit+' ('+Math.round(100*v/tot[ti])+'% of its '+Math.round(tot[ti])+')'+(tview(ti).enabled?'':' - switched off');
       });
-      var tx=svgEl('text',{x:x+5,y:y+13,'font-size':10,fill:'var(--fg)',opacity:0.75,stroke:'var(--bg)','stroke-width':3,'paint-order':'stroke'},g);tx.textContent=z;
+      var tx=svgEl('text',{x:x+(cw>30?5:1),y:y+(ch>20?13:ch-3),'font-size':ch>20?10:9,fill:'var(--fg)',opacity:0.75,stroke:'var(--bg)','stroke-width':3,'paint-order':'stroke'},g);tx.textContent=z;
       cells.push({rect:cell,title:cellTitle,text:tx});
     }
     paintLive();
