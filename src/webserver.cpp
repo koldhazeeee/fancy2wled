@@ -226,6 +226,7 @@ static esp_err_t h_ha(httpd_req_t* req) {
     k["saturation"] = gSet.kSat;
     k["smoothing"] = gSet.kSmo;
     k["boost"] = gSet.kBoost;
+    k["motion"] = gSet.motion;
     k["smoothOut"] = gSet.smoothOut; }
   return sendDoc(req, d);
 }

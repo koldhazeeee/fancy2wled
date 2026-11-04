@@ -32,6 +32,7 @@ static IPAddress gSender;
 static IPAddress gBoxFilter;                   // 0.0.0.0 = accept anyone
 static uint32_t gFilterGen = 0xFFFFFFFF;
 static float gAdj[kZones][3];                  // the picture's 24 zones with brightness / gamma / saturation applied (shared by all targets)
+static Motion gMotion;                         // the latest pictures with their place on a steady clock, for motion smoothing (under Lock)
 
 // ---- what arrives on the Sync Box port, for telling "the box is silent" from "the box changed what it sends"
 static struct {
@@ -765,7 +766,8 @@ static bool pollBox() {
   }
   bool got = false;
   float boost;
-  { Lock l; boost = gSet.kBoost; }
+  int motionPct;
+  { Lock l; boost = gSet.kBoost; motionPct = gSet.motion; }
   uint8_t buf[300];                                       // longer than any frame seen (86-93 bytes) so a bigger one is not cut short
   for (int guard = 0; guard < 16; guard++) {
     sockaddr_in sa;
@@ -796,11 +798,12 @@ static bool pollBox() {
       float f[kZones][3];                                          // what the lights should follow: the box's value, or (boost) the colour it is aiming at
       for (int q = 0; q < kZones; q++)
         for (int c = 0; c < 3; c++) {
-          f[q][c] = (boost > 0.f && gPrevValid) ? leadBoost(z[q][c], gPrevY[q][c], boost) : (float)z[q][c];
+          f[q][c] = (boost > 0.f && motionPct == 0 && gPrevValid) ? leadBoost(z[q][c], gPrevY[q][c], boost) : (float)z[q][c];   // (motion smoothing replaces the boost)
           gPrevY[q][c] = z[q][c];
         }
       gPrevValid = true;
       adjustInto(gAdj, f);
+      if (motionPct > 0) motionPush(gMotion, now, gAdj);
       got = true;
     }
   }
@@ -925,6 +928,20 @@ void relayStatus(RelayStatus& s, bool detail) {
   else s.state = "relaying";
 }
 
+// Blur along a strip's picture part (spanFirst..spanLast; no part set = the whole strip) with a scratch buffer that is allocated the first time it is needed.
+static float* gBlurScratch = nullptr;
+static int gBlurCap = 0;
+static void blurPart(float* rgb, int n, int first, int last, int blur) {
+  const int m = (first >= 0 && last >= first) ? ((last < n ? last : n - 1) - first + 1) : n;
+  const int need = 2 * (m > 0 ? m : n) * 3;
+  if (need > gBlurCap) {
+    free(gBlurScratch);
+    gBlurScratch = (float*)malloc((size_t)need * sizeof(float));
+    gBlurCap = gBlurScratch ? need : 0;
+  }
+  if (gBlurScratch) blurColours(rgb, n, first, last, blur, gBlurScratch);
+}
+
 // ---------------------------------------------------------------- the main relay step
 // How the output works: a new Sync Box frame is turned into LED colours and sent to every WLED the moment it arrives (not at the next
 // tick), then a tick every 1000/fps ms keeps the temporal smoothing moving until the lights reach the target. The smoothing is
@@ -937,9 +954,9 @@ void relayLoop() {
   gWaitHintMs = 10;
   if (!gGoveeBootDone && WiFi.status() == WL_CONNECTED) { int n0; { Lock l; n0 = gSet.nTargets; } goveeBootHandBack(n0); }   // once, before any stream is prepared
 
-  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; };
+  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; int blur; };
   TSnap sn[kMaxTargets];
-  int nT, fps, tvMode;
+  int nT, fps, tvMode, motionPct;
   bool globalOn, tvOff;
   {
     Lock l;
@@ -947,10 +964,11 @@ void relayLoop() {
     fps = gSet.fps < 1 ? 30 : gSet.fps;
     globalOn = gSet.enabled;
     tvMode = gSet.tvMode;
+    motionPct = gSet.motion;
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
       const Target& t = gSet.t[i];
-      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind, t.sat, t.vivid, t.darkOutside, t.spanFirst, t.spanLast};
+      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind, t.sat, t.vivid, t.darkOutside, t.spanFirst, t.spanLast, t.blur};
     }
   }
   for (int i = nT; i < kMaxTargets; i++) {                  // targets that no longer exist: hand their WLED back and free their memory
@@ -1023,6 +1041,13 @@ void relayLoop() {
   // paused (Home Assistant) = as if the box were silent; so is "the TV is off" unless that was set to do nothing
   const bool tvHold = tvOff && tvMode != 0;
   const bool fresh = globalOn && gHave && now - gLastFrame < kStaleMs && !tvHold && !gUpdating;
+  // motion smoothing: one picture for every target, slid between the Sync Box's pictures (a share of one interval behind the newest)
+  float zi[kZones][3];
+  bool interp = false, motionSettled = true;
+  if (motionPct > 0) {
+    Lock l;
+    if (gMotion.n > 0) { interp = true; motionSettled = motionAt(gMotion, now - (uint32_t)motionDelayMs(gMotion, motionPct), zi); }
+  }
   for (int i = 0; i < nT; i++) {
     if (!streaming[i]) continue;
     Rt& r = gRt[i];
@@ -1038,6 +1063,9 @@ void relayLoop() {
       requestPrepare(i, host, sn[i].turnOn, sn[i].bri, sn[i].restore);
     }
     if (testing != r.wasTesting) { r.wasTesting = testing; r.converged = false; }
+    // A Govee light takes at most about 12 frames a second (kGoveeGapMs): until its turn comes, do not mix colours it would not get. (The vivid blend
+    // alone costs about 6 microseconds per segment.) Its next frame is computed from the picture of that moment.
+    if (sn[i].kind == 1 && r.lastLen && !testing && now - r.lastSendMs < kGoveeGapMs) { allConverged = false; continue; }
 
     // colours of this target's LEDs, smoothed in time, packed
     size_t len = 0;
@@ -1047,11 +1075,12 @@ void relayLoop() {
       Lock l;
       if (gTableN[i] == n && n > 0 && ensureBuffers(r, n)) {
         float adjR[kZones][3];
-        const float(*zones)[3] = gAdj;
+        const float(*zones)[3] = interp ? zi : gAdj;
         if (testing) { float raw[kZones][3]; rainbowZones(raw); adjustInto(adjR, raw); zones = adjR; }
         if (r.smoothGen != gSettingsGen) { r.smooth = smoothInfo(gTable[i], n, gSet.smoothOut); r.smoothGen = gSettingsGen; }
         applyTable(gTable[i], n, zones, r.tgt, r.smooth, sn[i].vivid);
         if (sn[i].sat != 1.f) saturateColours(r.tgt, n, sn[i].sat);                  // this target's own saturation, on top of the shared one
+        if (sn[i].blur > 0) blurPart(r.tgt, n, sn[i].spanFirst, sn[i].spanLast, sn[i].blur);   // soften the steps between zones along the picture part
         if (sn[i].darkOut) darkOutside(r.tgt, n, sn[i].spanFirst, sn[i].spanLast);   // the part of the strip that is not along the picture stays dark
         r.computedGen = gSettingsGen;
         const float smo = gSet.kSmo;
@@ -1060,7 +1089,10 @@ void relayLoop() {
         if (!r.curValid) {
           for (int k = 0; k < n * 3; k++) r.cur[k] = r.tgt[k] * trim;
           r.curValid = true;
-          r.converged = true;
+          r.converged = interp ? motionSettled : true;
+        } else if (interp && !testing) {                     // motion smoothing: the picture is already slid in time, no easing on top of it
+          for (int k = 0; k < n * 3; k++) r.cur[k] = r.tgt[k] * trim;
+          r.converged = motionSettled;
         } else {
           const float decay = smoothDecay(smo, (nowUs - r.smoothUs) / 1000.f, (float)tickMs);
           float worst = 0.f;

@@ -45,6 +45,7 @@ struct Target {
   float sat = 1.f;                     // this target's colour saturation on top of the shared one (0..3)
   bool vivid = false;                  // blend neighbouring zones along the colour wheel instead of mixing them in RGB (a Govee light defaults to on)
   bool darkOutside = false;            // switch off the LEDs / segments outside the TV part (otherwise they hold the colour of the corner zone)
+  int blur = 0;                        // blur along the picture part of this strip, in LEDs (0 = off .. 20): softens the steps between zones (blurColours in core.h)
   // layout
   int lType = LAYOUT_LINEAR;
   bool led0Right = false;              // straight run: LED 0 at the right end (top/bottom run) or at the bottom end (left/right run)
@@ -68,6 +69,7 @@ struct Settings {
   // look (shared by all targets; each target has its own brightness trim)
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
+  int motion = 0;                      // motion smoothing 0..100 %: slide between the Sync Box's pictures instead of jumping, shown that share of one picture interval late (0 = off; while on it replaces smoothing over time and the reaction boost)
   int smoothOut = 100;                 // 0 = off .. 100: LEDs beyond the TV settle on their end-corner zone colour (softens the hand-over at the TV edge)
   int fps = 30;
   // Home Assistant over MQTT (discovery): the board connects OUT to the broker

@@ -1,6 +1,13 @@
 #include "core.h"
 
 #include <math.h>
+#include <string.h>
+
+// This file is the colour maths (zone table lookup, blur, saturation, motion smoothing): build it for speed, the rest of the firmware for size (the default -Os).
+// Measured on the AtomS3: the table lookup 37 % faster (239 -> 150 microseconds for 266 LEDs), smoothing and packing about 40-50 %, for about 5 KB of flash.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("O3")
+#endif
 
 namespace fwb {
 
@@ -393,10 +400,10 @@ static void fromHsv(float h, float s, float v, float out[3]) {
   else { r = c; g = 0; b = x; }
   out[0] = (r + m) * 255.f; out[1] = (g + m) * 255.f; out[2] = (b + m) * 255.f;
 }
-void vividBlend(const float a[3], const float b[3], float w, float out[3]) {
-  float ha, sa, va, hb, sb, vb;
-  toHsv(a, &ha, &sa, &va);
-  toHsv(b, &hb, &sb, &vb);
+struct Hsv { float h, s, v; };
+// The blend of two colours given as hue / saturation / value (the colours converted once, see applyTable: a table has hundreds of LEDs but only 24 zones).
+static void vividBlendHsv(const Hsv& a, const Hsv& b, float w, float out[3]) {
+  float ha = a.h, sa = a.s, va = a.v, hb = b.h, sb = b.s, vb = b.v;
   if (va < 0.02f && vb >= 0.02f) sa = sb;                                           // black has no saturation of its own either: green from black is a darker green, not a paler one
   else if (vb < 0.02f && va >= 0.02f) sb = sa;
   const bool da = sa >= 0.04f && va >= 0.02f, db = sb >= 0.04f && vb >= 0.02f;     // a grey or a black has no hue worth keeping
@@ -411,12 +418,20 @@ void vividBlend(const float a[3], const float b[3], float w, float out[3]) {
   else h = 0.f;
   fromHsv(h, sa + (sb - sa) * w, va + (vb - va) * w, out);
 }
+void vividBlend(const float a[3], const float b[3], float w, float out[3]) {
+  Hsv A, B;
+  toHsv(a, &A.h, &A.s, &A.v);
+  toHsv(b, &B.h, &B.s, &B.v);
+  vividBlendHsv(A, B, w, out);
+}
 
 // ---------------------------------------------------------------------------
 void applyTable(const Entry* t, int count, const float zones[kZones][3], float* out, const SmoothInfo& sm, bool vivid) {
   float avgS[3] = {0, 0, 0}, avgE[3] = {0, 0, 0};
   if (sm.lenStart > 0) averageOf(zones, sm.maskStart, avgS);
   if (sm.lenEnd > 0) averageOf(zones, sm.maskEnd, avgE);
+  Hsv zh[kZones];                                         // vivid: each zone's hue / saturation / value, converted the first time it is needed
+  bool zhHave[kZones] = {};
   for (int i = 0; i < count; i++) {
     const float w = t[i].f / 255.f;
     const float* za = zones[t[i].a];
@@ -426,7 +441,12 @@ void applyTable(const Entry* t, int count, const float zones[kZones][3], float* 
     const float* avg = before ? avgS : avgE;
     const float g = (len > 0 && t[i].d > 0) ? smoothstep01(t[i].d / (float)len) : 0.f;
     float mixed[3];
-    if (vivid && t[i].a != t[i].b && t[i].f != 0 && t[i].f != 255) vividBlend(za, zb, w, mixed);
+    if (vivid && t[i].a != t[i].b && t[i].f != 0 && t[i].f != 255) {
+      const int ia = t[i].a, ib = t[i].b;
+      if (!zhHave[ia]) { toHsv(za, &zh[ia].h, &zh[ia].s, &zh[ia].v); zhHave[ia] = true; }
+      if (!zhHave[ib]) { toHsv(zb, &zh[ib].h, &zh[ib].s, &zh[ib].v); zhHave[ib] = true; }
+      vividBlendHsv(zh[ia], zh[ib], w, mixed);
+    }
     else for (int c = 0; c < 3; c++) mixed[c] = za[c] + (zb[c] - za[c]) * w;
     for (int c = 0; c < 3; c++) out[i * 3 + c] = mixed[c] + (avg[c] - mixed[c]) * g;
   }
@@ -459,6 +479,117 @@ void saturateColours(float* rgb, int n, float sat) {
       c[k] = v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
     }
   }
+}
+
+int blurHalfWidth(int blurLeds) {
+  if (blurLeds <= 0) return 0;
+  const float sigma = blurLeds * 0.5f;
+  const int h = (int)floorf((sqrtf(4.f * sigma * sigma + 1.f) - 1.f) * 0.5f + 0.5f);   // three box averages of half width h have sigma^2 = ((2h+1)^2 - 1) / 4
+  return h < 1 ? 1 : h;
+}
+
+// One box average (half width h, 2h+1 LEDs) over m colours, with the first and last colour repeated beyond the ends; a running sum, so it costs the same for any width.
+static void boxPassColours(const float* in, float* out, int m, int h) {
+  const float inv = 1.f / (float)(2 * h + 1);
+  for (int c = 0; c < 3; c++) {
+    float sum = 0.f;
+    for (int d = -h; d <= h; d++) sum += in[(d < 0 ? 0 : (d >= m ? m - 1 : d)) * 3 + c];
+    for (int i = 0; i < m; i++) {
+      out[i * 3 + c] = sum * inv;
+      int add = i + h + 1, sub = i - h;
+      add = add >= m ? m - 1 : add;
+      sub = sub < 0 ? 0 : sub;
+      sum += in[add * 3 + c] - in[sub * 3 + c];
+    }
+  }
+}
+
+void blurColours(float* rgb, int n, int first, int last, int blurLeds, float* scratch) {
+  const int h = blurHalfWidth(blurLeds);
+  if (!rgb || !scratch || n < 2 || h < 1) return;
+  int a = 0, b = n - 1;
+  if (first >= 0) {
+    a = first > n - 1 ? n - 1 : first;
+    if (last >= first) b = last > n - 1 ? n - 1 : last;
+  }
+  const int m = b - a + 1;
+  if (m < 2) return;
+  float* A = scratch;
+  float* B = scratch + (size_t)m * 3;
+  memcpy(A, rgb + (size_t)a * 3, (size_t)m * 3 * sizeof(float));
+  boxPassColours(A, B, m, h);
+  boxPassColours(B, A, m, h);
+  boxPassColours(A, B, m, h);
+  memcpy(rgb + (size_t)a * 3, B, (size_t)m * 3 * sizeof(float));
+}
+
+void motionReset(Motion& m) {
+  m.n = 0;
+  m.lastRawMs = 0;
+  m.periodMs = 100.f;
+}
+
+void motionPush(Motion& m, uint32_t nowMs, const float zones[kZones][3]) {
+  if (m.n > 0 && (uint32_t)(nowMs - m.lastRawMs) < 25u) {          // a burst: the newer picture replaces the one that came just before it
+    memcpy(m.k[m.n - 1].z, zones, sizeof m.k[0].z);
+    m.lastRawMs = nowMs;
+    return;
+  }
+  uint32_t t;
+  if (m.n == 0 || (uint32_t)(nowMs - m.lastRawMs) > 1500u) {       // the first picture, or the box was silent: start over
+    m.n = 0;
+    m.periodMs = 100.f;
+    t = nowMs;
+  } else {
+    const float gap = (float)(uint32_t)(nowMs - m.lastRawMs);
+    if (gap > 40.f && gap < 160.f) m.periodMs = 0.95f * m.periodMs + 0.05f * gap;   // a slow estimate of the real period, ignoring drops and bursts
+    const uint32_t prevT = m.k[m.n - 1].ms;
+    const float rawRel = (float)(int32_t)(nowMs - prevT);          // when it really arrived, relative to the previous picture's place on the clock
+    float rel = m.periodMs + 0.15f * (rawRel - m.periodMs);        // the clock says one period later; it is pulled gently toward the real arrival
+    if (rel < 1.f) rel = 1.f;
+    t = prevT + (uint32_t)floorf(rel + 0.5f);
+  }
+  if (m.n == kMotionKnots) {
+    for (int i = 1; i < kMotionKnots; i++) m.k[i - 1] = m.k[i];
+    m.n--;
+  }
+  m.k[m.n].ms = t;
+  memcpy(m.k[m.n].z, zones, sizeof m.k[0].z);
+  m.n++;
+  m.lastRawMs = nowMs;
+}
+
+// True when the pictures from knot `from` to the newest are all the same: showing any of them is the same, so nothing will change until a different one arrives.
+static bool knotsSameFrom(const Motion& m, int from) {
+  for (int j = from; j + 1 < m.n; j++)
+    if (memcmp(m.k[j].z, m.k[j + 1].z, sizeof m.k[0].z) != 0) return false;
+  return true;
+}
+
+bool motionAt(const Motion& m, uint32_t timeMs, float out[kZones][3]) {
+  if (m.n == 0) { memset(out, 0, sizeof(float) * kZones * 3); return true; }
+  const MotionKnot& last = m.k[m.n - 1];
+  if ((int32_t)(timeMs - last.ms) >= 0) { memcpy(out, last.z, sizeof last.z); return true; }
+  if ((int32_t)(timeMs - m.k[0].ms) <= 0) { memcpy(out, m.k[0].z, sizeof m.k[0].z); return knotsSameFrom(m, 0); }
+  for (int i = 0; i + 1 < m.n; i++) {
+    const int32_t a = (int32_t)(timeMs - m.k[i].ms);
+    const int32_t span = (int32_t)(m.k[i + 1].ms - m.k[i].ms);
+    if (a >= 0 && a < span) {
+      if (knotsSameFrom(m, i)) { memcpy(out, m.k[i].z, sizeof m.k[i].z); return true; }   // a picture that does not change: settled, so the output can stop ticking
+      const float f = (float)a / (float)span;
+      for (int z = 0; z < kZones; z++)
+        for (int c = 0; c < 3; c++) out[z][c] = m.k[i].z[z][c] + (m.k[i + 1].z[z][c] - m.k[i].z[z][c]) * f;
+      return false;
+    }
+  }
+  memcpy(out, last.z, sizeof last.z);                               // (not reached: the knots are in strictly increasing order)
+  return true;
+}
+
+float motionDelayMs(const Motion& m, int percent) {
+  const float p = m.periodMs < 50.f ? 50.f : (m.periodMs > 160.f ? 160.f : m.periodMs);
+  const int pc = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+  return p * (float)pc / 100.f;
 }
 
 void rttAdd(RttRing& r, float ms) {

@@ -266,6 +266,21 @@ async function cdp(wsUrl) {
     check('vivid: a target starts with plain RGB blending', (await ota(sel('tVivid') + '.checked')) === false);
     await ota(sel('tVivid') + ".checked=true; " + sel('tVivid') + ".dispatchEvent(new Event('change',{bubbles:true})); " + click('save')); await sleep(700);
     check('vivid: Save stores it on that target', dev.state.cfg.targets[0].vivid === true && dev.state.lastConfigPost.vivid === true, String(dev.state.cfg.targets[0].vivid));
+    // ---- motion smoothing (global) and blur along the strip (per target)
+    check('motion: smoothing starts off, and the slider says so', (await ota(sel('kMot') + '.value')) === '0' && /off/.test(await text('kMotV')), await text('kMotV'));
+    check('blur: a target starts without blur, and the slider says so', (await ota(sel('tBlur') + '.value')) === '0' && /off/.test(await text('tBlurV')), await text('tBlurV'));
+    await ota(sel('kMot') + ".value='100'; " + fire('kMot', 'input') + sel('tBlur') + ".value='5'; " + fire('tBlur', 'input') + '1'); await sleep(300);
+    check('motion / blur: the labels follow the sliders (100%, 5 LEDs)', /100%/.test(await text('kMotV')) && /5 LEDs/.test(await text('tBlurV')), (await text('kMotV')) + ' ' + (await text('tBlurV')));
+    await ota(click('save')); await sleep(700);
+    check('motion / blur: Save sends and stores them (motion 100 for everything, blur 5 on this target)', dev.state.cfg.look.motion === 100 && dev.state.cfg.targets[0].blur === 5 && dev.state.lastConfigPost.look.motion === 100 && dev.state.lastConfigPost.blur === 5, JSON.stringify([dev.state.cfg.look.motion, dev.state.cfg.targets[0].blur]));
+    await ota('location.reload(); 1'); await sleep(1800);
+    check('motion / blur: after a reload the sliders come back as saved', (await ota(sel('kMot') + '.value')) === '100' && (await ota(sel('tBlur') + '.value')) === '5');
+    await setType('govee');
+    check('blur: for a Govee light the label counts segments', /5 segments/.test(await text('tBlurV')), await text('tBlurV'));
+    await setType('wled');
+    await ota('location.reload(); 1'); await sleep(1800);                  // (the type round trip changed the form's LED count: show the saved values again before saving)
+    await ota(sel('kMot') + ".value='0'; " + fire('kMot', 'input') + sel('tBlur') + ".value='0'; " + fire('tBlur', 'input') + click('save')); await sleep(700);
+    check('motion / blur: back to off', dev.state.cfg.look.motion === 0 && dev.state.cfg.targets[0].blur === 0 && /off/.test(await text('kMotV')));
     await ota(sel('tVivid') + ".checked=false; 1");
     await setType('govee');
     check('vivid: choosing a Govee light switches vivid blending on', (await ota(sel('tVivid') + '.checked')) === true);

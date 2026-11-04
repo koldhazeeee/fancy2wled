@@ -42,6 +42,9 @@ static void loadTarget(Target& t, int i) {
   if (t.sharp > 100) t.sharp = 100;
   t.vivid = gB("lVivid", t.kind == 1);
   t.darkOutside = gB("tDark", false);
+  t.blur = gI("tBlur", 0);
+  if (t.blur < 0) t.blur = 0;
+  if (t.blur > 20) t.blur = 20;
   t.sat = gF("tSat", 1.f);
   if (t.sat < 0.f) t.sat = 0.f;
   if (t.sat > 3.f) t.sat = 3.f;
@@ -87,6 +90,7 @@ static void saveTarget(const Target& t, int i) {
   prefs.putFloat(K("tSat", i).c_str(), t.sat);
   prefs.putBool(K("lVivid", i).c_str(), t.vivid);
   prefs.putBool(K("tDark", i).c_str(), t.darkOutside);
+  prefs.putInt(K("tBlur", i).c_str(), t.blur);
   prefs.putBool(K("tOn", i).c_str(), t.enabled);
   prefs.putFloat(K("tTrim", i).c_str(), t.trim);
   prefs.putString(K("wHost", i).c_str(), t.wHost);
@@ -137,6 +141,9 @@ static void loadFromFlash() {
   s.kSat = gF("kSat", 1.f);
   s.kSmo = gF("kSmo", 0.5f);
   s.kBoost = gF("kBoost", 0.f);
+  s.motion = gI("kMot", 0);
+  if (s.motion < 0) s.motion = 0;
+  if (s.motion > 100) s.motion = 100;
   s.enabled = gB("enabled", true);
   s.tvMode = gI("tvMode", 1);
   if (s.tvMode < 0 || s.tvMode > 2) s.tvMode = 1;
@@ -186,6 +193,7 @@ void settingsSave() {
   prefs.putFloat("kSat", s.kSat);
   prefs.putFloat("kSmo", s.kSmo);
   prefs.putFloat("kBoost", s.kBoost);
+  prefs.putInt("kMot", s.motion);
   prefs.putBool("enabled", s.enabled);
   prefs.putInt("tvMode", s.tvMode);
   prefs.putInt("tvSecs", s.tvSecs);
@@ -263,6 +271,7 @@ static void targetToJson(const Target& t, int i, JsonObject o) {
   o["sat"] = t.sat;
   o["vivid"] = t.vivid;
   o["darkOutside"] = t.darkOutside;
+  o["blur"] = t.blur;
   o["enabled"] = t.enabled;
   o["trim"] = t.trim;
   JsonObject w = o["wled"].to<JsonObject>();
@@ -303,6 +312,7 @@ void settingsToJson(JsonDocument& d) {
   k["saturation"] = s.kSat;
   k["smoothing"] = s.kSmo;
   k["boost"] = s.kBoost;
+  k["motion"] = s.motion;
   k["smoothOut"] = s.smoothOut;
   d["box"]["host"] = s.boxHost;
   d["relay"]["enabled"] = s.enabled;
@@ -344,6 +354,7 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
   if (!x["sat"].isNull()) n.sat = clampf(x["sat"].as<float>(), 0.f, 3.f);
   if (!x["vivid"].isNull()) n.vivid = x["vivid"].as<bool>();
   if (!x["darkOutside"].isNull()) n.darkOutside = x["darkOutside"].as<bool>();
+  if (!x["blur"].isNull()) n.blur = (int)clampf(x["blur"].as<float>(), 0.f, 20.f);
   if (!x["enabled"].isNull()) n.enabled = x["enabled"].as<bool>();
   if (!x["trim"].isNull()) n.trim = clampf(x["trim"].as<float>(), 0.f, 2.f);
 
@@ -431,7 +442,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
       if (e.length()) return e;
     }
   } else if (!d["wled"].isNull() || !d["layout"].isNull() || !d["name"].isNull() || !d["trim"].isNull() || !d["enabled"].isNull() || !d["kind"].isNull() ||
-             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull() || !d["darkOutside"].isNull()) {
+             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull() || !d["darkOutside"].isNull() || !d["blur"].isNull()) {
     const int ti = d["target"] | 0;                   // which target the top-level wled / layout / name / trim apply to
     if (ti < 0 || ti >= n.nTargets) return "There is no target " + String(ti + 1);
     String e = applyTargetJson(n.t[ti], ti, d, d["wled"], d["layout"]);
@@ -446,6 +457,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["saturation"].isNull()) n.kSat = clampf(k["saturation"].as<float>(), 0.f, 3.f);
   if (!k["smoothing"].isNull()) n.kSmo = clampf(k["smoothing"].as<float>(), 0.f, 0.95f);
   if (!k["boost"].isNull()) n.kBoost = clampf(k["boost"].as<float>(), 0.f, 1.f);
+  if (!k["motion"].isNull()) n.motion = (int)clampf(k["motion"].as<float>(), 0.f, 100.f);
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
   if (!b["host"].isNull()) n.boxHost = b["host"].as<String>();
   if (!d["relay"]["enabled"].isNull()) n.enabled = d["relay"]["enabled"].as<bool>();

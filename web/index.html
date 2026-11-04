@@ -57,6 +57,8 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="tVivid">Vivid blending</label><input id="tVivid" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
   <p class="small mut">Blends between two zones along the colour wheel (red, orange, yellow, green) instead of mixing them in RGB, which turns unlike colours into grey or brown in between. Best with smooth edges on a long strip.</p>
   <div class="row"><label for="tSat">This target's colour saturation <span id="tSatV"></span></label><input id="tSat" type="range" min="0.5" max="2" step="0.05" data-live="1"></div>
+  <div class="row"><label for="tBlur">Blur along the strip <span id="tBlurV"></span></label><input id="tBlur" type="range" min="0" max="20" step="1" data-live="1"></div>
+  <p class="small mut">Softens the steps between zones: each LED is averaged with its neighbours over about this many LEDs. A little (4 to 6 LEDs) turns blocks into a soft blob that slides along the strip; more is blurrier. It only touches the part of the strip along the picture, and costs about 1 % of the board's processing when used on a few hundred LEDs.</p>
 </div>
 
 <div class="card" id="mapCard">
@@ -148,6 +150,8 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="kSat">Saturation <span id="kSatV"></span></label><input id="kSat" type="range" min="0" max="2" step="0.05" data-live="1"></div>
   <div class="row"><label for="kSmo">Smoothing over time <span id="kSmoV"></span></label><input id="kSmo" type="range" min="0" max="0.9" step="0.05" data-live="1"></div>
   <div class="row"><label for="kBoost">Reaction boost <span id="kBoostV"></span></label><input id="kBoost" type="range" min="0" max="100" step="5" data-live="1"></div>
+  <div class="row"><label for="kMot">Motion smoothing <span id="kMotV"></span></label><input id="kMot" type="range" min="0" max="100" step="5" data-live="1"></div>
+  <p class="small mut"><b>Motion smoothing</b> slides the lights from one Sync Box picture to the next instead of jumping, so movement looks continuous. The box sends a new picture only about every 100 ms; at 100 the lights run one picture behind (about 100 ms) so they always have the next one to slide towards, at lower values less. While it is on it replaces <i>Smoothing over time</i> and <i>Reaction boost</i>. 0 is off.</p>
   <p class="small mut">The Sync Box smooths its own colours (about 0.14 s per step), which is most of the delay between the picture and the lights. <b>Reaction boost</b> undoes that smoothing: 0 follows the box exactly, 100 reacts straight away. At high values fast flashes look sharper and a dark scene can flick to black a little early.</p>
   <div class="row"><label for="kOut">Smooth beyond the TV <span id="kOutV"></span></label><input id="kOut" type="range" min="0" max="100" step="5" data-live="1"></div>
   <p class="small mut">LEDs along the TV follow the picture exactly. LEDs past the edge of the TV show the colour of the corner zone at their end of the strip (for LEDs on the ceiling: the top-left zone at the left end, the top-right zone at the right end),
@@ -487,13 +491,13 @@ input[type=range].wide{width:100%}
     var T=list[sel],W=T.wled;
     $('tSel').innerHTML=list.map(function(t,i){return '<option value="'+i+'">'+esc(t.name)+'</option>';}).join('');$('tSel').value=String(sel);
     $('tDel').disabled=list.length<2;$('tAdd').disabled=list.length>=4;
-    $('tName').value=T.name;$('tKind').value=T.kind||'wled';$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;$('tSharp').value=T.sharp==null?0:T.sharp;$('tSat').value=T.sat==null?1:T.sat;$('tVivid').checked=!!T.vivid;$('tDark').checked=!!T.darkOutside;
+    $('tName').value=T.name;$('tKind').value=T.kind||'wled';$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;$('tSharp').value=T.sharp==null?0:T.sharp;$('tSat').value=T.sat==null?1:T.sat;$('tBlur').value=T.blur==null?0:T.blur;$('tVivid').checked=!!T.vivid;$('tDark').checked=!!T.darkOutside;
     $('wHost').value=W.host;$('wStart').value=W.start;$('wCount').value=W.count;$('wOn').checked=W.turnOn;$('wBri').value=W.brightness;$('wRestore').checked=W.restore;
     var L=T.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
     $('tvFirst').value=L.spanFirst>=0?L.spanFirst+W.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+W.start:'';
     $('lCorner').value=L.corner;$('lDir').value=L.ccw?1:0;for(var i=0;i<4;i++)$('lS'+i).value=L.sides[i]>0?L.sides[i]:'';$('lShift').value=L.shift;
     var TV=(c.relay&&c.relay.tvOff)||{};$('tvMode').value=TV.mode||'handback';$('tvSecs').value=TV.seconds||15;
-    $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;$('kBoost').value=Math.round(100*(c.look.boost||0));
+    $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;$('kBoost').value=Math.round(100*(c.look.boost||0));$('kMot').value=c.look.motion==null?0:c.look.motion;
     $('lPlace').querySelector('option[value=table]').disabled=!L.hasTable;
     var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+W.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
@@ -501,17 +505,17 @@ input[type=range].wide{width:100%}
     usage=list.map(function(t){return t.usage||[];});
     applyKind();vals();labels();info();setDirty(false);drawMap();
   }
-  function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';var sh=parseInt($('tSharp').value,10);$('tSharpV').textContent='('+(sh<=0?'smooth':(sh>=100?'sharp':sh+'%'))+')';$('tSatV').textContent='('+Math.round(100*parseFloat($('tSat').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
+  function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';var sh=parseInt($('tSharp').value,10);$('tSharpV').textContent='('+(sh<=0?'smooth':(sh>=100?'sharp':sh+'%'))+')';$('tSatV').textContent='('+Math.round(100*parseFloat($('tSat').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kMotV').textContent='('+(parseInt($('kMot').value,10)<=0?'off':parseInt($('kMot').value,10)+'%')+')';$('tBlurV').textContent='('+(parseInt($('tBlur').value,10)<=0?'off':parseInt($('tBlur').value,10)+(isGovee()?' segments':' LEDs'))+')';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
   function gather(){
     var p=place(),s=tvSpan(),lay;
     lay={type:p==='loop'?'loop':(p==='table'?'table':'linear'),led0Right:$('lSide').value==='1',spanFirst:linear()?s.first:-1,spanLast:linear()?s.last:-1,
       corner:num('lCorner',0),ccw:$('lDir').value==='1',sides:[num('lS0',0),num('lS1',0),num('lS2',0),num('lS3',0)],shift:num('lShift',0)};
     if(linear())lay.edge=p;
-    return {target:sel,name:$('tName').value.trim(),kind:$('tKind').value,enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),sharp:num('tSharp',0),sat:parseFloat($('tSat').value),vivid:$('tVivid').checked,darkOutside:$('tDark').checked,wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
+    return {target:sel,name:$('tName').value.trim(),kind:$('tKind').value,enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),sharp:num('tSharp',0),sat:parseFloat($('tSat').value),vivid:$('tVivid').checked,darkOutside:$('tDark').checked,blur:num('tBlur',0),wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
       relay:{tvOff:{mode:$('tvMode').value,seconds:num('tvSecs',15)}},
-      look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,smoothOut:parseInt($('kOut').value,10)}};
+      look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,motion:parseInt($('kMot').value,10),smoothOut:parseInt($('kOut').value,10)}};
   }
   async function load(){try{setCfg(await j('/api/config'));}catch(e){}refreshOta();}
 

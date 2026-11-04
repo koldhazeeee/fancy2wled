@@ -36,6 +36,31 @@ The trade-off: the lights react like the picture does, not like the box's soft s
 fades to black can drop to black a little early. 50-70 % is a good place to start; it is off by default so nothing changes until you
 turn it up. It needs only the previous frame, so it adds no delay of its own.
 
+## Motion smoothing and blur
+
+The box sends about 14 frames a second but a new picture only about every 100 ms, and the frames reach the board unevenly (see below), so a strip that jumps to
+each new picture moves in steps, and with *Zone edges* at 100 whole blocks of LEDs change at once. Two settings smooth that:
+
+* **Motion smoothing** (Look, 0-100): instead of jumping to each picture the lights slide from the previous picture to the newest one, shown that share of one
+  picture interval behind the newest (at 100: one interval, about 100 ms). Each picture is placed on a slowly adjusting clock, so bursts and gaps do not make
+  the motion lurch; two pictures within 25 ms of each other count as one. While it is on it replaces *Smoothing over time* and *Reaction boost* (both would
+  fight it). On the recordings of real box output in `decoded/` it is about **2.7 times smoother** than the default pipeline and about 6 times smoother than
+  holding each picture (average change of speed between 30 fps output frames: 0.20 against 0.54 and 1.20).
+  **It costs delay.** Against the default smoothing (0.5, no boost) sliding over about 100 ms is comparable (about 50 ms behind on average, against about
+  48 ms). Against a setup that uses *Reaction boost* it is later: a step in the picture reaches half way in about 83 ms and 90 % in about 130 ms on a WLED
+  strip, against about 20-30 ms for half way with boost 0.6, so roughly **60 ms later**. Lower the setting to trade smoothness for delay (at 50 the lights are
+  half an interval, about 50 ms, behind the newest picture instead of 100). `core.h`: `Motion`, `motionPush`, `motionAt` (the independent version is
+  `tools/reference/motion.py`).
+* **Blur along the strip** (per target, 0-20 LEDs): each LED along the picture part of the strip is averaged with its neighbours, so the block of one zone
+  becomes a soft blob. Three box averages in a row (close to a Gaussian, much cheaper): about 0.3 ms for 266 LEDs per output frame on the AtomS3, plus a
+  scratch buffer. `core.h`: `blurColours`.
+
+Both are off by default. Measured on the AtomS3 with a moving test picture (the box played from a PC; two WLED strips of 210 and 266 LEDs plus two Govee
+lights with 42 and 50 segments; about 33 output frames a second): the busy core is at 15 % with the old settings, 14 % with motion smoothing (it replaces the exponential smoothing, which
+costs more) and 16 % with blur on every target. A still picture costs about 10 % either way, because the output idles at about 13 frames a second and
+sends nothing. The longest pass of the main loop stays under 8 ms and the free memory above 170 KB. What they cannot do: the box describes each edge of the picture with 4 or 6 colours, so a moving object stays a blob,
+and a Govee segment (3 to 6 LEDs) still changes as one.
+
 ## What the relay does to stay fast
 
 * A Sync Box frame is turned into LED colours and sent **the moment it arrives** (it used to wait for the next 30 fps tick), and a

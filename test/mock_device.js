@@ -34,7 +34,7 @@ function usageOf(wled, layout, sharp) {
 }
 
 function newTarget(i) {
-  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1, sharp: 0, sat: 1, vivid: false, darkOutside: false,
+  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1, sharp: 0, sat: 1, vivid: false, darkOutside: false, blur: 0,
     wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
     layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false } };
   Object.defineProperty(t, 'usage', { enumerable: true, get() { return usageOf(this.wled, this.layout, this.sharp); } });   // like the firmware, derived from the settings
@@ -46,7 +46,7 @@ function createDevice(opts) {
   const calls = [];
   const state = {
     cfg: { targets: [newTarget(0)],
-      look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, smoothOut: 100 }, box: { host: '' },
+      look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, motion: 0, smoothOut: 100 }, box: { host: '' },
       ota: { enabled: false, passSet: false },
       relay: { enabled: true, tvOff: { mode: 'handback', seconds: 15 } }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
     screen: 'idle', calActive: false, maps: {}, test: null, total: opts.total || 600
@@ -136,6 +136,7 @@ function createDevice(opts) {
           if (d.sat !== undefined) T.sat = Math.min(3, Math.max(0, +d.sat));
           if (d.vivid !== undefined) T.vivid = !!d.vivid;
           if (d.darkOutside !== undefined) T.darkOutside = !!d.darkOutside;
+          if (d.blur !== undefined) T.blur = Math.min(20, Math.max(0, d.blur | 0));
           if (d.enabled !== undefined) T.enabled = d.enabled;
           if (d.trim !== undefined) T.trim = d.trim;
           if (d.wled) {

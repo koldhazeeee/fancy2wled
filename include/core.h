@@ -163,6 +163,37 @@ void zoneUsage(const Entry* table, int count, float out[kZones]);
 // out[i*3 + c] = colour of LED i.
 void applyTable(const Entry* table, int count, const float zones[kZones][3], float* out, const SmoothInfo& smooth, bool vivid = false);   // vivid: blend zones with vividBlend()
 
+// ---- spatial smoothing: blur along a strip ---------------------------------
+// The "Blur (LEDs)" setting (0 = off) as the half width of each of three box averages run one after the other; together they come close to a Gaussian with
+// sigma = blurLeds / 2 LEDs (blur 5: three averages 5 LEDs wide, sigma about 2.5). At least 1 when blurLeds > 0.
+int blurHalfWidth(int blurLeds);
+// Blurs LEDs first..last (the picture part of a strip; first < 0 = the whole strip) of n colours (3 floats each) in place. The two ends of that part are
+// held (the first and last LED are repeated beyond it), so the LEDs outside the part are not touched and nothing leaks in from them.
+// scratch: room for 2 * (last - first + 1) * 3 floats.
+void blurColours(float* rgb, int n, int first, int last, int blurLeds, float* scratch);
+
+// ---- motion smoothing: time interpolation between Sync Box pictures ----------
+// The box sends about 14 frames a second but a new picture only about every 100 ms, and they reach the board unevenly (bursts, gaps). Instead of jumping to
+// each picture, the output slides from one to the next, shown about one picture interval late. Pictures are the 24 zones (already adjusted for
+// brightness / gamma / saturation). Each picture is placed on a slowly adjusting clock (so bursts and gaps do not make the motion lurch); pictures that
+// arrive within 25 ms of the previous one replace it (a burst is one picture). Independent implementation: tools/reference/motion.py.
+constexpr int kMotionKnots = 4;
+struct MotionKnot { uint32_t ms = 0; float z[kZones][3] = {}; };
+struct Motion {
+  MotionKnot k[kMotionKnots];       // the latest pictures, the newest last
+  int n = 0;                        // how many are in use
+  uint32_t lastRawMs = 0;           // when the newest picture really arrived
+  float periodMs = 100.f;           // the clock's estimate of the time between pictures
+};
+void motionReset(Motion& m);
+void motionPush(Motion& m, uint32_t nowMs, const float zones[kZones][3]);
+// The picture to show at time timeMs (holds the oldest before the first knot and the newest after the last one). True when the newest picture has been
+// reached, or when the pictures still to be slid through are all identical (a still picture): nothing changes until a different one arrives, so the caller
+// can stop producing output. No picture yet: all zones 0 and true.
+bool motionAt(const Motion& m, uint32_t timeMs, float out[kZones][3]);
+// How far behind the newest picture to show: percent (0..100) of one picture interval.
+float motionDelayMs(const Motion& m, int percent);
+
 // ---- delay tracking --------------------------------------------------------
 // The last kRttSamples round trips to one target (a probe packet there and back, in milliseconds; a probe that got no answer counts as lost).
 // The one-way network delay is taken as half of it. Plain arrays, no allocation.

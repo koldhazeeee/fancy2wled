@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[200000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -257,6 +257,53 @@ int main(int argc, char** argv) {
       auto want = fromHex(hex);
       CHECK(want.size() == 10 && memcmp(h, want.data(), 10) == 0, "ddp header mismatch (seq %d)", seq);
       nDdp++;
+    } else if (k == "MOTION") {
+      // MOTION <pushes> <queries> <percent> <period> <delay> then <ms> <hex zones> per picture and <ms> <reached> <72 floats> per query
+      const char* p = rest;
+      int nP = 0, nQ = 0, pct = 0, adv = 0;
+      float expPeriod = 0, expDelay = 0;
+      if (sscanf(p, "%d %d %d %f %f%n", &nP, &nQ, &pct, &expPeriod, &expDelay, &adv) != 5) { CHECK(false, "bad MOTION line"); continue; }
+      p += adv;
+      Motion m;
+      motionReset(m);
+      for (int i = 0; i < nP; i++) {
+        unsigned ms = 0; char hex[200] = {0};
+        sscanf(p, " %u %199s%n", &ms, hex, &adv);
+        p += adv;
+        const auto zb = fromHex(hex);
+        float z[kZones][3];
+        for (int q = 0; q < kZones; q++) for (int c = 0; c < 3; c++) z[q][c] = (float)zb[q * 3 + c];
+        motionPush(m, ms, z);
+      }
+      CHECK(fabsf(m.periodMs - expPeriod) < 0.01f && fabsf(motionDelayMs(m, pct) - expDelay) < 0.01f, "motion clock: period %.4f (want %.4f), delay %.4f (want %.4f)", m.periodMs, expPeriod, motionDelayMs(m, pct), expDelay);
+      int bad = 0;
+      float worst = 0.f;
+      for (int i = 0; i < nQ; i++) {
+        unsigned ms = 0; int reached = 0;
+        sscanf(p, " %u %d%n", &ms, &reached, &adv);
+        p += adv;
+        float want[kZones * 3];
+        for (int j = 0; j < kZones * 3; j++) { sscanf(p, " %f%n", &want[j], &adv); p += adv; }
+        float got[kZones][3];
+        const bool r = motionAt(m, ms, got);
+        if (r != (reached != 0)) bad++;
+        for (int j = 0; j < kZones * 3; j++) { const float d = fabsf(got[j / 3][j % 3] - want[j]); if (d > worst) worst = d; }
+      }
+      CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
+      nMotion++;
+    } else if (k == "BLUR") {
+      int n = 0, first = 0, last = 0, blur = 0, adv = 0;
+      char hex[1000] = {0};
+      sscanf(rest, "%d %d %d %d %999s%n", &n, &first, &last, &blur, hex, &adv);
+      const char* p = rest + adv;
+      const auto cb = fromHex(hex);
+      std::vector<float> rgb((size_t)n * 3), scratch((size_t)n * 6 + 6);
+      for (int i = 0; i < n * 3; i++) rgb[i] = (float)cb[i];
+      blurColours(rgb.data(), n, first, last, blur, scratch.data());
+      float worst = 0.f;
+      for (int i = 0; i < n * 3; i++) { float want = 0; sscanf(p, " %f%n", &want, &adv); p += adv; const float d = fabsf(rgb[i] - want); if (d > worst) worst = d; }
+      CHECK(worst < 0.02f, "blur (n %d, part %d..%d, blur %d): worst colour difference %.4f", n, first, last, blur, worst);
+      nBlur++;
     }
   }
   fclose(f);
@@ -520,7 +567,81 @@ int main(int argc, char** argv) {
     const RttSummary s4 = rttSummary(lost);
     CHECK(s4.samples == 5 && s4.lost == 5 && s4.avgMs < 0, "every probe lost: no times, 5 of 5 lost");
     CHECK(fabsf(wledShowMs(600, 35.f) - (18.f + 500.f / 35.f)) < 1e-3f, "600 LEDs at 35 fps: 18 ms clocking out + half a refresh = %.1f ms", wledShowMs(600, 35.f));
-    CHECK(fabsf(wledShowMs(210, 0.f) - 6.3f) < 1e-3f && wledShowMs(0, 30.f) < 0.f && wledShowMs(-3, 30.f) < 0.f, "fps unknown: only the clocking out; no LEDs: no estimate"); }  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
+    CHECK(fabsf(wledShowMs(210, 0.f) - 6.3f) < 1e-3f && wledShowMs(0, 30.f) < 0.f && wledShowMs(-3, 30.f) < 0.f, "fps unknown: only the clocking out; no LEDs: no estimate"); }  { // motion smoothing: what must hold whatever the numbers
+    Motion m;
+    motionReset(m);
+    float zl[kZones][3], zh[kZones][3], o[kZones][3];
+    for (int q = 0; q < kZones; q++) for (int c = 0; c < 3; c++) { zl[q][c] = 0.f; zh[q][c] = 100.f; }
+    CHECK(motionAt(m, 123u, o) && o[0][0] == 0.f && o[23][2] == 0.f, "no picture yet: all zones 0, nothing to wait for");
+    motionPush(m, 1000u, zl);
+    motionPush(m, 1100u, zh);
+    CHECK(m.n == 2 && m.k[0].ms == 1000u && m.k[1].ms == 1100u, "two pictures 100 ms apart sit 100 ms apart on the clock (%u, %u)", (unsigned)m.k[0].ms, (unsigned)m.k[1].ms);
+    bool reached = motionAt(m, 1050u, o);
+    CHECK(!reached && fabsf(o[5][1] - 50.f) < 1e-3f, "half way between two pictures: half way between their colours (%.2f)", o[5][1]);
+    reached = motionAt(m, 1100u, o);
+    CHECK(reached && o[5][1] == 100.f, "at the newest picture: its colours, and nothing more to wait for");
+    reached = motionAt(m, 5000u, o);
+    CHECK(reached && o[5][1] == 100.f, "long after it: the newest picture is held (no guessing ahead)");
+    reached = motionAt(m, 900u, o);
+    CHECK(!reached && o[5][1] == 0.f, "before the first picture: the first is held");
+    motionPush(m, 1110u, zl);                                      // 10 ms after the last one: a burst, it replaces that picture
+    CHECK(m.n == 2 && m.k[1].ms == 1100u && m.k[1].z[3][0] == 0.f, "a picture within 25 ms of the previous one replaces it instead of adding a knot");
+    motionPush(m, 4000u, zh);                                      // the box was silent for 2.9 s: start over
+    CHECK(m.n == 1 && m.k[0].ms == 4000u && m.periodMs == 100.f, "after a long silence the clock starts over");
+    Motion r6;
+    motionReset(r6);
+    for (int i = 0; i < 6; i++) { zl[0][0] = (float)(i * 10); motionPush(r6, 10000u + i * 100u, zl); }
+    CHECK(r6.n == kMotionKnots && r6.k[0].z[0][0] == 20.f && r6.k[kMotionKnots - 1].z[0][0] == 50.f, "the ring keeps the %d latest pictures", kMotionKnots);
+    Motion w;
+    motionReset(w);
+    zl[0][0] = 0.f; zh[0][0] = 100.f;
+    motionPush(w, 0xFFFFFF00u, zl);
+    motionPush(w, 0xFFFFFF64u, zh);
+    motionAt(w, 0xFFFFFF32u, o);
+    CHECK(fabsf(o[0][0] - 50.f) < 1e-3f, "half way across a pair of pictures just before the 32-bit millisecond clock wraps (%.2f)", o[0][0]);
+    reached = motionAt(w, 0x00000010u, o);
+    CHECK(reached && o[0][0] == 100.f, "after the clock wrapped, the newest picture is held and reached");
+    Motion s3;                                                      // a still picture: sliding between identical pictures changes nothing, so it counts as settled
+    motionReset(s3);
+    zl[0][0] = 5.f;
+    for (int i = 0; i < 4; i++) motionPush(s3, 7000u + i * 100u, zl);
+    reached = motionAt(s3, 7150u, o);
+    CHECK(reached && o[0][0] == 5.f, "between identical pictures the output is settled (nothing to tick for)");
+    zh[0][0] = 99.f;
+    motionPush(s3, 7400u, zh);                                      // a different picture arrives
+    reached = motionAt(s3, 7380u, o);
+    CHECK(!reached, "as soon as a different picture is in the history, sliding is under way again");
+    reached = motionAt(s3, 7250u, o);
+    CHECK(!reached && o[0][0] == 5.f, "...even before the different picture is reached (it is the stretch before it that still moves)");
+    CHECK(motionDelayMs(m, 0) == 0.f && fabsf(motionDelayMs(m, 100) - 100.f) < 1e-3f && fabsf(motionDelayMs(m, 50) - 50.f) < 1e-3f && motionDelayMs(m, 150) == motionDelayMs(m, 100), "the delay is a share of one interval, from 0 to 100 percent"); }  { // blur along a strip
+    CHECK(blurHalfWidth(0) == 0 && blurHalfWidth(-4) == 0 && blurHalfWidth(1) == 1 && blurHalfWidth(5) == 2 && blurHalfWidth(20) == 10, "blur widths: 0 off, 1 -> 1, 5 -> 2, 20 -> 10 (%d %d %d)", blurHalfWidth(1), blurHalfWidth(5), blurHalfWidth(20));
+    float flat[20 * 3], scratch[2 * 20 * 3];
+    for (int i = 0; i < 20 * 3; i++) flat[i] = 77.f;
+    blurColours(flat, 20, -1, -1, 9, scratch);
+    bool same = true;
+    for (int i = 0; i < 20 * 3; i++) if (fabsf(flat[i] - 77.f) > 1e-3f) same = false;
+    CHECK(same, "a flat colour stays flat, ends included");
+    float dot[41 * 3] = {}, scr2[2 * 41 * 3];
+    dot[20 * 3] = 255.f;
+    blurColours(dot, 41, -1, -1, 5, scr2);
+    float total = 0.f, asym = 0.f;
+    int widest = 0;
+    for (int i = 0; i < 41; i++) { total += dot[i * 3]; if (dot[i * 3] > 0.01f && abs(i - 20) > widest) widest = abs(i - 20); asym = fmaxf(asym, fabsf(dot[(20 - (i - 20)) * 3 < 0 || 20 - (i - 20) > 40 ? 0 : (20 - (i - 20)) * 3] - dot[i * 3])); }
+    CHECK(fabsf(total - 255.f) < 0.05f, "a single bright LED keeps its light when blurred (%.2f of 255)", total);
+    CHECK(dot[20 * 3] < 100.f && dot[20 * 3] > 30.f && widest == 6 && asym < 1e-3f, "it spreads symmetrically over 6 LEDs each way (peak %.1f, reach %d)", dot[20 * 3], widest);
+    float part[20 * 3], orig[20 * 3];
+    for (int i = 0; i < 20 * 3; i++) orig[i] = part[i] = (float)((i * 37) % 200);
+    blurColours(part, 20, 5, 14, 5, scratch);
+    bool outsideSame = true, insideChanged = false;
+    for (int i = 0; i < 20; i++) for (int c = 0; c < 3; c++) {
+      const bool in = i >= 5 && i <= 14;
+      if (!in && part[i * 3 + c] != orig[i * 3 + c]) outsideSame = false;
+      if (in && fabsf(part[i * 3 + c] - orig[i * 3 + c]) > 1.f) insideChanged = true;
+    }
+    CHECK(outsideSame && insideChanged, "only the picture part (5..14) is blurred; the LEDs outside it keep their colours");
+    blurColours(nullptr, 20, -1, -1, 5, scratch);
+    blurColours(flat, 1, -1, -1, 5, scratch);
+    blurColours(flat, 20, -1, -1, 0, scratch); }  { // Govee: base64 (RFC 4648 vectors), the two packets known from other projects, and the limits
     struct { const char* in; const char* want; } b64[] = {{"", ""}, {"f", "Zg=="}, {"fo", "Zm8="}, {"foo", "Zm9v"}, {"foob", "Zm9vYg=="}, {"fooba", "Zm9vYmE="}, {"foobar", "Zm9vYmFy"}};
     for (const auto& c : b64) {
       char o[32];
@@ -627,8 +748,8 @@ int main(int argc, char** argv) {
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }
 
-  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, g_pass, g_fail);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

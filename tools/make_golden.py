@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import govee, layout, protocol  # noqa: E402
+from reference import govee, layout, motion, protocol  # noqa: E402
 
 
 def ent(entries):
@@ -179,6 +179,91 @@ def main():
     for n in (1, 2, 5, 20, 33, 60):
         rgb = [tuple(rnd.randrange(256) for _ in range(3)) for _ in range(n)]
         lines.append("GOVEE FRAME %d %s %s" % (n, "".join("%02x%02x%02x" % px for px in rgb), govee.frame_json(rgb)))
+
+    # --- motion smoothing: pictures at irregular times, then the picture shown at several moments ----------------------------------------------------------
+    def hexz(zs):
+        return "".join("%02x%02x%02x" % tuple(int(v) for v in z) for z in zs)
+
+    def picture():
+        base = [rnd.randrange(256) for _ in range(3)]
+        return [tuple(min(255, max(0, base[c] + rnd.randrange(-60, 61))) for c in range(3)) for _ in range(24)]
+
+    def motion_case(times, pct):
+        m = motion.Motion()
+        pushes = []
+        for t in times:
+            z = picture()
+            m.push(t, z)
+            pushes.append((t, z))
+        first, last = m.k[0][0], m.k[-1][0]
+        qs = [first - 30, first, (first + last) // 2, first + 1, last - 1, last, last + 70] + [rnd.randrange(first, last + 1) for _ in range(3)]
+        out = ["MOTION %d %d %d %.4f %.4f" % (len(pushes), len(qs), pct, m.period, m.delay(pct))]
+        for t, z in pushes:
+            out.append("%d %s" % (t, hexz(z)))
+        for q in qs:
+            zs, reached = m.at(q)
+            out.append("%d %d %s" % (q, 1 if reached else 0, " ".join("%.4f" % v for z in zs for v in z)))
+        lines.append(" ".join(out))
+
+    t = 5000
+    steady = []
+    for _ in range(10):
+        steady.append(t)
+        t += 100 + rnd.randrange(-10, 11)
+    motion_case(steady, 100)
+    motion_case(steady, 50)
+    burst, t = [], 20000
+    for i in range(12):
+        burst.append(t)
+        if i % 3 == 1:
+            burst.append(t + rnd.randrange(2, 12))                  # a second picture within a few ms: a burst
+        t += 95 + rnd.randrange(-8, 9)
+    motion_case(burst, 100)
+    gaps, t = [], 90000
+    for g in (100, 100, 210, 70, 100, 190, 65, 100, 100, 130):
+        gaps.append(t)
+        t += g
+    motion_case(gaps, 100)
+    silence = [40000, 40100, 40195, 40300, 42500, 42598, 42702, 42800]  # 2.2 s of silence in the middle: the clock starts over
+    motion_case(silence, 80)
+    motion_case([700], 100)                                            # one picture only
+    still, t = [], 60000                                               # a picture that never changes: every query is settled
+    for _ in range(7):
+        still.append(t)
+        t += 100
+    m_still = motion.Motion()
+    pic0 = picture()
+    for t in still:
+        m_still.push(t, pic0)
+    qs = [still[0] - 20, still[1] + 30, still[3] + 1, still[-1] - 5, still[-1] + 40]
+    out = ["MOTION %d %d %d %.4f %.4f" % (len(still), len(qs), 100, m_still.period, m_still.delay(100))]
+    for t in still:
+        out.append("%d %s" % (t, hexz(pic0)))
+    for q in qs:
+        zs, reached = m_still.at(q)
+        out.append("%d %d %s" % (q, 1 if reached else 0, " ".join("%.4f" % v for z in zs for v in z)))
+    lines.append(" ".join(out))
+    tail = list(steady[:6])                                            # different pictures that end in three identical ones: only the last stretch is settled
+    m_tail = motion.Motion()
+    pics = [picture() for _ in range(3)]
+    seq = [pics[0], pics[1], pics[2], pics[2], pics[2], pics[2]]
+    for t, z in zip(tail, seq):
+        m_tail.push(t, z)
+    qs = [m_tail.k[0][0] + 10, m_tail.k[1][0] + 40, m_tail.k[2][0] + 5, m_tail.k[2][0] + 90, m_tail.k[3][0] + 50]
+    out = ["MOTION %d %d %d %.4f %.4f" % (len(tail), len(qs), 100, m_tail.period, m_tail.delay(100))]
+    for t, z in zip(tail, seq):
+        out.append("%d %s" % (t, hexz(z)))
+    for q in qs:
+        zs, reached = m_tail.at(q)
+        out.append("%d %d %s" % (q, 1 if reached else 0, " ".join("%.4f" % v for z in zs for v in z)))
+    lines.append(" ".join(out))
+
+    # --- blur along a strip --------------------------------------------------------------------------------------------------------------------------------------
+    for n, first, last, blur in ((30, -1, -1, 5), (30, 5, 24, 5), (30, 0, 29, 1), (30, 10, 12, 8), (12, 2, 9, 20), (50, -1, -1, 3), (40, 3, 200, 6), (25, 7, 3, 4), (2, -1, -1, 10), (64, 8, 55, 12)):
+        src = [[float(rnd.randrange(256)) for _ in range(3)] for _ in range(n)]
+        outp = motion.blur_colours(src, first, last, blur)
+        lines.append("BLUR %d %d %d %d %s %s" % (n, first, last, blur, "".join("%02x%02x%02x" % tuple(int(v) for v in c) for c in src),
+                                                 " ".join("%.4f" % v for c in outp for v in c)))
 
     out = os.path.join(HERE, "..", "test", "golden.txt")
     os.makedirs(os.path.dirname(out), exist_ok=True)
