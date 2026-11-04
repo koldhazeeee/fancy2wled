@@ -63,9 +63,10 @@ input[type=range].wide{width:100%}
 
 <div class="card" id="mapCard">
   <h2>Picture map</h2>
-  <p class="small mut">The 24 zones of the Sync Box, drawn where each one really looks at the picture (the box averages those areas and never sends the parts in between), and which of them each target follows. The box only drives the edges, so the middle zones are never used. Tap a zone for its colour, or a target's bar for how many of its LEDs follow it. The map follows your changes before you save them.</p>
+  <p class="small mut">The 24 zones of the Sync Box, drawn where each one really looks at the picture (the box averages those areas and never sends the parts in between), and which of them each target follows. The box only drives the edges, so the middle zones are never used. Tap a zone for its colour, or a target's bar for how many of its LEDs follow it. <b>Click a zone to light the LEDs that follow it</b> on your WLED strips (click it again to switch it off). The map follows your changes before you save them.</p>
   <div class="row"><label for="mapLiveOn">Show the colours the Sync Box is sending, live</label><input id="mapLiveOn" type="checkbox" style="flex:0 0 auto" checked></div>
   <p class="small mut" id="mapLiveNote"></p>
+  <p class="small" id="mapMarkNote" aria-live="polite"></p>
   <div id="mapLegend" class="legend small"></div>
   <svg id="mapSvg" viewBox="0 0 500 312" role="img" aria-label="Which zones of the picture each target follows" style="width:100%;max-width:560px;display:block;margin:8px auto"></svg>
 </div>
@@ -292,6 +293,23 @@ input[type=range].wide{width:100%}
     if((r===1||r===2)&&c===5)return[1860,y0,60,h];
     return[ZX[c][0],y0,ZX[c][1]-ZX[c][0],h];
   }
+  /* Click a zone: the board lights the LEDs that follow it (white, on every WLED) for a while; click it again to switch it off. */
+  var ZONE_MARK_S=8,markedZone=-1,markedUntil=0,markedTimer=null;
+  async function zoneClick(z){
+    var note=$('mapMarkNote'),off=(z===markedZone&&Date.now()<markedUntil);
+    clearTimeout(markedTimer);
+    try{
+      var r=await j('/api/zonemark',{zone:z,seconds:off?0:ZONE_MARK_S});
+      if(off){markedZone=-1;markedUntil=0;note.textContent='';}
+      else{
+        markedZone=z;markedUntil=Date.now()+ZONE_MARK_S*1000;
+        var names=[];(r.targets||[]).forEach(function(n,i){if(n>0)names.push(tview(i).name+' ('+n+' LEDs)');});
+        note.textContent=r.leds>0?('Zone '+z+' is lit on: '+names.join(', ')+'. Click it again to switch it off.'):('No LED on a WLED follows zone '+z+'.');
+        markedTimer=setTimeout(function(){markedZone=-1;note.textContent='';drawMap();},ZONE_MARK_S*1000+300);
+      }
+    }catch(e){note.textContent='Could not reach the board.';}
+    drawMap();
+  }
   function drawMap(){
     var svg=$('mapSvg'),n=(cfg&&cfg.targets)?cfg.targets.length:1,leg=$('mapLegend');
     while(svg.firstChild)svg.removeChild(svg.firstChild);leg.innerHTML='';
@@ -305,7 +323,9 @@ input[type=range].wide{width:100%}
       var users=[];for(i=0;i<n;i++)if((usage[i]||[])[z]>0.05)users.push(i);
       // live view: a zone no target follows is faded, the targets are a bar under the colour; otherwise the old look, a tinted block per target
       var g=svgEl('g',{'data-zone':z,opacity:liveOn?(users.length?1:0.4):(inner?0.4:1)},svg);
-      var cell=svgEl('rect',{x:x,y:y,width:cw,height:ch,fill:'var(--bg)',stroke:'var(--line)'},g);
+      var lit=(z===markedZone&&Date.now()<markedUntil);
+      g.style.cursor='pointer';g.addEventListener('click',function(){zoneClick(parseInt(this.getAttribute('data-zone'),10));});
+      var cell=svgEl('rect',{x:x,y:y,width:cw,height:ch,fill:'var(--bg)',stroke:lit?'var(--fg)':'var(--line)','stroke-width':lit?2.5:1},g);
       var cellTitle=svgEl('title',{},cell);
       users.forEach(function(ti,k){
         var v=usage[ti][z],a=(0.2+0.8*v/mx[ti])*(tview(ti).enabled?1:0.35),sh=ch/users.length,sw2=(cw-2)/users.length,bar=liveOn;

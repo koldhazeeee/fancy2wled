@@ -428,6 +428,15 @@ async function cdp(wsUrl) {
       const zonesOf = t => p.ev("JSON.stringify([...new Set(Array.from(document.querySelectorAll('#mapSvg rect[data-t=\"" + t + "\"]')).map(r => +r.getAttribute('data-z')))].sort((a,b)=>a-b))");
       const alphaOf = (t, z) => p.ev("+document.querySelector('#mapSvg rect[data-t=\"" + t + "\"][data-z=\"" + z + "\"]').getAttribute('fill-opacity')");
       check('map: all 24 zones are drawn', (await p.ev("document.querySelectorAll('#mapSvg g[data-zone]').length")) === 24);
+      // clicking a zone lights its LEDs on the strips
+      const clickZone = z => p.ev("document.querySelector('#mapSvg g[data-zone=\"" + z + "\"]').dispatchEvent(new MouseEvent('click',{bubbles:true})); 1");
+      dev.state.zoneMark = null;
+      await clickZone(3); await sleep(400);
+      check('map: clicking a zone asks the board to light it', dev.state.zoneMark && dev.state.zoneMark.zone === 3 && dev.state.zoneMark.seconds > 0, JSON.stringify(dev.state.zoneMark));
+      check('map: a note says which strips it is lit on', /Zone 3 is lit on: Target 1 \(15 LEDs\)/.test(await p.ev("document.getElementById('mapMarkNote').textContent")), await p.ev("document.getElementById('mapMarkNote').textContent"));
+      check('map: the clicked zone is outlined', (await p.ev("document.querySelector('#mapSvg g[data-zone=\"3\"] rect').getAttribute('stroke-width')")) === '2.5' && (await p.ev("document.querySelector('#mapSvg g[data-zone=\"4\"] rect').getAttribute('stroke-width')")) === '1');
+      await clickZone(3); await sleep(400);
+      check('map: clicking it again switches it off', dev.state.zoneMark.zone === 3 && dev.state.zoneMark.seconds === 0 && (await p.ev("document.getElementById('mapMarkNote').textContent")) === '');
       // where each zone sits is where the box really looks, not an even grid
       const box = z => p.ev("(function(){var r=document.querySelector('#mapSvg g[data-zone=\"" + z + "\"] rect'); return JSON.stringify([+r.getAttribute('x'), +r.getAttribute('y'), +r.getAttribute('width'), +r.getAttribute('height')].map(function(v){return Math.round(v*10)/10;}));})()");
       const nominal = JSON.stringify([14, 14, 78.7, 65.5]);

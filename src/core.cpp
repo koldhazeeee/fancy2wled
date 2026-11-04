@@ -635,6 +635,24 @@ void darkOutside(float* rgb, int n, int first, int last) {
     if (i < first || i > last) rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = 0.f;
 }
 
+int zoneRuns(const Entry* t, int count, int zone, int out[][2], int maxRuns) {
+  int runs = 0;
+  bool in = false;
+  for (int i = 0; i < count; i++) {
+    const bool mine = (t[i].f < 128 ? t[i].a : t[i].b) == zone;
+    if (mine && in) {
+      out[runs - 1][1]++;
+    } else if (mine) {
+      if (runs >= maxRuns) break;
+      out[runs][0] = i;
+      out[runs][1] = 1;
+      runs++;
+    }
+    in = mine;
+  }
+  return runs;
+}
+
 void zoneUsage(const Entry* t, int count, float out[kZones]) {
   for (int z = 0; z < kZones; z++) out[z] = 0.f;
   for (int i = 0; i < count; i++) {

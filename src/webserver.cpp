@@ -347,6 +347,24 @@ static esp_err_t h_mark(httpd_req_t* req) {
   return sendOk(req);
 }
 
+// Click on a zone of the picture map: light the LEDs that follow it on every WLED (seconds 0 = off).
+static esp_err_t h_zonemark(httpd_req_t* req) {
+  NEED_JSON(doc);
+  const int zone = doc["zone"] | -1;
+  if (zone < 0 || zone >= fwb::kZones) return sendError(req, "400 Bad Request", "zone must be 0 to 23");
+  int secs = doc["seconds"] | 8;
+  if (secs < 0) secs = 0;
+  if (secs > 60) secs = 60;
+  int per[kMaxTargets];
+  const int total = zoneMark(zone, secs, per);
+  JsonDocument d;
+  d["ok"] = true;
+  d["leds"] = total;
+  JsonArray a = d["targets"].to<JsonArray>();
+  for (int i = 0; i < kMaxTargets; i++) a.add(per[i]);
+  return sendDoc(req, d);
+}
+
 static esp_err_t h_zones(httpd_req_t* req) {
   uint8_t z[fwb::kZones][3];
   uint32_t age;
@@ -574,6 +592,7 @@ static const Route kRoutes[] = {
     {"/api/test", HTTP_POST, h_test},
     {"/api/zones", HTTP_GET, h_zones},
     {"/api/mark", HTTP_POST, h_mark},
+    {"/api/zonemark", HTTP_POST, h_zonemark},
 #if FWB_PHONE_CAL
     {"/api/screen", HTTP_GET, h_screen_get},
     {"/api/cal/screen", HTTP_POST, h_cal_screen},

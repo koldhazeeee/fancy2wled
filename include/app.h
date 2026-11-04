@@ -206,6 +206,9 @@ void testPattern(int target, int seconds);
 // the run dark, so the setup page can show where the run / the TV part starts and ends. Ignored during calibration.
 struct MarkBlock { int start, count; uint8_t r, g, b; };
 void markShow(int target, const MarkBlock* blocks, int n, int seconds);
+// Lights, in white on every enabled WLED target, the LEDs that follow `zone` of the picture (the rest of those runs dark) for `seconds`; 0 clears.
+// Returns the number of LEDs lit. A Govee light is left alone.
+int zoneMark(int zone, int seconds, int perTarget[kMaxTargets]);
 
 // ---------------------------------------------------------------- Home Assistant (MQTT)
 struct MqttStatus { bool enabled = false, connected = false; String error, base; };

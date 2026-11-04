@@ -405,6 +405,36 @@ int main(int argc, char** argv) {
     // the box's zones are not laid out symmetrically (the two middle rows sit a little above the centre of the picture), so the two ends differ a little
     CHECK(fabsf(ur[5] - ur[23]) < 8.f && ur[11] > 40.f && ur[17] > 40.f, "a right-hand strip spreads over its column (zones 5, 11, 17, 23: %.1f %.1f %.1f %.1f)", ur[5], ur[11], ur[17], ur[23]);
   }
+  { // clicking a zone on the picture map lights the LEDs that follow it
+    Entry top[210];
+    tableLinear(top, 210, false, 82, 172, 0);
+    int total = 0, zonesWithRuns = 0;
+    bool contiguous = true, none = true;
+    for (int z = 0; z < kZones; z++) {
+      int runs[8][2];
+      const int n = zoneRuns(top, 210, z, runs, 8);
+      if (n > 0) zonesWithRuns++;
+      if (z > 5 && n != 0) none = false;                                  // a ceiling strip never follows a zone of the lower rows
+      int prevEnd = -1;
+      for (int k = 0; k < n; k++) {
+        total += runs[k][1];
+        if (runs[k][0] <= prevEnd) contiguous = false;                  // runs are in order and do not touch
+        prevEnd = runs[k][0] + runs[k][1];
+      }
+    }
+    CHECK(total == 210, "every LED of the strip belongs to exactly one zone (%d of 210)", total);
+    CHECK(zonesWithRuns == 6 && none && contiguous, "a ceiling strip is covered by the six top zones, each a separate stretch (%d zones)", zonesWithRuns);
+    int r0[8][2], r3[8][2];
+    const int n0 = zoneRuns(top, 210, 0, r0, 8), n3 = zoneRuns(top, 210, 3, r3, 8);
+    CHECK(n0 == 1 && r0[0][0] == 0 && r0[0][1] > 60, "zone 0 holds the left end of the strip (run of %d from LED %d)", r0[0][1], r0[0][0]);
+    CHECK(n3 == 1 && r3[0][0] > r0[0][1] && r3[0][1] >= 10 && r3[0][1] <= 20, "zone 3 is a stretch of about 15 LEDs in the middle (%d from %d)", r3[0][1], r3[0][0]);
+    int few[2][2];
+    CHECK(zoneRuns(top, 210, 0, few, 0) == 0, "no room for runs: none returned");
+    Entry loop[142];
+    CHECK(tableLoop(loop, 142, 0, false, nullptr, 0, 16, 9), "a loop of 142 LEDs builds");
+    int lr[8][2];
+    CHECK(zoneRuns(loop, 142, 5, lr, 8) <= 2 && zoneRuns(loop, 142, 5, lr, 8) >= 1, "the top-right corner zone is one stretch or two (round the corner)");
+  }
   { // firmware updates: what is accepted as an image, the marker scan and the password rules
     uint8_t img[200] = {};
     img[0] = 0xE9; img[12] = 9; img[13] = 0;                              // an ESP32-S3 image ...

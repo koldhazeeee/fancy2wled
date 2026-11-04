@@ -220,6 +220,7 @@ function createDevice(opts) {
           return json(res, 200, { ok: true });
         }
         if (p === '/api/test') { state.test = d; return json(res, 200, { ok: true }); }
+        if (p === '/api/zonemark') { state.zoneMark = d; state.zoneMarks = (state.zoneMarks || 0) + 1; return json(res, 200, { ok: true, leds: d.seconds > 0 ? 15 : 0, targets: d.seconds > 0 ? [15, 0, 0, 0] : [0, 0, 0, 0] }); }
         if (p === '/api/mark') { state.mark = d; state.marks = (state.marks || 0) + 1; return json(res, 200, { ok: true }); }
         if (p === '/api/cal/begin') {
           const tg = state.cfg.targets[d.target || 0];

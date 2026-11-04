@@ -163,6 +163,10 @@ void sharpenTable(Entry* table, int count, int percent);
 // the same brightness. Results are clamped to 0..255.
 void saturateColours(float* rgb, int n, float sat);
 
+// The runs of consecutive LEDs that follow `zone` more than any other zone (each LED's table entry blends zone a and zone b; it belongs to a when f < 128, else to b).
+// out[k] = {first LED, number of LEDs}; returns the number of runs (at most maxRuns). The setup page lights these when a zone is clicked on the picture map.
+int zoneRuns(const Entry* table, int count, int zone, int out[][2], int maxRuns);
+
 // How many LEDs follow each picture zone: an LED adds (1 - f/255) to zone a and f/255 to zone b of its table entry, so the 24 numbers add
 // up to `count`. The setup page draws this as the "picture map" (which part of the screen each target pulls from). LEDs past the ends of the
 // TV hold the corner zone, so the corners usually come out highest.

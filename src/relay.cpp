@@ -1295,6 +1295,27 @@ void testPattern(int target, int seconds) {
   }
 }
 
+int zoneMark(int zone, int seconds, int perTarget[kMaxTargets]) {
+  for (int i = 0; i < kMaxTargets; i++) perTarget[i] = 0;
+  if (zone < 0 || zone >= kZones) return 0;
+  Lock l;
+  int total = 0;
+  for (int i = 0; i < gSet.nTargets && i < kMaxTargets; i++) {
+    const Target& t = gSet.t[i];
+    if (t.kind != 0 || !t.enabled || !gTable[i] || gTableN[i] != t.wCount) continue;
+    int runs[8][2];
+    const int n = seconds > 0 ? zoneRuns(gTable[i], gTableN[i], zone, runs, 8) : 0;
+    MarkBlock bl[8];
+    for (int k = 0; k < n; k++) {
+      bl[k] = MarkBlock{t.wStart + runs[k][0], runs[k][1], 255, 255, 255};
+      perTarget[i] += runs[k][1];
+    }
+    total += perTarget[i];
+    markShow(i, bl, n, seconds);                      // no run (or 0 seconds) clears what this target was showing
+  }
+  return total;
+}
+
 void markShow(int target, const MarkBlock* blocks, int n, int seconds) {
   Lock l;
   if (target < 0 || target >= gSet.nTargets) return;
