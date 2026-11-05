@@ -4,7 +4,7 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
-## Unreleased
+## 0.4.6 - 2026-11-04
 
 * **Settings check**: a card on the setup page that looks at your settings (saved or not) and says what is wrong (**Fix**) or could be better (**Tip**): a Reaction
   boost that does nothing, settings that Motion smoothing overrides, a box left at its slow default speed, a TV part that is missing or outside the run, two targets
