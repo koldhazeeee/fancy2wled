@@ -1,0 +1,17 @@
+#!/bin/sh
+# Runs the repository lint before every commit: sources must be plain ASCII with LF line endings, and nothing may hold a real
+# device address (private IPv4 or MAC) that is not a documented example. The same check runs in CI after a push, but by then it is
+# already in the history. Install it once (git does not version hooks, so a fresh clone needs this step too):
+#     cp tools/git-hooks/pre-commit .git/hooks/pre-commit
+# `git commit --no-verify` skips it when you really must.
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node was not found, so the lint (test/test_lint.js) could not run. Install Node.js, or commit with --no-verify." >&2
+  exit 1
+fi
+if ! node test/test_lint.js; then
+  echo "" >&2
+  echo "pre-commit: the lint found problems (above), so nothing was committed. Fix them and commit again." >&2
+  exit 1
+fi

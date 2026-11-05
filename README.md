@@ -218,6 +218,8 @@ pio run -e atoms3                 # compile the firmware
 pio run -e atoms3-phonecal        # ... with the phone-camera calibration and the secure web server it needs
 ```
 
+The lint also catches real device addresses (private IPs and MACs that are not a documented example) before they reach the history. CI runs it after a push; to run it before every commit instead, install the hook once with `cp tools/git-hooks/pre-commit .git/hooks/pre-commit` (git does not version hooks). Keep a line for each release in [CHANGELOG.md](CHANGELOG.md).
+
 `node test/mock_device.js` serves the web UI against a fake relay so you can work on it without hardware. `node tools/make_screenshots.js` regenerates the pictures in
 `docs/images` from the real page running against that fake relay, with made-up sample data (documentation addresses, no real devices), so no private information can end up in them.
 
