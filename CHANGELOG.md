@@ -4,7 +4,7 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
-## Unreleased
+## 0.4.8 - 2026-11-05
 
 * **Fix: a Govee light that was off before sync came back on after a pause.** The relay read the light's state in the background while its first colour frame
   (which also switches streaming on) was already on its way, so the light was already on when its state was read and was handed back on. A Govee light now gets no frames
