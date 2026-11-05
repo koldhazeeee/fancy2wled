@@ -160,6 +160,12 @@ input[type=range].wide{width:100%}
   reaching it at the end of the strip. 100% = it takes the whole strip, lower = it blends faster, 0 = the end LEDs just repeat the TV's edge colour.</p>
 </div>
 
+<div class="card" id="adviceCard">
+  <h2>Settings check</h2>
+  <p class="small mut">Looks at your settings (the ones you have not saved yet too) and points out combinations that waste delay, do nothing, or are probably not what you meant. <b>Fix</b> is something that is wrong, <b>Tip</b> is something that could be better.</p>
+  <div id="advice" class="small" aria-live="polite"></div>
+</div>
+
 <div class="card" id="tvCard">
   <h2>When the TV is off</h2>
   <p class="small mut">The Sync Box sends no signal of its own when the TV is switched off (checked with the TV's power button, over CEC): it keeps sending, with a completely black picture. So the board decides the TV is off when the picture has been <i>completely</i> black for a while, and on again with the first colour. A long black screen counts as off too, which is why the delay is a setting.</p>
@@ -248,6 +254,46 @@ input[type=range].wide{width:100%}
   function show(id,on){$(id).classList.toggle('hidden',!on);}
   function num(id,def){var v=parseInt($(id).value,10);return isNaN(v)?def:v;}
   function msg(html){$('saveMsg').innerHTML=html;}
+
+  /* ---------------------------------------------------------------- settings check */
+  /* A target as the check sees it: the one being edited comes from the form (so unsaved changes count), the others from the board's config. */
+  function tinfo(i){
+    var t=cfg&&cfg.targets&&cfg.targets[i];if(!t)return null;
+    if(i===sel){var s=tvSpan();return {name:$('tName').value||t.name,kind:isGovee()?'govee':'wled',enabled:$('tOn').checked,host:$('wHost').value.trim().toLowerCase(),start:num('wStart',0),count:num('wCount',0),linear:linear(),set:s.set,first:s.first,last:s.last};}
+    var l=t.layout||{},w=t.wled||{};
+    return {name:t.name,kind:t.kind,enabled:t.enabled!==false,host:String(w.host||'').trim().toLowerCase(),start:w.start|0,count:w.count|0,linear:l.type==='linear',set:l.spanFirst>=0&&l.spanLast>=0,first:l.spanFirst,last:l.spanLast};
+  }
+  function advice(){
+    var box=$('advice');if(!box||!cfg||!cfg.targets)return;
+    var out=[],boost=parseInt($('kBoost').value,10)/100,bsp=parseInt($('kBsp').value,10),mot=parseInt($('kMot').value,10),smo=parseFloat($('kSmo').value),i,k;
+    function add(level,text){out.push({level:level,text:text});}
+    if(bsp>=100&&boost>0&&mot===0)add('fix','Reaction boost does nothing at a box speed of 100: the box does not smooth, so there is nothing to undo. Set the boost to 0.');
+    if(mot>0&&(boost>0||smo>0)){var un=[];if(boost>0)un.push('Reaction boost');if(smo>0)un.push('Smoothing over time');add('tip','Motion smoothing is on, so '+un.join(' and ')+(un.length>1?' are':' is')+' not used while it is. Set '+(un.length>1?'them':'it')+' to 0 to tidy up, or Motion smoothing to 0 to use '+(un.length>1?'them':'it')+'.');}
+    if(bsp<100&&mot===0&&boost===0)add('tip',"The box is smoothing its colours (speed "+bsp+"%), so the lights lag behind the picture. The best fix: set the box's Speed of Diffusion to 100% in its app and Box speed here to 100. Or keep the box as it is and raise Reaction boost.");
+    if(bsp<100&&mot>0)add('tip',"The box is smoothing (speed "+bsp+"%) and Motion smoothing adds more delay on top. For the lowest delay set the box's Speed of Diffusion to 100% in its app and Box speed here to 100.");
+    if(bsp<100&&boost>=0.9&&mot===0)add('tip','A Reaction boost this high can overshoot for a moment when Wi-Fi drops a packet. 50 to 70 is safer.');
+    if(bsp>=100&&mot===0)add('tip','At a box speed of 100 the box sends a new picture only about every 100 ms, so the lights move in steps. Try Motion smoothing 50 to 100.');
+    var ts=[];for(i=0;i<cfg.targets.length;i++)ts.push(tinfo(i));
+    ts.forEach(function(t){
+      if(!t||!t.enabled||t.kind==='govee'||t.count<1)return;
+      if(t.linear&&!t.set)add('tip',t.name+': no TV part is set, so the whole run is treated as the picture. If the strip is longer than the TV, set the first and last LED of the TV part to the edges of the picture ("Show markers on the LEDs" helps).');
+      if(t.linear&&t.set&&(t.first<0||t.last>=t.count||t.first>=t.last))add('fix',t.name+': the TV part is outside the run, or its ends are the wrong way round.');
+    });
+    for(i=0;i<ts.length;i++)for(k=i+1;k<ts.length;k++){
+      var a=ts[i],c=ts[k];
+      if(!a||!c||!a.enabled||!c.enabled||a.kind==='govee'||c.kind==='govee'||!a.host||a.host!==c.host||a.count<1||c.count<1)continue;
+      var lo=Math.max(a.start,c.start),hi=Math.min(a.start+a.count,c.start+c.count)-1;
+      if(lo<=hi)add('fix',a.name+' and '+c.name+' both drive LEDs '+lo+' to '+hi+' of the same WLED, so each overwrites the other there.');
+    }
+    box.textContent='';
+    if(!out.length){var ok=document.createElement('span');ok.className='ok';ok.textContent='No problems found.';box.appendChild(ok);return;}
+    out.sort(function(x,y){return (x.level==='fix'?0:1)-(y.level==='fix'?0:1);});
+    out.forEach(function(o){
+      var p=document.createElement('p'),lab=document.createElement('b');p.style.margin='6px 0';
+      lab.className=o.level==='fix'?'warn':'mut';lab.textContent=o.level==='fix'?'Fix: ':'Tip: ';
+      p.appendChild(lab);p.appendChild(document.createTextNode(o.text));box.appendChild(p);
+    });
+  }
 
   /* ---------------------------------------------------------------- picture map */
   var usage=[],usageTimer=null,COLORS=['#3b82f6','#f59e0b','#22c55e','#d946ef'],NS='http://www.w3.org/2000/svg';
@@ -532,7 +578,7 @@ input[type=range].wide{width:100%}
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
     $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';$('mqPerf').checked=!!M.perf;
     usage=list.map(function(t){return t.usage||[];});
-    applyKind();vals();labels();info();setDirty(false);drawMap();
+    applyKind();vals();labels();info();setDirty(false);drawMap();advice();
   }
   function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';var sh=parseInt($('tSharp').value,10);$('tSharpV').textContent='('+(sh<=0?'smooth':(sh>=100?'sharp':sh+'%'))+')';$('tSatV').textContent='('+Math.round(100*parseFloat($('tSat').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kMotV').textContent='('+(parseInt($('kMot').value,10)<=0?'off':parseInt($('kMot').value,10)+'%')+')';$('kBspV').textContent='('+parseInt($('kBsp').value,10)+'%'+(parseInt($('kBsp').value,10)>=100?', the box does not smooth':'')+')';$('tBlurV').textContent='('+(parseInt($('tBlur').value,10)<=0?'off':parseInt($('tBlur').value,10)+(isGovee()?' segments':' LEDs'))+')';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';}
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
@@ -605,7 +651,7 @@ input[type=range].wide{width:100%}
 
   /* ---------------------------------------------------- live preview (unsaved) */
   function changed(){
-    vals();labels();info();setDirty(true);drawMap();scheduleUsage();
+    vals();labels();info();setDirty(true);drawMap();advice();scheduleUsage();
     clearTimeout(timer);
     timer=setTimeout(async function(){
       if(!testing)return;                       // only push changes live while the rainbow test is running
@@ -616,6 +662,7 @@ input[type=range].wide{width:100%}
     },350);
   }
   document.querySelectorAll('[data-live]').forEach(function(e){e.addEventListener('input',changed);e.addEventListener('change',changed);});
+  ['input','change'].forEach(function(ev){document.addEventListener(ev,function(){try{advice();}catch(e){}});});          // the settings check follows every field, not only the live-preview ones
 
   /* ------------------------------------ markers: light the LEDs where the run / the TV part starts and ends */
   var markTimer=null, MARK=3, midUntil=0;                                  // midUntil: the green middle LED stays in the markers until then

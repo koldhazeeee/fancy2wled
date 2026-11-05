@@ -317,6 +317,26 @@ async function cdp(wsUrl) {
     await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
     check('index: Save sends the box speed', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.boxSpeed === 100, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
     await p.ev("var b=document.getElementById('kBsp'); b.value='40'; b.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(500);
+    // the settings check follows the Look sliders, saved or not
+    {
+      const sl = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(120); };
+      const adv = () => p.ev("document.getElementById('advice').textContent");
+      await sl('kBoost', 0); await sl('kMot', 0); await sl('kBsp', 40); await sl('kSmo', 0.5);
+      check('check: a box left at speed 40 with no boost and no motion smoothing gets the tip to set it to 100', /Tip: The box is smoothing its colours \(speed 40%\).*Speed of Diffusion to 100%/.test(await adv()), await adv());
+      await sl('kBsp', 100);
+      check('check: at box speed 100 that tip is gone and the steps tip appears instead', !/speed 40%/.test(await adv()) && /Tip: At a box speed of 100.*Motion smoothing 50 to 100/.test(await adv()), await adv());
+      await sl('kBoost', 60);
+      check('check: a boost at box speed 100 is a fix, and sorted first', /^Fix: Reaction boost does nothing at a box speed of 100/.test(await adv()), await adv());
+      await sl('kMot', 50);
+      check('check: with motion smoothing on, the boost and the smoothing over time are said to be unused (no boost fix any more)', /Motion smoothing is on, so Reaction boost and Smoothing over time are not used/.test(await adv()) && !/does nothing/.test(await adv()), await adv());
+      await sl('kBoost', 0); await sl('kSmo', 0);
+      check('check: with nothing contradictory it says so', /Motion smoothing is on/.test(await adv()) === false && !/Fix:/.test(await adv()), await adv());
+      await sl('kBsp', 40);
+      check('check: motion smoothing on top of a slow box is a tip', /The box is smoothing \(speed 40%\) and Motion smoothing adds more delay/.test(await adv()), await adv());
+      await sl('kBsp', 100); await sl('kMot', 100); await sl('kSmo', 0);
+      check('check: a good setup (box 100, motion smoothing, no boost, no extra smoothing) shows no look advice', !/Reaction boost|Smoothing over time|box speed|box is smoothing/.test(await adv()), await adv());
+      await sl('kBsp', 40); await sl('kMot', 0); await sl('kSmo', 0.5); await sl('kBoost', 0);          // back to the defaults
+    }
     // nudge buttons + range check
     check('index: nudge buttons are built', (await p.ev("document.querySelectorAll('.nudge button').length")) >= 24);
     await p.ev("document.getElementById('wStart').value='0'; document.querySelector('[data-nudge=wStart] button:last-child').click(); 1");
@@ -410,6 +430,23 @@ async function cdp(wsUrl) {
     check('targets: switching back shows the first target (its address, edge and name)', (await p.ev("document.getElementById('wHost').value")) === '192.0.2.50' && (await p.ev("document.getElementById('lPlace').value")) === 'top' && (await p.ev("document.getElementById('tName').value")) === 'Target 1');
     await p.ev("var s=document.getElementById('tSel'); s.value='1'; s.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(700);
     check('targets: ... and the second again, with its trim', (await p.ev("document.getElementById('wHost').value")) === '192.0.2.225' && (await p.ev("document.getElementById('lPlace').value")) === 'right' && (await p.ev("document.getElementById('tTrim').value")) === '0.5');
+    // the settings check looks at the targets
+    {
+      const adv = () => p.ev("document.getElementById('advice').textContent");
+      const sv = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(120); };
+      check('check: a straight run with no TV part set gets a tip, by name', /Tip: Cabinet: no TV part is set/.test(await adv()), await adv());
+      await sv('tvFirst', 20); await sv('tvLast', 200);
+      check('check: with the TV part set that tip is gone', !/Cabinet: no TV part/.test(await adv()), await adv());
+      await sv('tvFirst', 200); await sv('tvLast', 20);
+      check('check: a TV part with its ends the wrong way round is a fix', /Fix: Cabinet: the TV part is outside the run/.test(await adv()), await adv());
+      await sv('tvFirst', ''); await sv('tvLast', '');
+      await sv('wHost', '192.0.2.50');
+      check('check: two targets on the same WLED over the same LEDs are a fix', /Fix: Target 1 and Cabinet both drive LEDs \d+ to \d+ of the same WLED/.test(await adv()), await adv());
+      await sv('wStart', 400);
+      check('check: ... and not once their LEDs no longer overlap', !/both drive LEDs/.test(await adv()), await adv());
+      await sv('wStart', 0); await sv('wHost', '192.0.2.225');
+      check('check: back to the saved values, the overlap fix is gone', !/both drive LEDs/.test(await adv()), await adv());
+    }
     check('targets: the phone-calibration link carries the selected target', /calibrate\?target=1/.test(await p.ev("document.getElementById('calBtn').getAttribute('href')")), await p.ev("document.getElementById('calBtn').getAttribute('href')"));
     dev.state.mark = null;
     await p.ev("document.getElementById('markBtn').click(); 1"); await sleep(700);
