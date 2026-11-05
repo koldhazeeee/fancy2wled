@@ -447,6 +447,34 @@ async function cdp(wsUrl) {
       await sv('wStart', 0); await sv('wHost', '192.0.2.225');
       check('check: back to the saved values, the overlap fix is gone', !/both drive LEDs/.test(await adv()), await adv());
     }
+    // lock to this Sync Box, and the last restart
+    {
+      const txt = id => p.ev("document.getElementById('" + id + "').textContent");
+      const shown = id => p.ev("!document.getElementById('" + id + "').classList.contains('hidden')");
+      const clickBtn = async id => { await p.ev("document.getElementById('" + id + "').click(); 1"); await sleep(900); };
+      check('lock: with no lock the page says anyone can send, and offers to lock to the box it hears', /Any device on your network can send/.test(await txt('boxLockTxt')) && (await shown('boxLockOn')) && !(await shown('boxLockOff')), await txt('boxLockTxt'));
+      dev.state.lastConfigPost = null;
+      await clickBtn('boxLockOn');
+      check('lock: "Only accept this box" sends the address of the box it hears', dev.state.lastConfigPost && dev.state.lastConfigPost.box && dev.state.lastConfigPost.box.host === '192.0.2.20' && dev.state.cfg.box.host === '192.0.2.20', JSON.stringify(dev.state.lastConfigPost));
+      check('lock: ... and the page then says it is locked and offers to undo it', /Only accepting Sync Box frames from 192\.0\.2\.20/.test(await txt('boxLockTxt')) && /reservation/.test(await txt('boxLockTxt')) && !(await shown('boxLockOn')) && (await shown('boxLockOff')), await txt('boxLockTxt'));
+      dev.state.ignored = { n: 40, ip: '192.0.2.77', agoMs: 1500 };
+      await sleep(3300);
+      check('lock: frames from another address while locked: a warning with a button to follow the box', (await shown('boxMoved')) && /arriving from 192\.0\.2\.77, not from 192\.0\.2\.20/.test(await txt('boxMovedTxt')) && (await txt('boxMovedUse')) === 'Use 192.0.2.77', await txt('boxMovedTxt'));
+      await clickBtn('boxMovedUse');
+      check('lock: "Use 192.0.2.77" locks to the new address', dev.state.cfg.box.host === '192.0.2.77', dev.state.cfg.box.host);
+      dev.state.ignored = { n: 40, ip: '192.0.2.77', agoMs: 60000 };
+      await sleep(3300);
+      check('lock: an old ignored frame (a minute ago) is not a warning', !(await shown('boxMoved')));
+      await clickBtn('boxLockOff');
+      check('lock: "Accept any box" clears the lock', dev.state.cfg.box.host === '' && /Any device on your network/.test(await txt('boxLockTxt')) && /accepted again/.test(await txt('boxLockMsg')), await txt('boxLockMsg'));
+      const bad = await p.ev("fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({box:{host:'wled.local'}})}).then(r=>r.status)");
+      check('lock: something that is not an IP address is refused (it would silently switch the lock off)', bad === 400 && dev.state.cfg.box.host === '', String(bad));
+      check('restart: the page says why the board last restarted', /Last restart: power on\./.test(await txt('resetTxt')) && !/not a normal restart/.test(await txt('resetTxt')), await txt('resetTxt'));
+      dev.state.reset = { code: 9, reason: 'brownout (the power supply dipped)', unexpected: true };
+      await sleep(3300);
+      check('restart: a brownout, crash or watchdog is called out, in the status line too', /not a normal restart/.test(await txt('resetTxt')) && /power supply/.test(await txt('resetTxt')) && /last restart: brownout/.test(await txt('statTxt')), await txt('statTxt'));
+      dev.state.reset = null;
+    }
     check('targets: the phone-calibration link carries the selected target', /calibrate\?target=1/.test(await p.ev("document.getElementById('calBtn').getAttribute('href')")), await p.ev("document.getElementById('calBtn').getAttribute('href')"));
     dev.state.mark = null;
     await p.ev("document.getElementById('markBtn').click(); 1"); await sleep(700);

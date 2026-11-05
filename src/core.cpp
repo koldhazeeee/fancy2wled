@@ -46,6 +46,54 @@ void markScan(MarkScanner& s, const uint8_t* d, size_t n) {
   }
 }
 
+bool parseIpv4(const char* s, uint8_t out[4]) {
+  if (!s) return false;
+  uint8_t b[4];
+  const char* p = s;
+  for (int part = 0; part < 4; part++) {
+    if (*p < '0' || *p > '9') return false;
+    if (*p == '0' && p[1] >= '0' && p[1] <= '9') return false;       // no leading zeros
+    int v = 0, digits = 0;
+    while (*p >= '0' && *p <= '9') {
+      v = v * 10 + (*p - '0');
+      if (++digits > 3 || v > 255) return false;
+      p++;
+    }
+    b[part] = (uint8_t)v;
+    if (part < 3) {
+      if (*p != '.') return false;
+      p++;
+    }
+  }
+  if (*p != 0) return false;
+  if (out) memcpy(out, b, 4);
+  return true;
+}
+
+bool validSenderAddress(const char* s) {
+  uint8_t b[4];
+  if (!parseIpv4(s, b)) return false;
+  return b[0] != 0 && b[0] != 127 && b[0] < 224;
+}
+
+const char* resetReasonName(int code) {
+  switch (code) {                                     // ESP-IDF's esp_reset_reason_t
+    case 1: return "power on";
+    case 2: return "reset button";
+    case 3: return "software restart";
+    case 4: return "crash (panic)";
+    case 5: return "watchdog (interrupt)";
+    case 6: return "watchdog (a task stopped responding)";
+    case 7: return "watchdog";
+    case 8: return "deep sleep";
+    case 9: return "brownout (the power supply dipped)";
+    case 10: return "SDIO";
+    default: return "unknown";
+  }
+}
+
+bool resetReasonUnexpected(int code) { return code == 4 || code == 5 || code == 6 || code == 7 || code == 9; }
+
 bool validUpdatePassword(const char* pw) {
   if (!pw) return false;
   size_t n = 0;

@@ -20,6 +20,9 @@ input[type=range].wide{width:100%}
 <div class="card" id="stat">
   <div class="row"><span id="pWifi" class="pill">Wi-Fi</span><span id="pBox" class="pill">Sync Box</span><span id="wPills"></span><span id="pState" class="pill"></span><button id="syncBtn" class="sec hidden">Pause sync</button></div>
   <div id="statTxt" class="small mut"></div>
+  <div id="boxLock" class="small"><span id="boxLockTxt" class="mut"></span> <button id="boxLockOn" class="sec hidden">Only accept this box</button><button id="boxLockOff" class="sec hidden">Accept any box</button></div>
+  <div id="boxMoved" class="small hidden"><span id="boxMovedTxt" class="warn"></span> <button id="boxMovedUse" class="sec"></button></div>
+  <div id="boxLockMsg" class="small mut" aria-live="polite"></div>
   <details id="latBox" class="small"><summary>Delay to the lights</summary>
     <div id="latList" class="mut"></div>
     <p class="small mut">Counted from the moment a Sync Box frame reaches the board. Not included: the box's own smoothing and the Wi-Fi hop from the box to the board (see docs/LATENCY.md). The board's share is measured; the network share is half of a probe's round trip and the strip refresh is an estimate, so this is not a measurement of the light itself. A Govee light takes at most about 12 frames a second, so a new frame can wait up to 80 ms for its turn.</p>
@@ -238,6 +241,7 @@ input[type=range].wide{width:100%}
 <div class="card">
   <h2>Device</h2>
   <div class="row"><button id="reboot" class="sec">Restart</button><button id="reset" class="bad">Factory reset</button></div>
+  <p class="small mut" id="resetTxt"></p>
   <p class="small mut">Factory reset clears the Wi-Fi and all settings. You can also hold the button on the AtomS3 for 8 seconds.</p>
 </div>
 </div>
@@ -418,6 +422,14 @@ input[type=range].wide{width:100%}
   }
 
   /* ---------------------------------------------------------------- status */
+  async function setBoxLock(addr){
+    $('boxLockMsg').textContent='';
+    try{await j('/api/config',{box:{host:addr}});$('boxLockMsg').textContent=addr?'Locked to '+addr+'.':'Any Sync Box is accepted again.';status();}
+    catch(e){$('boxLockMsg').textContent=e.message;}
+  }
+  $('boxLockOn').onclick=function(){setBoxLock(this.dataset.ip);};
+  $('boxLockOff').onclick=function(){setBoxLock('');};
+  $('boxMovedUse').onclick=function(){setBoxLock(this.dataset.ip);};
   async function status(){
     try{
       var s=await j('/api/status');
@@ -438,8 +450,17 @@ input[type=range].wide{width:100%}
       var lh='';ts.forEach(function(t){var x=latText(t);if(x)lh+='<div><b>'+esc(t.name)+'</b>: '+esc(x)+'</div>';});
       $('latList').innerHTML=lh||'Nothing measured yet: the delay is measured while the TV is on.';
       pill('pState','',s.state);
-      $('statTxt').textContent=(s.ip||'')+'  |  '+s.hostname+'.local  |  signal '+s.rssi+' dBm  |  firmware '+s.ver+(s.box.sender?'  |  box at '+s.box.sender:'');
+      $('statTxt').textContent=(s.ip||'')+'  |  '+s.hostname+'.local  |  signal '+s.rssi+' dBm  |  firmware '+s.ver+(s.box.sender?'  |  box at '+s.box.sender:'')+((s.reset&&s.reset.unexpected)?'  |  last restart: '+s.reset.reason:'');
       var bx=s.box||{},tvn=$('tvNow');
+      /* lock to this Sync Box: anything on the network can send frames the relay would follow, until it is told which address to listen to */
+      var lockedTo=bx.host||'',ig=bx.ignored||{};
+      $('boxLockTxt').textContent=lockedTo?('Only accepting Sync Box frames from '+lockedTo+'. (If your router gives the box a new address, give it a fixed one: a reservation in the router.)'):(bx.sender?'Any device on your network can send frames to the relay.':'');
+      show('boxLockOn',!lockedTo&&!!bx.sender);show('boxLockOff',!!lockedTo);$('boxLockOn').dataset.ip=bx.sender||'';
+      var moved=!!lockedTo&&!!ig.ip&&ig.ip!==lockedTo&&ig.agoMs>=0&&ig.agoMs<15000;
+      show('boxMoved',moved);
+      if(moved){$('boxMovedTxt').textContent='Sync Box frames are arriving from '+ig.ip+', not from '+lockedTo+', and are being ignored. The box probably got a new address from your router.';$('boxMovedUse').textContent='Use '+ig.ip;$('boxMovedUse').dataset.ip=ig.ip;}
+      var rs=s.reset,rt=$('resetTxt');
+      if(rs){rt.textContent='Last restart: '+rs.reason+'.'+(rs.unexpected?' That was not a normal restart: check the power supply and the USB cable, and send the diagnostics file if it happens again.':'');rt.className='small '+(rs.unexpected?'warn':'mut');}
       if(tvn)tvn.textContent=!(bx.fps>0)?'No picture from the Sync Box right now.':(bx.tvOff?'The TV is off (the picture has been black for '+bx.blackS+' s).':(bx.blackS>0?'The picture is black ('+bx.blackS+' s so far).':'The TV is on.'));
       var cur=ts[Math.min(sel,ts.length-1)];
       var byName=!!(cur&&cur.host&&cur.ip!==cur.host);      // a name: say which address it points to now (it is looked up again every minute)

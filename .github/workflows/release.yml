@@ -1,20 +1,29 @@
 name: release
 # Publishes a GitHub release with the firmware files when a version tag is pushed:
 #     git tag v0.2.0 && git push origin v0.2.0
-# The tag must match FWB_VERSION in platformio.ini (bump it first), so a release never carries a firmware that reports another version.
+# The tag must match FWB_VERSION in platformio.ini (bump it first), so a release never carries a firmware that reports another version, and
+# CHANGELOG.md must have a section for the version: it becomes the top of the release page.
+# Nothing is published unless every test passes: the release job waits for the same checks as ci.yml (needs: checks).
 on:
   push:
     tags: ['v*']
 permissions:
   contents: write
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
   release:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: { python-version: '3.12' }
-      - run: pip install platformio
+      - run: pip install platformio==6.2.0
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
 
       - name: The tag must match the firmware version
         run: |
@@ -22,8 +31,18 @@ jobs:
           echo "platformio.ini says $v, the tag is $GITHUB_REF_NAME"
           [ -n "$v" ] && [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME does not match FWB_VERSION $v in platformio.ini"; exit 1; }
 
+      - name: The changelog must describe this version
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          # the lines of the "## <version> - <date>" section, up to the next "## " heading
+          awk -v v="$ver" '/^## / { if (found) exit; if ($2 == v) { found = 1; next } } found { print }' CHANGELOG.md > changes.md
+          [ -s changes.md ] || { echo "::error::CHANGELOG.md has no section for $ver (add a '## $ver - date' heading and its list, then tag again)"; exit 1; }
+          cat changes.md
+
       - run: pio run -e atoms3
       - run: pio run -e atoms3-phonecal
+      - name: Firmware size
+        run: python tools/check_size.py .pio/build/atoms3/firmware.bin .pio/build/atoms3-phonecal/firmware.bin
 
       - name: Name the files and check them
         run: |
@@ -43,7 +62,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ver="${GITHUB_REF_NAME#v}"
-          cat > notes.md <<EOF
+          { echo "## What changed"; echo; cat changes.md; echo; } > notes.md
+          cat >> notes.md <<EOF
           **Update an installed board:** setup page > *Firmware updates* > choose \`fancy2wled-atoms3-$ver.bin\` (the normal build) and enter your update password. See docs/OTA.md.
           \`fancy2wled-atoms3-phonecal-$ver.bin\` is the build with the phone-camera calibration. \`SHA256SUMS.txt\` has the checksums.
           **First time (USB):** \`pio run -e atoms3 -t upload\` from a checkout of this tag.

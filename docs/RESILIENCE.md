@@ -30,6 +30,8 @@ While it is only silence (nothing arrives at all) it still says *waiting for the
    PAYLOAD LAYOUT, not corruption"*.
 3. If you kept a capture from before the update, record a new one and compare (below): that shows exactly which part of the protocol moved.
 
+The diagnostics file also says why the board last restarted (`lastReset`: a power-on, a restart, a crash, a watchdog or a brownout), which tells a power problem from a firmware one.
+
 ## Be ready before an update
 
 Record a reference while everything works, and keep it:

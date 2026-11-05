@@ -71,8 +71,8 @@ function createDevice(opts) {
         const targets = state.cfg.targets.map(t => ({ name: t.name, kind: t.kind || 'wled', host: t.wled.host, ip: addrOf(t.wled.host), ipAge: addrOf(t.wled.host) ? 7 : -1, enabled: t.enabled, ok: !!t.wled.host, leds: t.kind === 'govee' ? t.wled.count : ((state.totals && state.totals[t.wled.host]) || state.total), wledName: 'WLED', lat: (state.lat && state.lat[t.name]) || {} }));   // delay tracking: state.lat[name] = the "lat" object the board reports
         return json(res, 200, { ver: state.version || 'mock', mode: 'sta', ssid: 'TestNet', ip: '192.0.2.10', hostname: 'fancy2wled', rssi: -50, uptime: 5, state: state.relayState || 'waiting for the Sync Box', https: false, heap: 1e5,
           enabled: state.cfg.relay.enabled, mqtt: { enabled: state.cfg.mqtt.enabled, connected: state.cfg.mqtt.enabled && !!state.cfg.mqtt.host, error: '', base: 'fancy2wled/abcd' },
-          features: { phoneCal: opts.phoneCal !== false },
-          box: { fps: state.boxProblem ? 0 : 13.4, age: 50, sender: '192.0.2.20', problem: !!state.boxProblem, tvOff: !!state.tvOff, blackS: state.tvOff ? 31 : (state.blackS || 0), frames: { understood: 1200, newLayout: state.boxProblem ? 340 : 0, unreadable: 2 } }, targets, wled: { host: targets[0].host, ok: targets[0].ok, leds: state.total, name: 'WLED' } });
+          features: { phoneCal: opts.phoneCal !== false }, reset: state.reset || { code: 1, reason: 'power on', unexpected: false },
+          box: { fps: state.boxProblem ? 0 : 13.4, age: 50, sender: '192.0.2.20', host: state.cfg.box.host || '', ignored: state.ignored || { n: 0, ip: '', agoMs: -1 }, problem: !!state.boxProblem, tvOff: !!state.tvOff, blackS: state.tvOff ? 31 : (state.blackS || 0), frames: { understood: 1200, newLayout: state.boxProblem ? 340 : 0, unreadable: 2 } }, targets, wled: { host: targets[0].host, ok: targets[0].ok, leds: state.total, name: 'WLED' } });
       }
       if (p === '/api/config') return json(res, 200, state.cfg);
       if (p === '/api/diag') return json(res, 200, { format: 'fancy2wled-diagnostics', version: 1, firmware: 'mock', relay: { frames: { understood: 1200, newLayout: 340, unreadable: 2 }, samples: [{ ageMs: 100, class: 'sync box framing, payload not understood', len: 90, checksumOk: true, hex: '55aa5a55' }] } });
@@ -147,6 +147,12 @@ function createDevice(opts) {
             Object.assign(T.wled, d.wled);
           }
           if (d.layout) Object.assign(T.layout, d.layout);
+          if (d.box && d.box.host !== undefined) {            // like the board: the address of a single device, or empty for any box
+            const h = String(d.box.host).trim(), a = h.split('.');
+            const ok = h === '' || (/^(0|[1-9]\d{0,2})(\.(0|[1-9]\d{0,2})){3}$/.test(h) && a.every(x => +x <= 255) && +a[0] > 0 && +a[0] !== 127 && +a[0] < 224);
+            if (!ok) return json(res, 400, { error: 'The Sync Box address must be an IP address like 192.168.1.10 (or empty to accept any box)' });
+            state.cfg.box.host = h;
+          }
           if (d.ota && !d.preview) {      // the same rules as the board: a first password is free, a change needs the current one, no switching on without one
             const o = d.ota;
             if (o.pass !== undefined) {

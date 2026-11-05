@@ -804,9 +804,165 @@ int main(int argc, char** argv) {
     CHECK(boxStepsForGap(0) == 1 && boxStepsForGap(2) == 1 && boxStepsForGap(73) == 1 && boxStepsForGap(100) == 1 && boxStepsForGap(120) == 1, "packets together or a normal gap apart: one step");
     CHECK(boxStepsForGap(146) == 2 && boxStepsForGap(203) == 3 && boxStepsForGap(300) == 4, "a gap of two or three periods: that many steps (measured: 200 ms held 3)");
     CHECK(boxStepsForGap(600) == 8 && boxStepsForGap(601) == 0, "a pause of more than 600 ms: no extrapolation"); }
+  { // the Sync Box's address (the setup page's "only accept this box") and why the board last restarted
+    uint8_t b[4] = {0, 0, 0, 0};
+    CHECK(parseIpv4("192.0.2.10", b) && b[0] == 192 && b[1] == 0 && b[2] == 2 && b[3] == 10, "a dotted address is read");
+    CHECK(parseIpv4("0.0.0.0", nullptr) && parseIpv4("255.255.255.255", nullptr) && parseIpv4("1.2.3.4", nullptr), "the extremes are valid addresses");
+    const char* bad[] = {"", " ", "192.0.2", "192.0.2.10.5", "192.0.2.256", "192.0.2.1000", "192.0.2.", ".0.2.10", "192..2.10", "192.0.2.010", "01.2.3.4", " 192.0.2.10", "192.0.2.10 ",
+                         "192.0.2.10:80", "wled.local", "192.0.2.a", "-1.2.3.4", "1.2.3.4/24", "1,2,3,4"};
+    bool allBad = true;
+    for (const char* s : bad) if (parseIpv4(s, nullptr)) { allBad = false; printf("  accepted: '%s'\n", s); }
+    CHECK(allBad && !parseIpv4(nullptr, nullptr), "names, extra text, spaces, missing or extra parts, numbers over 255 and leading zeros are refused");
+    CHECK(validSenderAddress("192.0.2.10") && validSenderAddress("192.168.1.10") && validSenderAddress("223.1.1.1"), "an ordinary device address can be locked to");
+    CHECK(!validSenderAddress("0.0.0.0") && !validSenderAddress("127.0.0.1") && !validSenderAddress("224.0.0.1") && !validSenderAddress("255.255.255.255") && !validSenderAddress("wled.local") && !validSenderAddress(""),
+          "0.0.0.0 (which means anyone), loopback, multicast, broadcast, names and nothing are not sender addresses");
+    CHECK(strcmp(resetReasonName(1), "power on") == 0 && strcmp(resetReasonName(3), "software restart") == 0 && strcmp(resetReasonName(4), "crash (panic)") == 0
+          && strcmp(resetReasonName(9), "brownout (the power supply dipped)") == 0 && strcmp(resetReasonName(0), "unknown") == 0 && strcmp(resetReasonName(99), "unknown") == 0 && strcmp(resetReasonName(-1), "unknown") == 0,
+          "reset reasons have names, and an unknown code is 'unknown'");
+    CHECK(!resetReasonUnexpected(1) && !resetReasonUnexpected(2) && !resetReasonUnexpected(3) && !resetReasonUnexpected(0) && resetReasonUnexpected(4) && resetReasonUnexpected(5) && resetReasonUnexpected(6) && resetReasonUnexpected(7) && resetReasonUnexpected(9),
+          "a normal start or restart is not flagged; a crash, a watchdog or a brownout is"); }
   { Entry t[10]; int bad[4] = {1, 1, 1, 1};
     CHECK(!tableLoop(t, 10, 0, false, bad, 0, 16, 9), "loop rejects sides that do not sum to count");
     CHECK(!tableLoop(t, 10, 7, false, nullptr, 0, 16, 9), "loop rejects bad corner"); }
+
+  { // bulk input: the parsers that read data from outside must neither crash nor read past the end, whatever they are given.
+    // Every input goes in a buffer of exactly its size, so a sanitizer (address, undefined: see test/run_core_tests.py) sees any overread.
+    uint32_t rng = 0x9E3779B9u;
+    auto rnd = [&rng]() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
+    // a valid frame the way the box builds it, key length q = 3..10 (size = 83 + q)
+    auto valid = [&](uint8_t* out, int q) -> size_t {
+      const size_t n = 83 + q;
+      out[0] = 0x55; out[1] = 0xAA; out[2] = 0x5A; out[3] = (uint8_t)(n - 5); out[4] = 0; out[6] = 0;
+      for (int i = 0; i < q; i++) out[8 + i] = (uint8_t)rnd();
+      out[7] = out[8 + q - 1];
+      for (int i = 0; i < 75; i++) {
+        const uint8_t pt = i == 0 ? 0x06 : (i == 1 ? 0x04 : (i == 2 ? 0x06 : (uint8_t)rnd()));
+        out[8 + q + i] = pt ^ out[8 + (i % q)];
+      }
+      unsigned sum = 167;
+      for (size_t i = 0; i < n; i++) if (i != 3 && i != 5) sum += out[i];
+      out[5] = (uint8_t)sum;
+      return n;
+    };
+    int validOk = 0, mutated = 0, randomOk = 0, inconsistent = 0, total = 0;
+    for (int q = 3; q <= 10; q++) {                            // valid frames of every key length decode, in an exactly sized buffer
+      uint8_t tmp[100];
+      const size_t n = valid(tmp, q);
+      uint8_t* fr = (uint8_t*)malloc(n);
+      memcpy(fr, tmp, n);
+      uint8_t z[kZones][3];
+      FrameInfo info;
+      if (classifyFrame(fr, n, z, &info) == kFrameOk && info.checksumOk && frameChecksumOk(fr, n) && decodeFrame(fr, n, z)) validOk++;
+      free(fr);
+    }
+    CHECK(validOk == 8, "frames built with every key length 3..10 classify as readable with a good checksum (%d of 8)", validOk);
+    for (int it = 0; it < 30000; it++) {
+      uint8_t tmp[300];
+      size_t n;
+      const unsigned mode = rnd() % 4;
+      if (mode == 0) {                                         // pure noise of any length
+        n = rnd() % 260;
+        for (size_t i = 0; i < n; i++) tmp[i] = (uint8_t)rnd();
+      } else if (mode == 1) {                                  // the right framing, noise inside
+        n = 12 + rnd() % 120;
+        for (size_t i = 0; i < n; i++) tmp[i] = (uint8_t)rnd();
+        tmp[0] = 0x55; tmp[1] = 0xAA; tmp[2] = 0x5A; tmp[3] = (uint8_t)(n - 5);
+      } else {                                                 // a valid frame with a few bytes changed, cut short or stretched
+        n = valid(tmp, 3 + (int)(rnd() % 8));
+        const int flips = 1 + (int)(rnd() % 4);
+        for (int k = 0; k < flips; k++) tmp[rnd() % n] ^= (uint8_t)(1u << (rnd() % 8));
+        if (mode == 3) {
+          const int d = (int)(rnd() % 13) - 6;                 // 6 shorter .. 6 longer
+          if (d < 0 && (size_t)(-d) < n) n -= (size_t)(-d);
+          else if (d > 0) { for (int k = 0; k < d; k++) tmp[n + (size_t)k] = (uint8_t)rnd(); n += (size_t)d; }
+        }
+        mutated++;
+      }
+      uint8_t* fr = (uint8_t*)malloc(n ? n : 1);
+      if (n) memcpy(fr, tmp, n);
+      uint8_t z1[kZones][3], z2[kZones][3];
+      memset(z1, 0, sizeof z1); memset(z2, 0, sizeof z2);
+      FrameInfo info;
+      const FrameClass c = classifyFrame(fr, n, z1, &info);
+      const bool d = decodeFrame(fr, n, z2);
+      (void)frameChecksumOk(fr, n);
+      if ((c == kFrameOk) != d) inconsistent++;                // the two must agree about what is readable
+      if (c == kFrameOk && memcmp(z1, z2, sizeof z1) != 0) inconsistent++;
+      if (c == kFrameOk) randomOk++;
+      free(fr);
+      total++;
+    }
+    CHECK(inconsistent == 0, "classifyFrame and decodeFrame always agree (%d disagreements in %d frames)", inconsistent, total);
+    CHECK(randomOk < total / 4, "noise and damaged frames are not mostly accepted (%d readable of %d, %d of them mutated valid frames)", randomOk, total, mutated);
+    { uint8_t one = 0; uint8_t z[kZones][3]; FrameInfo info;                                      // no data at all
+      CHECK(classifyFrame(&one, 0, z, &info) == kFrameUnreadable && !decodeFrame(&one, 0, z), "an empty datagram is unreadable"); }
+    // host names typed into the setup page: any text, any buffer size
+    int hostBad = 0;
+    for (int it = 0; it < 20000; it++) {
+      const size_t n = rnd() % 90;
+      char* in = (char*)malloc(n + 1);
+      static const char alphabet[] = "abcXYZ019 .-_:/?#@%\t\xC3\xA9 http://https://";
+      for (size_t i = 0; i < n; i++) in[i] = (rnd() % 3 == 0) ? (char)rnd() : alphabet[rnd() % (sizeof alphabet - 1)];
+      in[n] = 0;
+      const int cap = 1 + (int)(rnd() % 70);
+      char* out = (char*)malloc((size_t)cap);
+      const int r = normalizeHost(in, out, cap);
+      if (r >= cap) hostBad++;
+      else if (r >= 0 && (out[r] != 0 || (int)strlen(out) != r)) hostBad++;
+      free(out); free(in);
+    }
+    CHECK(hostBad == 0, "a host name is cut to its buffer and terminated, whatever was typed (%d problems)", hostBad);
+    CHECK(normalizeHost(nullptr, (char*)&inconsistent, 4) == -1, "no input text: refused");
+    // firmware images: the header check must cope with any file
+    int imgBad = 0;
+    for (int it = 0; it < 20000; it++) {
+      const size_t n = rnd() % 200;
+      uint8_t* h = (uint8_t*)malloc(n ? n : 1);
+      for (size_t i = 0; i < n; i++) h[i] = (uint8_t)rnd();
+      if (n > 40 && rnd() % 2) { h[0] = 0xE9; h[12] = kChipEsp32S3; h[13] = 0; h[32] = 0x32; h[33] = 0x54; h[34] = 0xCD; h[35] = 0xAB; }   // close to a real header
+      const ImageCheck r = checkAppImage(h, n, kChipEsp32S3);
+      if ((int)r < 0 || (int)r > (int)kImageNoDescriptor) imgBad++;
+      if (n < kImageHeadBytes && r == kImageOk) imgBad++;      // too short to be checked: never accepted
+      free(h);
+    }
+    CHECK(imgBad == 0, "any file is judged by its header without reading past it (%d problems)", imgBad);
+    // the update marker is found wherever it sits and however the upload is cut into chunks
+    int markBad = 0;
+    for (int it = 0; it < 3000; it++) {
+      const size_t mlen = strlen(kImageMark), n = mlen + rnd() % 400, at = rnd() % (n - mlen + 1);
+      uint8_t* data = (uint8_t*)malloc(n);
+      for (size_t i = 0; i < n; i++) data[i] = (uint8_t)rnd();
+      memcpy(data + at, kImageMark, mlen);
+      MarkScanner s;
+      size_t pos = 0;
+      while (pos < n) { size_t c = 1 + rnd() % 70; if (c > n - pos) c = n - pos; markScan(s, data + pos, c); pos += c; }
+      if (!s.found) markBad++;
+      MarkScanner none;
+      uint8_t* junk = (uint8_t*)malloc(n);
+      for (size_t i = 0; i < n; i++) junk[i] = (uint8_t)rnd();
+      markScan(none, junk, n);
+      if (none.found) markBad++;                               // random bytes do not contain the 23 byte marker
+      free(junk); free(data);
+    }
+    // addresses typed or imported: the strict parser never reads past its text
+    int ipBad = 0;
+    for (int it = 0; it < 20000; it++) {
+      const size_t n = rnd() % 24;
+      char* s = (char*)malloc(n + 1);
+      static const char alphabet[] = "0123456789....  -:abc/";
+      for (size_t i = 0; i < n; i++) s[i] = alphabet[rnd() % (sizeof alphabet - 1)];
+      s[n] = 0;
+      uint8_t b[4] = {9, 9, 9, 9};
+      const bool ok = parseIpv4(s, b);
+      int dots = 0;
+      for (size_t i = 0; i < n; i++) if (s[i] == '.') dots++;
+      if (ok && (dots != 3 || n < 7 || n > 15)) ipBad++;           // four numbers need three dots and 7 to 15 characters
+      if (!ok && (b[0] != 9 || b[3] != 9)) ipBad++;                // nothing is written for a refused address
+      free(s);
+    }
+    CHECK(ipBad == 0, "random text is never accepted as an address by mistake, and nothing is written for it (%d problems)", ipBad);
+    CHECK(markBad == 0, "the update marker is always found, in any chunking, and never in noise (%d problems)", markBad);
+  }
 
   printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d vectors; %d checks passed, %d failed\n",
          nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, g_pass, g_fail);

@@ -211,9 +211,9 @@ def run_page_smoke():
     exe = None
     sys.path.insert(0, os.path.join(ROOT, "tools", "sync_probe"))
     import probe
-    exe = probe.find_browser(None)
+    exe = None if os.environ.get("FWB_SKIP_BROWSER") else probe.find_browser(None)      # CI sets it: no desktop browser there
     if not exe:
-        print("(no Edge or Chrome found: the page smoke test is skipped)")
+        print("(no Edge or Chrome found, or FWB_SKIP_BROWSER is set: the page smoke test is skipped)")
         return
     tiny = [
         {"suite": "gap", "id": "lead", "kind": "rects", "dur_ms": 600, "bg": [0, 0, 0], "rects": []},

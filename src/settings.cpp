@@ -465,7 +465,13 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["motion"].isNull()) n.motion = (int)clampf(k["motion"].as<float>(), 0.f, 100.f);
   if (!k["boxSpeed"].isNull()) n.boxSpeed = (int)clampf(k["boxSpeed"].as<float>(), 10.f, 100.f);
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
-  if (!b["host"].isNull()) n.boxHost = b["host"].as<String>();
+  if (!b["host"].isNull()) {                                  // only accept the Sync Box from this address: an IP address, or empty for anyone
+    String h = b["host"].as<String>();
+    h.trim();
+    if (h.length() && !fwb::validSenderAddress(h.c_str()))         // anything else (a name, 0.0.0.0, a typo) would silently turn the filter off
+      return "The Sync Box address must be an IP address like 192.168.1.10 (or empty to accept any box)";
+    n.boxHost = h;
+  }
   if (!d["relay"]["enabled"].isNull()) n.enabled = d["relay"]["enabled"].as<bool>();
   JsonVariantConst tv = d["relay"]["tvOff"];
   if (!tv["mode"].isNull()) {

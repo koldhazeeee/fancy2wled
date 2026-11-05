@@ -30,6 +30,7 @@ static uint32_t gAgeFrames = 0;                // the gFrames value the last sen
 static float gIntervalMs = 0;                  // smoothed time between frames
 static IPAddress gSender;
 static IPAddress gBoxFilter;                   // 0.0.0.0 = accept anyone
+static struct { uint32_t n = 0; uint32_t ms = 0; IPAddress ip; } gIgnored;     // readable frames from an address other than gBoxFilter (under Lock): the box may have a new address
 static uint32_t gFilterGen = 0xFFFFFFFF;
 static float gAdj[kZones][3];                  // the picture's 24 zones with brightness / gamma / saturation applied (shared by all targets)
 static Motion gMotion;                         // the latest pictures with their place on a steady clock, for motion smoothing (under Lock)
@@ -775,7 +776,12 @@ static bool pollBox() {
     const int r = recvfrom(gRx, buf, sizeof buf, 0, (sockaddr*)&sa, &sl);
     if (r <= 0) break;                                   // nothing queued (the socket is non-blocking)
     const IPAddress from((uint32_t)sa.sin_addr.s_addr);
-    if ((uint32_t)gBoxFilter != 0 && from != gBoxFilter) continue;
+    if ((uint32_t)gBoxFilter != 0 && from != gBoxFilter) {
+      uint8_t fz[kZones][3];
+      FrameInfo ffi;
+      if (classifyFrame(buf, (size_t)r, fz, &ffi) == kFrameOk) { Lock l; gIgnored.n++; gIgnored.ms = millis(); gIgnored.ip = from; }       // a real Sync Box frame, from somewhere else
+      continue;
+    }
     uint8_t z[kZones][3];
     FrameInfo fi;
     const FrameClass cls = classifyFrame(buf, (size_t)r, z, &fi);
@@ -885,6 +891,10 @@ void relayStatus(RelayStatus& s, bool detail) {
   s.boxFps = (fresh && gIntervalMs > 0) ? 1000.f / gIntervalMs : 0.f;
   s.boxAgeMs = gHave ? now - gLastFrame : UINT32_MAX;
   s.boxSender = (detail && gHave) ? gSender.toString() : String("");
+  s.boxFilter = gSet.boxHost;
+  s.boxIgnored = gIgnored.n;
+  s.boxIgnoredIp = (detail && gIgnored.n) ? gIgnored.ip.toString() : String("");
+  s.boxIgnoredAgoMs = gIgnored.n ? (int)(now - gIgnored.ms) : -1;
   s.framesOk = gStat.ok;
   s.framesNewLayout = gStat.newLayout;
   s.framesUnreadable = gStat.unreadable;

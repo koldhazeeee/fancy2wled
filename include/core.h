@@ -37,6 +37,18 @@ bool secureEquals(const char* a, const char* b);                // the time take
 // upper case. Writes at most cap-1 characters and a terminator. Returns the length, or -1 when it does not fit (or the input is null).
 int normalizeHost(const char* in, char* out, int cap);
 
+// A dotted IPv4 address and nothing else: four numbers 0..255 separated by single dots, no spaces, no names, no leading zeros ("010" would be read as octal
+// by some programs). Writes the four bytes to out (may be null).
+bool parseIpv4(const char* s, uint8_t out[4]);
+// An address the Sync Box could send from (the setup page's "only accept this box"): a valid IPv4 address that is a single device, so not 0.0.0.0 (which the
+// relay reads as "accept anyone"), not loopback (127.x), not multicast / reserved (224 and up).
+bool validSenderAddress(const char* s);
+
+// Why the ESP32 last restarted: the ESP-IDF reset reason code (esp_reset_reason()) in words, and whether it points at a problem (a crash, a watchdog, a brownout)
+// rather than a normal start or restart. The setup page and the diagnostics file show it.
+const char* resetReasonName(int code);
+bool resetReasonUnexpected(int code);
+
 // ---- Sync Box frame -------------------------------------------------------
 // Decodes one UDP payload. On success returns true and fills zones[24][3] (r,g,b).
 // Frame: 55 AA 5A n 00 b5 b6 b7 | KEY (len-83 bytes) | DATA (75 bytes), plaintext = DATA xor KEY = 06 04 06 + 24 x RGB.

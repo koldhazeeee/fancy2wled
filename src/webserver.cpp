@@ -2,6 +2,7 @@
 // Both servers use the same handlers. Everything is JSON; POSTs must be application/json (blocks cross-site form posts).
 #include <WiFi.h>
 #include <esp_http_server.h>
+#include <esp_system.h>
 #include <lwip/sockets.h>
 
 #include "app.h"
@@ -152,6 +153,9 @@ static esp_err_t h_status(httpd_req_t* req) {
   { Lock l; d["enabled"] = gSet.enabled; }
   d["https"] = webHasHttps();
   d["heap"] = ESP.getFreeHeap();
+  { const int rr = (int)esp_reset_reason();         // why the board last restarted: a crash, a watchdog or a brownout looks different from a normal restart
+    JsonObject rs = d["reset"].to<JsonObject>();
+    rs["code"] = rr; rs["reason"] = fwb::resetReasonName(rr); rs["unexpected"] = fwb::resetReasonUnexpected(rr); }
   { MqttStatus m; mqttStatus(m);
     JsonObject mq = d["mqtt"].to<JsonObject>();
     mq["enabled"] = m.enabled; mq["connected"] = m.connected; mq["error"] = m.error; mq["base"] = m.base; }
@@ -159,6 +163,9 @@ static esp_err_t h_status(httpd_req_t* req) {
   b["fps"] = s.boxFps;
   b["age"] = s.boxAgeMs == UINT32_MAX ? -1 : (int)s.boxAgeMs;
   b["sender"] = s.boxSender;
+  b["host"] = s.boxFilter;                          // "" = any box is accepted; otherwise the address the relay is locked to
+  JsonObject ig = b["ignored"].to<JsonObject>();    // readable frames from another address than the lock (the box may have been given a new one)
+  ig["n"] = s.boxIgnored; ig["ip"] = s.boxIgnoredIp; ig["agoMs"] = s.boxIgnoredAgoMs;
   b["problem"] = s.boxProblem;                      // frames arrive but none can be read
   b["tvOff"] = s.tvOff;                             // the picture has been completely black for the configured time: the TV is off
   b["blackS"] = s.tvBlackS;                         // seconds it has been black so far (0 = not black)
@@ -240,6 +247,9 @@ static esp_err_t h_diag(httpd_req_t* req) {
   d["version"] = 1;
   d["firmware"] = FWB_VERSION;
   d["uptimeSeconds"] = (uint32_t)(millis() / 1000);
+  { const int rr = (int)esp_reset_reason();         // why the board last restarted (no addresses in this file)
+    JsonObject rs = d["lastReset"].to<JsonObject>();
+    rs["code"] = rr; rs["reason"] = fwb::resetReasonName(rr); rs["unexpected"] = fwb::resetReasonUnexpected(rr); }
   JsonObject e = d["expected"].to<JsonObject>();
   e["port"] = 19875;
   e["sizes"] = "86-93 bytes";

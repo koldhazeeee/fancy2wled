@@ -170,6 +170,10 @@ struct RelayStatus {
   float boxFps = 0;
   uint32_t boxAgeMs = 0;                    // since the last Sync Box frame (UINT32_MAX = never)
   String boxSender;
+  String boxFilter;                         // the address the relay is locked to ("" = accepts any box)
+  uint32_t boxIgnored = 0;                  // readable Sync Box frames from another address than boxFilter, ignored since the board started
+  String boxIgnoredIp;                      // the latest such sender (status page only)
+  int boxIgnoredAgoMs = -1;                 // how long ago the latest one arrived (-1 = none yet)
   const char* state = "starting";
   bool wledOk = false;                      // every enabled target's WLED answered
   int wledLeds = 0;                         // LEDs over all targets

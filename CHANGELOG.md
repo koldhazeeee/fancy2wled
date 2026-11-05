@@ -4,6 +4,16 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## Unreleased
+
+* **Only accept this box** (setup page, status card): locks the relay to your Sync Box's address, so no other device on the network can send it colours. If the box gets a new
+  address from your router the page says frames from another address are being ignored and offers to follow it. An address that is not an IP address (a name, `0.0.0.0`, a typo)
+  is refused, because it would silently switch the lock off. **After updating:** nothing changes until you press the button.
+* **Last restart**: the setup page (Device) and the diagnostics file say why the board last restarted: power, a restart, a crash, a watchdog or a brownout. A crash, watchdog or
+  brownout is called out in the status line.
+* Behind the scenes: releases are published only after every test passes and need a changelog section for the version, whose text becomes the top of the release page;
+  the firmware size is checked in CI (fails above 90 % of the update slot; now 34 % and 35 %); the parsers that read network input are fuzzed under sanitizers; the build is pinned.
+
 ## 0.4.6 - 2026-11-04
 
 * **Settings check**: a card on the setup page that looks at your settings (saved or not) and says what is wrong (**Fix**) or could be better (**Tip**): a Reaction

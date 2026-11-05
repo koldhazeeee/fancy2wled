@@ -1,5 +1,11 @@
 name: ci
-on: [push, pull_request]
+# Runs on every push to a branch and on pull requests, and the release workflow runs the very same jobs before it publishes anything (a version tag
+# does not start this workflow by itself: release.yml calls it, so a tag is tested once and a failing test stops the release).
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
 jobs:
   tests:
     runs-on: ubuntu-latest
@@ -15,21 +21,36 @@ jobs:
         run: python test/test_latency_e2e.py
       - name: The setup page compresses for the firmware
         run: python test/test_gzip_web.py
-      - name: C++ core vs golden vectors
+      # compiled with g++ here: AddressSanitizer + UndefinedBehaviorSanitizer, and thousands of random and damaged inputs (test/run_core_tests.py)
+      - name: C++ core vs golden vectors, under sanitizers
         run: python test/run_core_tests.py
       - name: Calibration maths + simulated camera
         run: node test/test_analysis.js
       - name: Capture / firmware-change tools
         run: python test/test_capture_tools.py
+      - name: The image size check
+        run: python test/test_check_size.py
+      - name: The Sync Box probe analysis (against a simulated box)
+        run: python test/test_sync_probe.py
+        env:
+          FWB_SKIP_BROWSER: '1'      # the page itself is tested on a desktop with Edge or Chrome
   firmware:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: { python-version: '3.12' }
-      - run: pip install platformio
+      # pinned: a new PlatformIO release must not change the build with no commit (the platform and ArduinoJson are pinned in platformio.ini)
+      - run: pip install platformio==6.2.0
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
       - run: pio run -e atoms3
       - run: pio run -e atoms3-phonecal
+      # an image that no longer fits the update slot cannot be updated over Wi-Fi: fail well before that (the sizes also go to the job summary)
+      - name: Firmware size
+        run: python tools/check_size.py .pio/build/atoms3/firmware.bin .pio/build/atoms3-phonecal/firmware.bin
       # the app images, ready for "Update firmware" on the setup page (see docs/OTA.md); releases are made by release.yml
       - uses: actions/upload-artifact@v7
         with:

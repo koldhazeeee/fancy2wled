@@ -15,6 +15,9 @@ your lights and no PC has to stay on.
 * **A settings check**: a card on the setup page looks at your settings, saved or not, and says what is wrong (**Fix**) or could be better (**Tip**): a Reaction
   boost that does nothing, settings that Motion smoothing overrides, a box left at its slow default speed, a TV part that is missing or outside the run, or two targets
   driving the same LEDs of one WLED.
+* **Lock it to your Sync Box**: by default the relay follows Sync Box frames from any device on the network (the frame format is public). A button on the setup page,
+  *Only accept this box*, locks it to the box's address; if the box later gets a new address the page tells you and offers to follow it.
+* **Knows why it restarted**: the setup page and the diagnostics file say whether the board last started from power, a restart, a crash, a watchdog or a brownout.
 * **Govee lights too**: a target can be a Govee light on your network (LAN control), followed per segment like a WLED strip ([docs/GOVEE.md](docs/GOVEE.md)).
 * **Updates over Wi-Fi**: after the first USB flash, upload `firmware.bin` on the setup page or push it with PlatformIO. Off until you set an update password;
   a new firmware that fails to start is undone by the board itself ([docs/OTA.md](docs/OTA.md)).
@@ -147,6 +150,7 @@ known pictures to a box (a laptop's HDMI into its input) and records what it bro
 | Setting | Meaning |
 |---|---|
 | WLED address | IP or `name.local` of your WLED (a pasted `http://wled-ceiling.local/` is cleaned up). **Prefer the name** (set it in WLED under Config > WiFi Setup > mDNS address): the board looks it up again every minute, so a WLED that gets a new IP from your router is found again on its own. The page shows which address the name points to. The *Find* button fills in the name. |
+| Only accept this box | the status card shows the Sync Box's address ("box at ..."). **Only accept this box** locks the relay to it, so no other device on your network can drive the lights; **Accept any box** undoes it (`box.host` in the config: an IP address, or empty for anyone; a name, `0.0.0.0` or a typo is refused, because it would silently switch the lock off). If your router gives the box a new address the relay stops hearing it, so the page then says frames from another address are being ignored and offers *Use <address>*; a reservation for the box in your router avoids that |
 | Settings check | not a setting: a card that checks the Look settings and each target as you edit (nothing is changed for you). **Fix** = something wrong or pointless (a boost at box speed 100, a TV part outside the run, two targets over the same LEDs of one WLED), **Tip** = something that could be better (the box left at speed 40, no TV part set, motion steps) |
 | Picture map | not a setting (apart from a tick box for the live colours, remembered in your browser): the 24 zones drawn where the box really looks; each zone shows the colour the box is sending right now (`GET /api/zones`, twice a second, only while the map is on screen), zones no target follows are faded, and each target is a bar in its colour under the zones it follows, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`). **Click a zone** to light the LEDs that follow it in white on your WLED strips for 8 seconds (click again to switch it off; `POST /api/zonemark`; Govee lights are left alone) |
 | When the TV is off | what to do when the picture has been completely black for the chosen number of seconds (3-600, default 15): **hand the WLEDs back** as they were before sync started (default), **switch them off**, or do nothing (the *TV on* sensor still works). They return with the first frame that has any colour. A long black screen counts as "TV off" too, so raise the delay if that bothers you. Inferred from the picture, not a signal from the box: see [PROTOCOL.md](docs/PROTOCOL.md) |
@@ -202,7 +206,8 @@ join `Fancy2WLED-Setup` again.
 
 ## Security
 
-There is no password: anyone on your Wi-Fi can open the setup page, as with WLED itself. Do not expose it to the internet.
+There is no password: anyone on your Wi-Fi can open the setup page, as with WLED itself. Do not expose it to the internet. For the same reason, lock the relay to your
+Sync Box's address (*Only accept this box* on the setup page): otherwise any device on the network can send it colours.
 The setup access point is open while it is waiting for Wi-Fi details (it disappears once configured). POST requests must be
 `application/json`, which stops other websites from changing settings through your browser.
 
@@ -213,10 +218,18 @@ python test/run_core_tests.py     # C++ core vs golden vectors from the Python r
 node test/test_analysis.js        # calibration maths + a simulated phone camera (needs Node 18+)
 node test/test_pages.js           # loads the real web pages in headless Edge/Chrome against test/mock_device.js
 python test/test_capture_tools.py  # the capture / firmware-change tools
+python test/test_check_size.py    # the firmware size check (CI fails an image above 90 % of its update slot: python tools/check_size.py <.bin files>)
+python test/test_sync_probe.py    # the Sync Box probe's analysis against a simulated box (and the page in a headless browser if Edge or Chrome is installed)
 node test/test_lint.js            # sources must be plain ASCII, LF, no BOM (non-ASCII shows up garbled on the device)
 pio run -e atoms3                 # compile the firmware
 pio run -e atoms3-phonecal        # ... with the phone-camera calibration and the secure web server it needs
 ```
+
+The core tests also feed the parsers that read network input (Sync Box frames, host names, firmware image headers, the update marker, addresses) thousands of random and
+damaged inputs, in exactly sized buffers, and run under sanitizers: AddressSanitizer and UndefinedBehaviorSanitizer when the compiler is g++ or clang++ (as in CI), UndefinedBehaviorSanitizer
+alone with zig. The PlatformIO version, the ESP32 platform and ArduinoJson are pinned, so a new release cannot change a build with no commit; the project's own sources are compiled with
+`-Wall -Wextra` (currently no warnings). A version tag publishes a release only after all of CI passes, and `CHANGELOG.md` must have a section for that version (it becomes the top of the
+release page).
 
 The lint also catches real device addresses (private IPs and MACs that are not a documented example) before they reach the history. CI runs it after a push; to run it before every commit instead, install the hook once with `cp tools/git-hooks/pre-commit .git/hooks/pre-commit` (git does not version hooks). Keep a line for each release in [CHANGELOG.md](CHANGELOG.md).
 
