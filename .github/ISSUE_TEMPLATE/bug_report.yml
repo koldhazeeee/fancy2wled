@@ -1,0 +1,73 @@
+name: Bug report
+description: Something does not work as described
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security problems: do not use this form**, see SECURITY.md (use the Security tab, "Report a vulnerability").
+        Never paste real IP or MAC addresses, Wi-Fi names or passwords. Write addresses as `192.0.2.x`.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: What you did, what you saw, what you expected to see.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Fancy2WLED version
+      description: Shown on the setup page (status line, "firmware ..."), for example 0.4.8.
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Build and board
+      description: The normal build or the phone-calibration build, and the board (an M5Stack AtomS3 Lite, or another ESP32-S3).
+      placeholder: normal build, AtomS3 Lite
+    validations:
+      required: true
+  - type: input
+    id: box
+    attributes:
+      label: Sync Box model and firmware
+      description: From the box's app. For example FSB3P2.1, main 3.1.0 / mcu 2.0.14.
+    validations:
+      required: true
+  - type: input
+    id: targets
+    attributes:
+      label: What you are lighting
+      description: The kind of target (WLED and its version, or the Govee model, for example H61C3) and its layout (a straight run above the TV, around the TV ...).
+  - type: dropdown
+    id: boxspeed
+    attributes:
+      label: The Sync Box's "Speed of Diffusion" (in its app)
+      options:
+        - "100 %"
+        - "40 % (the default)"
+        - "another value"
+        - "I do not know"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What to do to see it again. Does it happen every time?
+  - type: textarea
+    id: diag
+    attributes:
+      label: Diagnostics
+      description: |
+        If the Sync Box is not understood, or the relay behaves oddly: press **Download diagnostics** on the setup page and attach the file here. It holds counters and a few raw
+        frames (colours and sizes only), no addresses. Also say whether the "Settings check" card on the setup page shows anything.
+  - type: checkboxes
+    id: safe
+    attributes:
+      label: Before you send
+      options:
+        - label: I removed real IP addresses, MAC addresses, Wi-Fi details and passwords from everything I pasted or attached.
+          required: true
+        - label: I use the latest release (or I say why I cannot).
+          required: false

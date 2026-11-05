@@ -1,0 +1,25 @@
+name: Feature request or new hardware
+description: An idea, or a Sync Box, board, WLED or Govee model that should be supported
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reports that something **works** on other hardware are as useful as bug reports. Never paste real addresses or passwords (write `192.0.2.x`).
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like, and why?
+      description: The problem you want solved matters more than the exact solution.
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware (if this is about a model)
+      description: Sync Box model and firmware, board, WLED version, Govee model.
+  - type: textarea
+    id: measured
+    attributes:
+      label: What you measured or tried (optional)
+      description: For a new Govee model see docs/GOVEE.md (how the segment count is measured); for a Sync Box see docs/RESILIENCE.md.

@@ -1,8 +1,16 @@
 # Fancy2WLED
 
+[![CI](https://github.com/koldhazeeee/fancy2wled/actions/workflows/ci.yml/badge.svg)](https://github.com/koldhazeeee/fancy2wled/actions/workflows/ci.yml)
+
 Make a **WLED** strip follow your **FancyLEDs Sync Box** (HDMI ambient light). A small ESP32-S3 board listens to the
 box's wireless sync broadcast and relays the colours to your WLED, so the box's own LED strip is not needed to feed
 your lights and no PC has to stay on.
+
+> ### Never expose this to the internet
+> Everything the relay does on the network is **in plain text** (the setup page is plain HTTP, the Wi-Fi password you type at first setup, the update password, the MQTT
+> login, the commands to your WLEDs and Govee lights) and **the setup page has no password**. Keep it on a network you trust: **no port forwarding, no DMZ, no UPnP, no
+> public tunnel or reverse proxy.** Press **Only accept this box** on the setup page so no other device on your network can send it colours. Details and how to reach it
+> from outside safely (a VPN): [SECURITY.md](SECURITY.md).
 
 * Runs entirely on an **M5Stack AtomS3 Lite** (about 8 USD). No cloud, no app, no PC.
 * **Set up from your phone**: join the board's Wi-Fi, pick your network, find your WLED. Done.
@@ -50,9 +58,22 @@ The setup page you open from your phone or PC (here with made-up sample data; fo
 
 The pictures are regenerated from the real page with `node tools/make_screenshots.js` (see *Building and testing*).
 
-> **Unofficial.** This project is not affiliated with or endorsed by FancyLEDs, Tuya or WLED. It was developed against a
+> **Unofficial.** This project is not affiliated with or endorsed by FancyLEDs, Tuya, WLED, Govee, Home Assistant, M5Stack or Espressif; their names and trademarks belong to
+> their owners ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). It was developed against a
 > FancyLEDs "3 Port 2.1 Fancy Sync Box" (FSB3P2.1) by observing traffic on the author's own network; other models or
 > firmware may differ ([protocol notes](docs/PROTOCOL.md)).
+
+## Tested with
+
+Developed and tested on this hardware. Reports that something else works (or does not) are very welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+| | |
+|---|---|
+| Sync Box | FancyLEDs "3 Port 2.1 Fancy Sync Box" (**FSB3P2.1**), firmware main 3.1.0. Other models or firmware may send something different |
+| Board | **M5Stack AtomS3 Lite** (ESP32-S3). Any ESP32-S3 should work with changes to `platformio.ini` and the LED and button pins |
+| WLED | strips of 210 and 266 LEDs, streamed over DDP (realtime UDP, switched on in WLED by default) |
+| Govee lights | **H61C3** (RGBIC neon rope, 42 segments) and **H61B5** (RGBIC strip, 50 segments), over the LAN API ([docs/GOVEE.md](docs/GOVEE.md)) |
+| Setup page | the automated tests run it in headless Edge and Chrome; phone browsers are not part of the automated tests |
 
 ## What you need
 
@@ -87,6 +108,9 @@ The pictures are regenerated from the real page with `node tools/make_screenshot
    editing, and every change (the +1/+10 buttons, *slide the TV part along the run*, LED numbers, where the LEDs are, look) updates
    live without being saved. Press **Save** when it looks right (stopping the test without saving discards the changes).
    (A build with the phone-camera calibration also offers **Auto-calibrate with my phone**: `pio run -e atoms3-phonecal -t upload`.)
+7. **Lock it to your Sync Box.** In the status card at the top press **Only accept this box**. Without it any device on your network can send the relay colours (the frame
+   format is public). If your router later gives the box a new address, the page says so and offers to follow it; a fixed address for the box in your router avoids that.
+   And never expose the relay to the internet: see [SECURITY.md](SECURITY.md).
 
 The LED turns **green** while it is relaying. That is it: your WLED now follows the picture.
 
@@ -206,10 +230,17 @@ join `Fancy2WLED-Setup` again.
 
 ## Security
 
-There is no password: anyone on your Wi-Fi can open the setup page, as with WLED itself. Do not expose it to the internet. For the same reason, lock the relay to your
-Sync Box's address (*Only accept this box* on the setup page): otherwise any device on the network can send it colours.
-The setup access point is open while it is waiting for Wi-Fi details (it disappears once configured). POST requests must be
-`application/json`, which stops other websites from changing settings through your browser.
+**Never expose the relay to the internet.** It is built for a trusted home network: **all its traffic is in plain text and the setup page has no password**, the same as WLED
+itself. In plain text are the setup page (HTTP), the Wi-Fi password typed during first setup (the board's own setup Wi-Fi is open while it waits), the firmware update
+password and file, the MQTT login (plain MQTT), the commands to WLED and Govee, and the Sync Box's own broadcast (public format, obfuscated, not encrypted). Do not forward a
+port to it, put it in a DMZ, or publish it with UPnP, a cloud tunnel or a public proxy. For access from outside the house use a VPN into your home network.
+
+* **Lock it to your Sync Box** (*Only accept this box* on the setup page): otherwise any device on the network can send it colours.
+* **Keep over-the-air updates off** unless you are updating (they are off until you set an update password), and use a password you use nowhere else.
+* The setup access point is open while it is waiting for Wi-Fi details (it disappears once configured), so do the first setup yourself and quickly.
+* POST requests must be `application/json`, which stops other websites from changing settings through your browser.
+
+The full list, what is in scope, and how to report a vulnerability privately: [SECURITY.md](SECURITY.md).
 
 ## Building and testing
 
@@ -253,6 +284,9 @@ to choose for *Update firmware* on the setup page ([docs/OTA.md](docs/OTA.md)). 
 (Phone-calibration build:) the image analysis runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only
 lights LEDs on request and stores the resulting table.
 
-## Licence
+## Contributing, security, licence
 
-MIT, see [LICENSE](LICENSE).
+* Bug reports, hardware reports and pull requests: [CONTRIBUTING.md](CONTRIBUTING.md). What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+* A security problem: [SECURITY.md](SECURITY.md) (please report it privately, not in a public issue).
+* Licence: MIT, see [LICENSE](LICENSE). The firmware also contains ArduinoJson (MIT), the Arduino core for the ESP32 (LGPL-2.1-or-later) and ESP-IDF (Apache-2.0):
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
