@@ -63,8 +63,8 @@ int main(int argc, char** argv) {
   const char* path = argc > 1 ? argv[1] : "test/golden.txt";
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
-  static char line[200000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0;
+  static char line[400000];
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -291,6 +291,31 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "SPEED") {
+      // SPEED <packets> <events> <estimates> <percent> <sure> <peak> <second> <shown> <name> then <ms> <hex zones> per packet (the detector of the box's Speed of Diffusion)
+      const char* p = rest;
+      int nP = 0, events = 0, est = 0, pct = 0, sure = 0, peak = 0, second = 0, shown = 0, adv = 0;
+      char name[64] = {0};
+      if (sscanf(p, "%d %d %d %d %d %d %d %d %63s%n", &nP, &events, &est, &pct, &sure, &peak, &second, &shown, name, &adv) != 9) { CHECK(false, "bad SPEED line"); continue; }
+      p += adv;
+      static SpeedDetect sd;
+      speedReset(sd);
+      uint32_t prev = 0;
+      for (int i = 0; i < nP; i++) {
+        unsigned ms = 0; char hex[200] = {0};
+        sscanf(p, " %u %199s%n", &ms, hex, &adv);
+        p += adv;
+        const auto zb = fromHex(hex);
+        uint8_t z[kZones][3];
+        memcpy(z, zb.data(), sizeof z);
+        speedPush(sd, z, i == 0 ? 0 : boxStepsForGap(ms - prev));
+        prev = ms;
+      }
+      const SpeedResult r = speedResult(sd);
+      CHECK((int)sd.events == events && r.estimates == est && r.percent == pct && (r.sure ? 1 : 0) == sure && r.peak == peak && r.second == second && sd.shown == shown,
+            "speed %s: events %u (want %d), estimates %d (want %d), percent %d (want %d), sure %d (want %d), votes %d and %d (want %d and %d), shown %d (want %d)",
+            name, (unsigned)sd.events, events, r.estimates, est, r.percent, pct, r.sure ? 1 : 0, sure, r.peak, r.second, peak, second, sd.shown, shown);
+      nSpeed++;
     } else if (k == "BLUR") {
       int n = 0, first = 0, last = 0, blur = 0, adv = 0;
       char hex[1000] = {0};
@@ -961,11 +986,29 @@ int main(int argc, char** argv) {
       free(s);
     }
     CHECK(ipBad == 0, "random text is never accepted as an address by mistake, and nothing is written for it (%d problems)", ipBad);
+    {
+      // the speed detector: any packets, in any order and with any gaps, never produce an impossible answer (it runs on every frame of a board nobody watches)
+      static SpeedDetect fz;
+      speedReset(fz);
+      int speedBad = 0;
+      for (int i = 0; i < 40000; i++) {
+        uint8_t z[kZones][3];
+        const uint32_t mode = rnd() % 4;
+        for (int q = 0; q < kZones; q++)
+          for (int c = 0; c < 3; c++) z[q][c] = mode == 0 ? (uint8_t)rnd() : (mode == 1 ? (uint8_t)((i % 7) * 40 + 30) : (mode == 2 ? (uint8_t)(rnd() % 3 ? 200 : 20) : (uint8_t)(q * 10)));
+        speedPush(fz, z, (int)(rnd() % 6) - 1);                  // steps -1..4: the relay never passes less than 0, but nothing may break if it did
+        if (i % 97 == 0) {
+          const SpeedResult r = speedResult(fz);
+          if (r.estimates < 0 || r.estimates > kSpeedRing || (r.percent != -1 && (r.percent < 10 || r.percent > 100 || r.percent % 5 != 0)) || (fz.shown != -1 && (fz.shown < 10 || fz.shown > 100 || fz.shown % 5 != 0)) || (r.estimates < kSpeedMinEvents && r.percent != -1) || r.peak < 0 || r.second > r.peak) speedBad++;
+        }
+      }
+      CHECK(speedBad == 0, "the speed detector never gives an impossible answer for random packets (%d problems)", speedBad);
+    }
     CHECK(markBad == 0, "the update marker is always found, in any chunking, and never in noise (%d problems)", markBad);
   }
 
-  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, g_pass, g_fail);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

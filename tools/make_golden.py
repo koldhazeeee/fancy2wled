@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import govee, layout, motion, protocol  # noqa: E402
+from reference import govee, layout, motion, protocol, speed  # noqa: E402
 
 
 def ent(entries):
@@ -264,6 +264,75 @@ def main():
         outp = motion.blur_colours(src, first, last, blur)
         lines.append("BLUR %d %d %d %d %s %s" % (n, first, last, blur, "".join("%02x%02x%02x" % tuple(int(v) for v in c) for c in src),
                                                  " ".join("%.4f" % v for c in outp for v in c)))
+
+    # --- the Sync Box speed detector ----------------------------------------------------------------------------------------------------------------------------
+    srnd = random.Random(4242)
+
+    def sp_picture(lo=70, hi=230, changing=24):
+        zs = []
+        for z in range(24):
+            zs.append([srnd.randrange(lo, hi) for _ in range(3)] if z < changing else None)
+        return zs
+
+    def sp_jumps(count, hold, lo=70, hi=230, partial=False):
+        """A picture that jumps to a new random one every `hold` packets (only some zones when partial; the others stay as they were)."""
+        seq = []
+        cur = [[srnd.randrange(lo, hi) for _ in range(3)] for _ in range(24)]
+        seq.append((hold, cur))
+        for _ in range(count):
+            new = [list(z) for z in cur]
+            for z in range(24):
+                if not partial or srnd.random() < 0.4:
+                    new[z] = [srnd.randrange(lo, hi) for _ in range(3)]
+            seq.append((hold, new))
+            cur = new
+        return seq
+
+    def speed_case(name, packets, want=None, shown=None):
+        d = speed.Detector()
+        prev = None
+        for t, zs in packets:
+            d.push(zs, 0 if prev is None else speed.steps_for_gap(t - prev))
+            prev = t
+        n, pct, sure, peak, second = d.result()
+        for q in d.q:                                     # keep clear of the edges between two bins, where float and double could disagree
+            x = q * 20.0 + 0.5
+            assert abs(x - round(x)) > 1e-3, (name, q)
+        if want is not None:
+            assert pct == want, (name, pct, want)
+        if shown is not None:
+            assert d.shown == shown, (name, d.shown, shown)
+        out = ["SPEED %d %d %d %d %d %d %d %d %s" % (len(packets), d.events, n, pct, 1 if sure else 0, peak, second, d.shown, name)]
+        for t, zs in packets:
+            out.append("%d %s" % (t, "".join("%02x%02x%02x" % tuple(z) for z in zs)))
+        lines.append(" ".join(out))
+
+    for sp in (1.0, 0.7, 0.4, 0.25, 0.1):
+        hold, jumps = (8, 40) if sp >= 0.4 else (30, 25)
+        # at 10 % the first step of any change is under the measuring threshold (0.1 x at most 160 levels): the detector must say "do not know", not guess
+        speed_case("exact-%d" % round(sp * 100), speed.simulate_box(sp_jumps(jumps, hold), sp, srnd), want=-1 if sp < 0.2 else round(sp * 100 / 5) * 5)
+    speed_case("loss-40", speed.simulate_box(sp_jumps(60, 8), 0.4, srnd, loss=0.15, jitter=10), want=40)
+    speed_case("loss-25", speed.simulate_box(sp_jumps(25, 30), 0.25, srnd, loss=0.1, jitter=8), want=25)
+    speed_case("loss-heavy-55", speed.simulate_box(sp_jumps(60, 8), 0.55, srnd, loss=0.3, jitter=12))
+    speed_case("partial-70", speed.simulate_box(sp_jumps(60, 8, partial=True), 0.7, srnd, loss=0.05), want=70)
+    speed_case("slow-85", speed.simulate_box(sp_jumps(40, 8), 0.85, srnd), want=85)
+    speed_case("dark-40", speed.simulate_box(sp_jumps(40, 8, lo=0, hi=60), 0.4, srnd))                       # mostly under the black cut-off: little to measure
+    speed_case("steps-too-small", speed.simulate_box(sp_jumps(40, 8, lo=100, hi=118), 0.4, srnd))           # every change smaller than the measuring threshold
+    speed_case("static", [(10000 + 73 * i, [[120, 90, 60]] * 24) for i in range(60)])
+    speed_case("fade", [(10000 + 73 * i, [[40 + 2 * i, 40 + 2 * i, 40 + 2 * i]] * 24) for i in range(60)])    # a slow ramp: never a sudden change
+    speed_case("noise", [(10000 + 73 * i, [[srnd.randrange(30, 255) for _ in range(3)] for _ in range(24)]) for i in range(120)])   # a new random picture every packet
+    sil = speed.simulate_box(sp_jumps(40, 8), 0.4, srnd)
+    speed_case("silence-40", [(t + (3000 if i > len(sil) // 2 else 0), zs) for i, (t, zs) in enumerate(sil)], want=40)
+    speed_case("few", speed.simulate_box(sp_jumps(5, 8), 0.4, srnd))                                         # too few changes to answer
+    speed_case("one-packet", [(10000, [[100, 100, 100]] * 24)])
+    for fname, want in (("real_box_speed40.txt", 40), ("real_box_speed100.txt", 100), ("real_box_speed75_video.txt", 75)):         # a real Sync Box, recorded: the answer must match what its app said
+        real = []
+        for ln in open(os.path.join(HERE, "reference", "data", fname)):
+            if ln.startswith("#") or not ln.strip():
+                continue
+            ms, hx = ln.split()
+            real.append((10000 + int(ms), [list(bytes.fromhex(hx)[i:i + 3]) for i in range(0, 72, 3)]))
+        speed_case("real-box-" + str(want), real, want=want, shown=None if want == 100 else want)     # (the 100 % recording has too few changes for the held answer to appear)
 
     out = os.path.join(HERE, "..", "test", "golden.txt")
     os.makedirs(os.path.dirname(out), exist_ok=True)

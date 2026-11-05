@@ -6,6 +6,7 @@
 #include <lwip/sockets.h>
 
 #include "app.h"
+#include "core.h"
 
 // The secure server exists only for the phone's camera (browsers allow camera access on HTTPS only), so it is built only with it.
 #if FWB_PHONE_CAL && __has_include(<esp_https_server.h>)
@@ -166,6 +167,8 @@ static esp_err_t h_status(httpd_req_t* req) {
   b["host"] = s.boxFilter;                          // "" = any box is accepted; otherwise the address the relay is locked to
   JsonObject ig = b["ignored"].to<JsonObject>();    // readable frames from another address than the lock (the box may have been given a new one)
   ig["n"] = s.boxIgnored; ig["ip"] = s.boxIgnoredIp; ig["agoMs"] = s.boxIgnoredAgoMs;
+  JsonObject bs = b["speed"].to<JsonObject>();     // the box's Speed of Diffusion as the relay measures it from the picture changes (advice only)
+  bs["pct"] = s.boxSpeedPct; bs["n"] = s.boxSpeedN; bs["mixed"] = s.boxSpeedMixed; bs["agree"] = s.boxSpeedAgree; bs["changes"] = s.boxSpeedChanges; bs["need"] = fwb::kSpeedMinEvents;
   b["problem"] = s.boxProblem;                      // frames arrive but none can be read
   b["tvOff"] = s.tvOff;                             // the picture has been completely black for the configured time: the TV is off
   b["blackS"] = s.tvBlackS;                         // seconds it has been black so far (0 = not black)

@@ -59,6 +59,41 @@ recordings made at 40 %: the undone steps rise instantly like a box at 100 % doe
 One case cannot be seen in the stream: when the packet just before a change is lost, the first packet after it already holds two steps but has a normal gap,
 so that one frame overshoots (up to about 60 % of the change at boost 100, about 25 % at boost 60, which is why 50-70 is the good place to start).
 
+## Does Box speed match the box? (measured from the picture)
+
+The relay can check the number you entered for **Box speed** against the box itself, from its packets alone. With the speed s set in the box's app, every packet moves each colour
+channel a fraction s of the way to the new picture, so right after a sudden change (a scene cut, a flash) the second step is (1 - s) times the first: 0.6 times at 40 %, none at
+100 %. Whenever at least 6 channels that were still start to move together, the relay takes the slope of the second step on the first over all of them (a least squares fit,
+which averages out the rounding of the colours) as an estimate of 1 - s.
+
+Test patterns give clean cuts, but **real video keeps moving during the second step**, which pushes some estimates anywhere (from -2.8 to 1.5 in a recording at 75 %). The clean
+changes all land on the same value, the polluted ones scatter. So the answer is a **vote**, not an average: the latest 24 estimates vote for their bin of 5 % (the box's speeds
+are multiples of 5), and the winner is the answer once 10 estimates exist. It counts as measured only when it has at least 5 votes, a quarter of all of them, and twice the
+runner-up's; otherwise the page says no value stands out yet and keeps trying. What the page *shows* is held steady: an answer appears once the vote has been sure of it 3 estimates in a row,
+and a shown answer is replaced by a different one only after 5 in a row, because on a live picture the vote flickers between sure, unsure and a neighbouring value while the
+true speed rarely changes. (A first version used the median of the estimates with a limit on their spread. On normal video at
+75 % that was wrong in 10 of 82 windows and undecided in 53; the vote was never wrong and undecided in 9 of 31.)
+
+* **Only clear cases count.** A change counts when the channel was still before it, its first step is at least 24 levels, nothing near black is involved (the box cuts off
+  near black), and no packet was lost within the four it spans.
+* **Checked against the real box** (the box's app set to the speed shown):
+
+  | box app | what was on screen | measured | sudden changes used |
+  |---|---|---|---|
+  | 40 % (three recordings, `tools/sync_probe`) | test patterns | 40 % in all three | 15, 18 and 22 |
+  | 100 % (two recordings) | test patterns | 100 % in one, "not known yet" in the other (4 changes) | 10 and 4 |
+  | 75 % (90 seconds, `tools/capture_frames.py`) | a TV programme | 75 % in 22 of 31 windows, never anything else (undecided in the rest) | 40 in all |
+
+  A simulated box gives the speed that was set at 25, 40, 55, 70, 85 and 100 %, also with 5 to 30 % of the packets lost. An excerpt of each of the three kinds of real
+  recording is part of the automated tests (`tools/reference/data/`: only the colours of the 24 zones), next to an independent Python version of the calculation. The 75 %
+  vote was tuned on that one recording, so more recordings of other speeds and programmes are welcome.
+* **Limits.** It needs sudden changes: a film with no cuts, or a still picture, gives no answer yet; with busy video it takes a minute or two to collect enough clear ones
+  (about 0.4 usable changes a second in the 75 % recording). Below about 20 % the first step of any change is smaller than the measuring threshold, so it says "not known" instead of
+  guessing. After you change the speed in the box's app the old votes have to be outvoted, which takes up to a couple of minutes of video.
+* **Advice only.** Nothing the relay does with the picture depends on it. The setup page shows "Measured from the Sync Box" under *Box speed*, and the *Settings check* says
+  so when the measurement is 10 % or more away from the number you entered (a *Fix* when Reaction boost is on, since it then undoes the wrong amount of smoothing; a *Tip*
+  otherwise). The numbers are in the status (`/api/status`, `box.speed`: `pct`, `agree` votes of `n`, `mixed`, `changes`).
+
 ## Motion smoothing and blur
 
 The box sends about 14 frames a second but a new picture only about every 100 ms, and the frames reach the board unevenly (see below), so a strip that jumps to

@@ -337,6 +337,31 @@ async function cdp(wsUrl) {
       check('check: a good setup (box 100, motion smoothing, no boost, no extra smoothing) shows no look advice', !/Reaction boost|Smoothing over time|box speed|box is smoothing/.test(await adv()), await adv());
       await sl('kBsp', 40); await sl('kMot', 0); await sl('kSmo', 0.5); await sl('kBoost', 0);          // back to the defaults
     }
+    // the box speed the board measures from the picture changes: a note under the slider, and advice when it disagrees with the setting
+    {
+      const sl = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(120); };
+      const adv = () => p.ev("document.getElementById('advice').textContent");
+      const note = () => p.ev("document.getElementById('bspDet').textContent");
+      const seen = async s => { dev.state.speed = s; await sleep(3300); };
+      await sl('kBoost', 0); await sl('kMot', 0); await sl('kBsp', 40);
+      check('speed: nothing measured yet: the note says it is waiting', /waiting for a sudden change/.test(await note()), await note());
+      await seen({ pct: -1, n: 3, mixed: false, changes: 3, need: 10 });
+      check('speed: a few changes seen: the note counts them', /3 of 10 sudden changes/.test(await note()), await note());
+      await seen({ pct: -1, n: 14, mixed: true, agree: 4, changes: 30, need: 10 });
+      check('speed: no value stands out: the note says so and there is no advice', /no value stands out yet among 14 sudden changes/.test(await note()) && !/measured the Sync Box/.test(await adv()), await note());
+      await seen({ pct: 40, n: 22, mixed: false, agree: 15, changes: 60, need: 10 });
+      check('speed: a measurement is shown in the note', /about 40% \(worked out from the sudden changes/.test(await note()), await note());
+      check('speed: ... and when it matches the setting there is no extra advice', !/measured the Sync Box/.test(await adv()), await adv());
+      await seen({ pct: 45, n: 22, mixed: false, agree: 12, changes: 60, need: 10 });
+      check('speed: a measurement 5 off the setting is rounding, not advice', !/measured the Sync Box/.test(await adv()), await adv());
+      await seen({ pct: 100, n: 20, mixed: false, agree: 14, changes: 60, need: 10 });
+      check('speed: a measurement far from the setting is a tip to set Box speed', /Tip: The relay measured the Sync Box's Speed of Diffusion as about 100% \(from the sudden changes in the picture\).*Box speed here says 40.*Set Box speed to 100/.test(await adv()) && !/wrong amount/.test(await adv()), await adv());
+      await sl('kBoost', 60);
+      check('speed: with Reaction boost on (undoing the wrong amount of smoothing) it is a fix, listed first', /^Fix: The relay measured.*Reaction boost undoes the wrong amount/.test(await adv()), await adv());
+      await sl('kBsp', 100);
+      check('speed: after setting Box speed to what was measured the advice is gone', !/measured the Sync Box/.test(await adv()), await adv());
+      dev.state.speed = null; await sl('kBoost', 0); await sl('kBsp', 40); await sleep(3300);          // back to the defaults
+    }
     // nudge buttons + range check
     check('index: nudge buttons are built', (await p.ev("document.querySelectorAll('.nudge button').length")) >= 24);
     await p.ev("document.getElementById('wStart').value='0'; document.querySelector('[data-nudge=wStart] button:last-child').click(); 1");

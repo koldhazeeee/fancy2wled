@@ -174,6 +174,11 @@ struct RelayStatus {
   uint32_t boxIgnored = 0;                  // readable Sync Box frames from another address than boxFilter, ignored since the board started
   String boxIgnoredIp;                      // the latest such sender (status page only)
   int boxIgnoredAgoMs = -1;                 // how long ago the latest one arrived (-1 = none yet)
+  int boxSpeedPct = -1;                     // the box's Speed of Diffusion as measured from its packets (5 % steps; -1 = not known yet or the picture is too mixed to tell)
+  int boxSpeedN = 0;                        // how many measurements that rests on (kSpeedMinEvents are needed for an answer)
+  bool boxSpeedMixed = false;               // enough measurements, but no value clearly wins the vote
+  int boxSpeedAgree = 0;                    // how many of those measurements voted for the winning value
+  uint32_t boxSpeedChanges = 0;             // sudden changes seen since the board started
   const char* state = "starting";
   bool wledOk = false;                      // every enabled target's WLED answered
   int wledLeds = 0;                         // LEDs over all targets

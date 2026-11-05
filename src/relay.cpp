@@ -25,6 +25,7 @@ static bool gHave = false;
 static uint32_t gLastFrame = 0, gFrames = 0;
 static float gPrevY[kZones][3];                 // the previous Sync Box frame (reaction boost undoes the box's smoothing with it)
 static bool gPrevValid = false;
+static SpeedDetect gSpeed;                       // measures the box's Speed of Diffusion from its packets (advice only: nothing in the output depends on it)
 static uint32_t gLastFrameUs = 0;              // micros() when the newest Sync Box frame was read (latency statistics)
 static uint32_t gAgeFrames = 0;                // the gFrames value the last sent output frame was built from
 static float gIntervalMs = 0;                  // smoothed time between frames
@@ -767,6 +768,8 @@ static bool pollBox() {
     gFilterGen = gSettingsGen;
     String h; { Lock l; h = gSet.boxHost; }
     if (!gBoxFilter.fromString(h)) gBoxFilter = IPAddress((uint32_t)0);
+    static String lockedTo;
+    if (h != lockedTo) { lockedTo = h; Lock l; speedReset(gSpeed); }                // another box may be set differently
   }
   bool got = false;
   float boost;
@@ -800,6 +803,7 @@ static bool pollBox() {
       gSender = from;
       const int steps = boxStepsForGap(now - gLastFrame);          // the box's smoothing steps since the previous packet (more than one if packets were lost)
       if (gHave && now - gLastFrame < 2000) gIntervalMs = gIntervalMs == 0 ? (now - gLastFrame) : gIntervalMs * 0.9f + (now - gLastFrame) * 0.1f;
+      speedPush(gSpeed, z, steps);
       gLastFrame = now;
       gLastFrameUs = micros();
       if (gPerfOn) perfBoxFrame(gLastFrameUs);
@@ -898,6 +902,7 @@ void relayStatus(RelayStatus& s, bool detail) {
   s.boxIgnored = gIgnored.n;
   s.boxIgnoredIp = (detail && gIgnored.n) ? gIgnored.ip.toString() : String("");
   s.boxIgnoredAgoMs = gIgnored.n ? (int)(now - gIgnored.ms) : -1;
+  { const SpeedResult sr = speedResult(gSpeed); s.boxSpeedPct = gSpeed.shown; s.boxSpeedN = sr.estimates; s.boxSpeedMixed = gSpeed.shown < 0 && sr.estimates >= kSpeedMinEvents; s.boxSpeedAgree = sr.peak; s.boxSpeedChanges = gSpeed.events; }
   s.framesOk = gStat.ok;
   s.framesNewLayout = gStat.newLayout;
   s.framesUnreadable = gStat.unreadable;

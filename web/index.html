@@ -155,6 +155,7 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="kSmo">Smoothing over time <span id="kSmoV"></span></label><input id="kSmo" type="range" min="0" max="0.9" step="0.05" data-live="1"></div>
   <div class="row"><label for="kBoost">Reaction boost <span id="kBoostV"></span></label><input id="kBoost" type="range" min="0" max="100" step="5" data-live="1"></div>
   <div class="row"><label for="kBsp">Box speed <span id="kBspV"></span></label><input id="kBsp" type="range" min="10" max="100" step="5" data-live="1"></div>
+  <p class="small mut" id="bspDet" aria-live="polite"></p>
   <div class="row"><label for="kMot">Motion smoothing <span id="kMotV"></span></label><input id="kMot" type="range" min="0" max="100" step="5" data-live="1"></div>
   <p class="small mut"><b>Motion smoothing</b> slides the lights from one Sync Box picture to the next instead of jumping, so movement looks continuous. The box sends a new picture only about every 100 ms; at 100 the lights run one picture behind (about 100 ms) so they always have the next one to slide towards, at lower values less. While it is on it replaces <i>Smoothing over time</i> and <i>Reaction boost</i>. 0 is off.</p>
   <p class="small mut">The Sync Box smooths its own colours, which is most of the delay between the picture and the lights. In the box's app, <i>Speed of Diffusion</i> sets how far each packet moves towards the new picture (40% = 40% of the way, so a change takes about half a second to arrive). <b>The best fix is to set the box's speed to 100%</b>: it then sends the real picture at once. Set <b>Box speed</b> here to the same number as in the box's app. <b>Reaction boost</b> undoes the smoothing in software when the box is slower than 100%: 0 follows the box exactly, 100 rebuilds the picture it is aiming at (it does nothing at a box speed of 100). A lost packet at the wrong moment can make one frame overshoot, so around 60 is a good start. At high values fast flashes look sharper and a dark scene can flick to black a little early.</p>
@@ -271,6 +272,8 @@ input[type=range].wide{width:100%}
     var box=$('advice');if(!box||!cfg||!cfg.targets)return;
     var out=[],boost=parseInt($('kBoost').value,10)/100,bsp=parseInt($('kBsp').value,10),mot=parseInt($('kMot').value,10),smo=parseFloat($('kSmo').value),i,k;
     function add(level,text){out.push({level:level,text:text});}
+    var det=seenSpeed&&seenSpeed.pct>=0?seenSpeed.pct:-1;
+    if(det>=0&&Math.abs(det-bsp)>=10)add((boost>0&&mot===0)?'fix':'tip','The relay measured the Sync Box\'s Speed of Diffusion as about '+det+'% (from the sudden changes in the picture), but Box speed here says '+bsp+'. '+((boost>0&&mot===0)?'Reaction boost undoes the wrong amount of smoothing. ':'')+'Set Box speed to '+det+', or if the box should be at '+bsp+', check its Speed of Diffusion in its app.');
     if(bsp>=100&&boost>0&&mot===0)add('fix','Reaction boost does nothing at a box speed of 100: the box does not smooth, so there is nothing to undo. Set the boost to 0.');
     if(mot>0&&(boost>0||smo>0)){var un=[];if(boost>0)un.push('Reaction boost');if(smo>0)un.push('Smoothing over time');add('tip','Motion smoothing is on, so '+un.join(' and ')+(un.length>1?' are':' is')+' not used while it is. Set '+(un.length>1?'them':'it')+' to 0 to tidy up, or Motion smoothing to 0 to use '+(un.length>1?'them':'it')+'.');}
     if(bsp<100&&mot===0&&boost===0)add('tip',"The box is smoothing its colours (speed "+bsp+"%), so the lights lag behind the picture. The best fix: set the box's Speed of Diffusion to 100% in its app and Box speed here to 100. Or keep the box as it is and raise Reaction boost.");
@@ -430,9 +433,20 @@ input[type=range].wide{width:100%}
   $('boxLockOn').onclick=function(){setBoxLock(this.dataset.ip);};
   $('boxLockOff').onclick=function(){setBoxLock('');};
   $('boxMovedUse').onclick=function(){setBoxLock(this.dataset.ip);};
+  /* The box's Speed of Diffusion as the board measures it from the picture changes (box.speed in the status). It is advice only: nothing the board does depends on it. */
+  var seenSpeed=null;
+  function speedNote(){
+    var el=$('bspDet'),d=seenSpeed;if(!el)return;
+    if(!d){el.textContent='';return;}
+    if(d.pct>=0)el.textContent='Measured from the Sync Box: its Speed of Diffusion looks like about '+d.pct+'% (worked out from the sudden changes in the picture, such as scene cuts and flashes).';
+    else if(d.mixed)el.textContent='Measuring the Sync Box\'s speed: no value stands out yet among '+d.n+' sudden changes (moving pictures muddy the result; scene cuts and flashes help). It keeps trying.';
+    else el.textContent=d.changes>0?'Measuring the Sync Box\'s speed: '+d.n+' of '+d.need+' sudden changes seen so far. A scene cut or a flash gives one.':'Measuring the Sync Box\'s speed: waiting for a sudden change in the picture (a scene cut or a flash).';
+  }
   async function status(){
     try{
       var s=await j('/api/status');
+      var sp=(s.box&&s.box.speed)||null;
+      if(JSON.stringify(sp)!==JSON.stringify(seenSpeed)){seenSpeed=sp;speedNote();try{advice();}catch(e){}}
       show('wifiCard',s.mode==='ap');show('main',s.mode!=='ap');
       pill('pWifi',s.mode==='ap'?'warn':'ok',s.mode==='ap'?'Setup mode':'Wi-Fi '+s.ssid);
       var bp=!!(s.box&&s.box.problem),bf=s.box.frames||{};

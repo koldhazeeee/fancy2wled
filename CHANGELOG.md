@@ -4,6 +4,17 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## 0.4.9 - 2026-11-05
+
+* **The relay measures the Sync Box's Speed of Diffusion** from the picture changes it sees (scene cuts, flashes): after a sudden change the box's second step is (1 - speed)
+  times its first. The latest 24 such measurements vote for their speed (which copes with real video that keeps moving after a cut), and the answer shown is held steady against flicker. The setup page shows the result under
+  *Box speed* ("Measured from the Sync Box: about 75 %"), and the *Settings check* warns when your *Box speed* is 10 % or more away from it, so Reaction boost does not undo the
+  wrong amount of smoothing. **Advice only**: nothing the relay does with the colours changes. It says no value stands out yet until the vote is clear, and cannot measure below
+  about 20 %. Checked on recordings of the real box (40 %, 75 % with a TV programme, 100 %) and on simulated boxes with lost packets; see [docs/LATENCY.md](docs/LATENCY.md). The
+  status has the numbers as `box.speed`.
+* **Repository files for going public:** SECURITY.md (never expose the relay to the internet: everything is plain text and the setup page has no password), CONTRIBUTING.md,
+  issue forms and a pull request checklist, THIRD_PARTY_NOTICES.md, a tested-with list in the README, read-only permissions for CI and Dependabot for the GitHub Actions.
+
 ## 0.4.8 - 2026-11-05
 
 * **Fix: a Govee light that was off before sync came back on after a pause.** The relay read the light's state in the background while its first colour frame

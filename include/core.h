@@ -157,6 +157,39 @@ float leadBoost(float y, float yPrev, float boost, int speedPercent = 40, int st
 // one step apart. 0 = a pause of more than 600 ms: the colours were not following each other, do not extrapolate across it.
 int boxStepsForGap(uint32_t gapMs);
 
+// Finding out the box's Speed of Diffusion from its packets alone (no knowledge of the picture). With the setting s the box moves every colour channel a fraction
+// s of the way to the new picture with each packet, so after a sudden change the second step is (1 - s) times the first (40 %: 0.6 times). Whenever channels that
+// were still start to move together (a scene cut, a flash), the least squares slope of the second step on the first over all of them (at least kSpeedMinChannels)
+// estimates q = 1 - s. Real video keeps moving during the second step, which pushes such an estimate anywhere, while the clean changes all agree: so the answer
+// is a vote, not a median. The latest kSpeedRing estimates vote for their bin of 0.05 (the box's speeds are multiples of 5 %); the winner is the answer once
+// kSpeedMinEvents estimates exist, and is only called sure when it has at least kSpeedMinPeak votes, a quarter of all, and twice the runner-up's. (Measured on a real
+// box at 75 % with normal video: 27 % voted for 75, 12 % for the runner-up; a median with a spread limit was wrong in 10 of 82 windows.) Packets are only used when no
+// packet was lost between the four of them (boxStepsForGap == 1 for each) and values near black are ignored (the box's own black cut-off distorts them). This is
+// advice only: the relay does not change its behaviour from it. Independent version: tools/reference/speed.py.
+constexpr int kSpeedRing = 24, kSpeedMinEvents = 10, kSpeedMinChannels = 6, kSpeedMinPeak = 5;
+// What the page shows is held steady: an answer is shown once the vote has been sure of it kSpeedShowRun estimates in a row, and replaced by a different one only after
+// kSpeedChangeRun in a row (on a live picture the vote flickers between sure, unsure and a neighbouring value; the true speed rarely changes).
+constexpr int kSpeedShowRun = 3, kSpeedChangeRun = 5;
+struct SpeedDetect {
+  uint8_t f[4][kZones][3] = {};     // the last four packets, the newest last
+  uint8_t steps[4] = {};            // for each: boxStepsForGap since the packet before it (clamped to 255)
+  int have = 0;                     // how many of f hold a packet (up to 4)
+  float q[kSpeedRing] = {};         // the latest estimates of q = 1 - s
+  int nq = 0, head = 0;             // how many are valid, and where the next one goes
+  uint32_t events = 0;              // estimates made since the start
+  int shown = -1;                   // the held answer (percent), -1 = none yet
+  int cand = -1, run = 0;           // the answer the vote is sure of now, and for how many estimates in a row
+};
+struct SpeedResult {
+  int estimates = 0;                // how many estimates the answer rests on (0..kSpeedRing)
+  int percent = -1;                 // the box's Speed of Diffusion the vote chose, in 5 % steps (10..100); -1 = fewer than kSpeedMinEvents estimates yet
+  bool sure = false;                // the winner clearly wins the vote
+  int peak = 0, second = 0;         // votes of the winner and of the runner-up
+};
+void speedReset(SpeedDetect& d);
+void speedPush(SpeedDetect& d, const uint8_t zones[kZones][3], int steps);   // steps = boxStepsForGap since the previous packet
+SpeedResult speedResult(const SpeedDetect& d);
+
 // Vivid blending between two zone colours. Mixing two colours in RGB (red and green half and half is a dull dark yellow) turns unlike hues into
 // grey or brown in between. This blends along the colour wheel instead: the hue takes the shorter way round from one colour to the other (red -> orange ->
 // yellow -> green), saturation and brightness blend straight. A grey or black end has no hue of its own and takes the other end's. w = 0 gives a, 1 gives b.

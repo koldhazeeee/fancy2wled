@@ -1,6 +1,7 @@
 #include "core.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 // This file is the colour maths (zone table lookup, blur, saturation, motion smoothing): build it for speed, the rest of the firmware for size (the default -Os).
@@ -727,6 +728,59 @@ int boxStepsForGap(uint32_t gapMs) {
   if (gapMs > 600) return 0;
   const int n = (int)((float)gapMs / 73.f + 0.35f);
   return n < 1 ? 1 : n;
+}
+
+void speedReset(SpeedDetect& d) { d = SpeedDetect(); }
+
+void speedPush(SpeedDetect& d, const uint8_t zones[kZones][3], int steps) {
+  memmove(d.f[0], d.f[1], sizeof d.f[0] * 3);
+  memmove(&d.steps[0], &d.steps[1], 3);
+  memcpy(d.f[3], zones, sizeof d.f[3]);
+  d.steps[3] = (uint8_t)(steps < 0 ? 0 : (steps > 255 ? 255 : steps));
+  if (d.have < 4) d.have++;
+  if (d.have < 4 || d.steps[1] != 1 || d.steps[2] != 1 || d.steps[3] != 1) return;      // a lost packet in between would hide steps
+  int32_t num = 0, den = 0;
+  int used = 0;
+  for (int z = 0; z < kZones; z++)
+    for (int c = 0; c < 3; c++) {
+      const int y0 = d.f[1][z][c], y1 = d.f[2][z][c], y2 = d.f[3][z][c];
+      if (abs((int)d.f[0][z][c] - y0) > 2) continue;                                    // it was already moving: not the start of a change
+      const int d1 = y1 - y0, d2 = y2 - y1;
+      if (abs(d1) < 24 || (y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2)) < 30) continue;   // too small to measure, or near the box's black cut-off
+      num += d1 * d2;
+      den += d1 * d1;
+      used++;
+    }
+  if (used < kSpeedMinChannels || den <= 0) return;
+  d.events++;
+  d.q[d.head] = (float)num / (float)den;
+  d.head = (d.head + 1) % kSpeedRing;
+  if (d.nq < kSpeedRing) d.nq++;
+  const SpeedResult r = speedResult(d);                                                 // hold the answer steady for the page
+  if (!r.sure) { d.run = 0; return; }
+  if (r.percent == d.cand) d.run++; else { d.cand = r.percent; d.run = 1; }
+  if (d.run >= (d.shown < 0 || d.cand == d.shown ? kSpeedShowRun : kSpeedChangeRun)) d.shown = d.cand;
+}
+
+SpeedResult speedResult(const SpeedDetect& d) {
+  SpeedResult r;
+  r.estimates = d.nq;
+  if (d.nq < kSpeedMinEvents) return r;
+  int votes[19] = {};                                                                   // bins of 0.05: 0 = speed 100 % ... 18 = speed 10 %
+  for (int i = 0; i < d.nq; i++) {
+    const int bin = (int)floorf(d.q[i] * 20.f + 0.5f);
+    if (bin >= 0 && bin <= 18) votes[bin]++;                                            // outside that (a negative estimate is plainly polluted) votes for nobody
+  }
+  int best = 0;
+  for (int k = 1; k < 19; k++) if (votes[k] > votes[best]) best = k;                    // a tie goes to the lower bin (the faster speed)
+  if (votes[best] == 0) return r;                                                       // nobody voted
+  int second = 0;
+  for (int k = 0; k < 19; k++) if (k != best && votes[k] > second) second = votes[k];
+  r.peak = votes[best];
+  r.second = second;
+  r.percent = 100 - 5 * best;
+  r.sure = r.peak >= kSpeedMinPeak && r.peak * 4 >= d.nq && r.peak >= 2 * second;
+  return r;
 }
 
 float smoothDecay(float smoothing, float dtMs, float refMs) {
