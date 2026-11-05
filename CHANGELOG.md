@@ -4,7 +4,7 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
-## Unreleased
+## 0.4.7 - 2026-11-05
 
 * **Only accept this box** (setup page, status card): locks the relay to your Sync Box's address, so no other device on the network can send it colours. If the box gets a new
   address from your router the page says frames from another address are being ignored and offers to follow it. An address that is not an IP address (a name, `0.0.0.0`, a typo)
