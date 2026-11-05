@@ -116,6 +116,7 @@ struct Rt {
   bool restoreCache = true;
   int kindCache = 0;                           // the target type (0 WLED, 1 Govee light) this target was prepared as
   uint32_t goveeEnableMs = 0;                  // when "streaming on" was last sent to a Govee light
+  bool prepDone = false;                       // a Govee light: its prepare job has finished, so its state from before the stream is recorded and frames may be sent (under Lock)
   int snapR = 0, snapG = 0, snapB = 0;         // a Govee light's colour before the stream (it is restored afterwards)
   bool offByTv = false;                        // this WLED was switched off because the TV went off: the next stream switches it on again and keeps its original state
   String snapHost;                             // the host snapOn / snapBri were read from
@@ -448,6 +449,7 @@ static void goveeJob(WledJob* j) {
       Rt& r = gRt[j->target];
       if (r.hostCache == j->host) {
         r.wledOk = ok; r.wledLeds = j->segments; r.wledName = "Govee light";
+        r.prepDone = true;
         if (ok && !(j->keepSnap && r.snapHost == j->host)) { r.snapHost = j->host; r.snapOn = before.on; r.snapBri = before.bri; r.snapR = before.r; r.snapG = before.g; r.snapB = before.b; remember = true; }
       }
     }
@@ -662,6 +664,7 @@ static void housekeeping(int nT) {
 static void requestPrepare(int i, const String& host, bool turnOn, int bri, bool restore) {
   Rt& r = gRt[i];
   r.prepared = true;                              // even if it fails: do not retry on every frame
+  r.prepDone = false;
   r.hostCache = host;
   r.restoreCache = restore;
   const bool resume = r.offByTv;                  // coming back after "TV off": switch it on whatever the target's setting says
@@ -1074,6 +1077,9 @@ void relayLoop() {
       requestPrepare(i, host, sn[i].turnOn, sn[i].bri, sn[i].restore);
     }
     if (testing != r.wasTesting) { r.wasTesting = testing; r.converged = false; }
+    // A Govee light's first frame carries "streaming on", which switches it on: until the prepare job has read what the light was like (on or off, how bright), send
+    // nothing, or the job would record the light as "on" and hand it back on even though it was off.
+    if (sn[i].kind == 1) { bool ready; { Lock l; ready = r.prepDone; } if (!ready) { allConverged = false; continue; } }
     // A Govee light takes at most about 12 frames a second (kGoveeGapMs): until its turn comes, do not mix colours it would not get. (The vivid blend
     // alone costs about 6 microseconds per segment.) Its next frame is computed from the picture of that moment.
     if (sn[i].kind == 1 && r.lastLen && !testing && now - r.lastSendMs < kGoveeGapMs) { allConverged = false; continue; }

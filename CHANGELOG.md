@@ -4,6 +4,12 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## Unreleased
+
+* **Fix: a Govee light that was off before sync came back on after a pause.** The relay read the light's state in the background while its first colour frame
+  (which also switches streaming on) was already on its way, so the light was already on when its state was read and was handed back on. A Govee light now gets no frames
+  until its state has been read. A light that was on still comes back on at its own brightness. Found by reproducing it on a real light and logging what the board read.
+
 ## 0.4.7 - 2026-11-05
 
 * **Only accept this box** (setup page, status card): locks the relay to your Sync Box's address, so no other device on the network can send it colours. If the box gets a new
