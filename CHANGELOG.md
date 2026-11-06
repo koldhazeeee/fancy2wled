@@ -4,6 +4,17 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## 0.4.12 - 2026-11-06
+
+* **The setup page has a navigation bar, and no long scroll.** It used to be one page about eleven screens tall on a phone; it is now five sections in a bar at the top, one shown at
+  a time, and the tallest view is about two and a half screens:
+  **Status** (the picture the Sync Box is sending, large and live, with how everything is doing), **Lights** (the target you pick, in three views: *Connection*, *Layout* with the
+  picture map beside the steps, and *Colour*), **Look** (the sliders in groups, the settings check and the TV-off settings), **Home Assistant** and **Device** (firmware updates, backup,
+  restart). The Save bar is there on Lights and Look. The small picture in the bar is the live picture too, whichever section is open, and the Look tab shows how many notes the
+  settings check has. The long help texts are one-line disclosures that open in place; nothing was removed. The address keeps your place (`#lights/layout`), so Back and a bookmark
+  work, and the arrow keys move between the tabs. Two columns on a wide screen. Every setting is where it was, just regrouped; nothing about the board's behaviour changes
+  (the page asks the board for the live colours once a second even when the map is not open, twice a second while it is).
+
 ## 0.4.11 - 2026-11-05
 
 * **Faster output, same lights.** The colour work of an output tick (mixing the LEDs from the zones, blur, saturation, easing, the Dark scenes stage) is about 1.8 times faster on

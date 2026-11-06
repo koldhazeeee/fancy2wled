@@ -64,6 +64,78 @@ async function cdp(wsUrl) {
     await sleep(1800);
     check('index: loads status pills', (await p.ev("document.getElementById('pBox').textContent")).includes('13'), await p.ev("document.getElementById('pBox').textContent"));
     check('index: main panel visible', await p.ev("!document.getElementById('main').classList.contains('hidden')"));
+    // ---- the bar of sections: five panes, one shown at a time
+    {
+      const ev = e => p.ev(e);
+      const panesOn = async () => JSON.parse(await ev("JSON.stringify(Array.prototype.map.call(document.querySelectorAll('.pane.on'),function(x){return x.getAttribute('data-pane');}))"));
+      const subOn = async () => ev("document.querySelector('.sub.on').getAttribute('data-sub')");
+      const go = async (tab, sub) => { await ev("document.querySelector('#nav [data-tab=" + tab + "]').click(); " + (sub ? "document.querySelector('.seg [data-sub=" + sub + "]').click(); " : "") + "1"); await sleep(250); };
+      const paneOf = id => ev("(function(){var e=document.getElementById('" + id + "');var q=e&&e.closest('.pane');return q?q.getAttribute('data-pane'):null;})()");
+      const shown = sel2 => ev("(function(){var e=document.querySelector('" + sel2 + "');return !!e&&getComputedStyle(e).display!=='none'&&e.getClientRects().length>0;})()");
+      const labels = await ev("Array.prototype.map.call(document.querySelectorAll('#nav [data-tab]'),function(b){return b.firstChild.textContent;}).join(',')");
+      check('nav: a bar of five sections appears once the board is on a network', labels === 'Status,Lights,Look,Home Assistant,Device' && (await shown('#nav')), labels);
+      check('nav: the page opens on Status and only that pane is shown', JSON.stringify(await panesOn()) === '["status"]' && (await ev("document.getElementById('tabStatus').getAttribute('aria-selected')")) === 'true' && (await ev("document.body.getAttribute('data-tab')")) === 'status');
+      check('nav: Status holds the status, the lock and the delay, and nothing that needs saving', (await paneOf('stat')) === 'status' && (await paneOf('boxLock')) === 'status' && (await paneOf('latBox')) === 'status' && !(await shown('.sticky')));
+      const homes = { tName: 'lights', wHost: 'lights', tTrim: 'lights', tSat: 'lights', lPlace: 'lights', wCount: 'lights', mapSvg: 'lights', kBri: 'look', kBoost: 'look', kBcut: 'look', adviceCard: 'look', tvMode: 'look', mqHost: 'ha', mqSave: 'ha', otaCard: 'device', exportBtn: 'device', reboot: 'device' };
+      let wrong = [];
+      for (const id of Object.keys(homes)) { const got = await paneOf(id); if (got !== homes[id]) wrong.push(id + ' in ' + got); }
+      check('nav: every setting is in the section it belongs to', wrong.length === 0, wrong.join(', '));
+      await go('lights');
+      check('nav: Lights opens on Connection, shows only its own pane, keeps the place in the address and offers the Save bar',
+        JSON.stringify(await panesOn()) === '["lights"]' && (await subOn()) === 'conn' && (await ev('location.hash')) === '#lights/conn' && (await shown('.sticky')) && (await shown('#tName')) && !(await shown('#lPlace')), await ev('location.hash'));
+      await go('lights', 'layout');
+      check('nav: Layout shows the wizard and the picture map together, and the address follows', (await subOn()) === 'layout' && (await shown('#lPlace')) && (await shown('#mapSvg')) && !(await shown('#tName')) && (await ev('location.hash')) === '#lights/layout', await ev('location.hash'));
+      await go('lights', 'colour');
+      check('nav: Colour holds the per-target look', (await shown('#tTrim')) && (await shown('#tBlur')) && !(await shown('#lPlace')));
+      await go('look');
+      check('nav: Look shows the sliders, the settings check and the TV-off settings, with the Save bar', JSON.stringify(await panesOn()) === '["look"]' && (await shown('#kBri')) && (await shown('#adviceCard')) && (await shown('#tvCard')) && (await shown('.sticky')));
+      await go('ha');
+      check('nav: Home Assistant has the MQTT settings and no Save bar (it has its own button)', (await shown('#mqHost')) && !(await shown('.sticky')));
+      await go('device');
+      check('nav: Device has the firmware update, the backup and the restart', (await shown('#otaCard')) && (await shown('#exportBtn')) && (await shown('#reboot')) && !(await shown('.sticky')));
+      // keyboard: the arrow keys move between the tabs of the bar
+      await ev("document.getElementById('tabLights').focus(); document.getElementById('tabLights').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true})); 1"); await sleep(250);
+      check('nav: the right arrow key moves from Lights to Look', JSON.stringify(await panesOn()) === '["look"]' && (await ev("document.activeElement.id")) === 'tabLook');
+      await ev("document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true})); 1"); await sleep(250);
+      check('nav: End goes to the last section', JSON.stringify(await panesOn()) === '["device"]');
+      // the address keeps the place, and back goes to the section before
+      await go('status'); await go('look'); await ev('history.back(); 1'); await sleep(350);
+      check('nav: the browser Back button returns to the previous section', JSON.stringify(await panesOn()) === '["status"]' && (await ev('location.hash')) === '#status', await ev('location.hash'));
+      await ev("location.hash='#look'; location.reload(); 1"); await sleep(2000);
+      check('nav: opening the page at #look lands on Look', JSON.stringify(await panesOn()) === '["look"]' && (await ev("document.getElementById('tabLook').getAttribute('aria-selected')")) === 'true');
+      await ev("location.hash='#lights/colour'; location.reload(); 1"); await sleep(2000);
+      check('nav: #lights/colour lands on the Colour view of Lights', JSON.stringify(await panesOn()) === '["lights"]' && (await subOn()) === 'colour');
+      // help text is behind a disclosure, not removed
+      const help = JSON.parse(await ev("JSON.stringify({n:document.querySelectorAll('details.help').length,open:document.querySelectorAll('details.help[open]').length,empty:Array.prototype.filter.call(document.querySelectorAll('details.help'),function(d){return !d.textContent.replace(/\\s+/g,' ').trim();}).length})"));
+      check('nav: the long help texts sit in closed disclosures (and none is empty)', help.n >= 15 && help.open === 0 && help.empty === 0, JSON.stringify(help));
+      // the Look tab counts the notes of the settings check; the bar shows the state
+      await go('look');
+      await ev("['kBoost','kMot'].forEach(function(i){var e=document.getElementById(i);e.value='0';e.dispatchEvent(new Event('input',{bubbles:true}));}); var b=document.getElementById('kBsp');b.value='40';b.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(300);
+      const notes = await ev("document.querySelectorAll('#advice p').length"), badge = await ev("document.getElementById('navLookBadge').textContent");
+      check('nav: the Look tab shows how many notes the settings check has', notes > 0 && badge === String(notes) && !(await ev("document.getElementById('navLookBadge').classList.contains('hidden')")), notes + ' notes, badge ' + badge);
+      await ev("var b=document.getElementById('kBsp');b.value='100';b.dispatchEvent(new Event('input',{bubbles:true})); ['kBoost','kMot'].forEach(function(i){var e=document.getElementById(i);e.value='0';e.dispatchEvent(new Event('input',{bubbles:true}));}); var s=document.getElementById('kSmo');s.value='0';s.dispatchEvent(new Event('input',{bubbles:true})); var m=document.getElementById('kMot');m.value='100';m.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(300);
+      const notes2 = await ev("document.querySelectorAll('#advice p').length");
+      check('nav: the badge follows the settings check when the notes go away', notes2 === 0 ? (await ev("document.getElementById('navLookBadge').classList.contains('hidden')")) : (await ev("document.getElementById('navLookBadge').textContent")) === String(notes2), String(notes2));
+      await ev("var b=document.getElementById('kBsp');b.value='40';b.dispatchEvent(new Event('input',{bubbles:true})); var m=document.getElementById('kMot');m.value='0';m.dispatchEvent(new Event('input',{bubbles:true})); var s=document.getElementById('kSmo');s.value='0.5';s.dispatchEvent(new Event('input',{bubbles:true})); 1");
+      check('nav: the bar shows the relay state in every section', (await ev("document.getElementById('hdrState').textContent")) === (await ev("document.getElementById('pState').textContent")) && (await ev("document.getElementById('hdrState').textContent")).length > 0, await ev("document.getElementById('hdrState').textContent"));
+      await go('status');
+      // the point of the sections: no view needs a long scroll on a phone (the page used to be eleven screens tall in one piece)
+      await p.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }); await sleep(400);
+      const tall = [];
+      for (const v of ['status', 'lights/conn', 'lights/layout', 'lights/colour', 'look', 'ha', 'device']) {
+        const parts = v.split('/'); await go(parts[0], parts[1]); await sleep(250);
+        const hgt = await ev('Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)');
+        if (hgt / 844 > 3.2) tall.push(v + ' ' + (hgt / 844).toFixed(1) + ' screens');
+      }
+      await p.send('Emulation.clearDeviceMetricsOverride'); await sleep(300);
+      check('nav: on a phone no view is taller than about three screens', tall.length === 0, tall.join(', '));
+      await go('status');
+      // setup mode: a board that has not joined a network shows the Wi-Fi form and no bar
+      dev.state.apMode = true; await sleep(3200);
+      check('nav: in setup mode the bar is hidden and the Wi-Fi form is shown on Status', !(await shown('#nav')) && (await shown('#wifiCard')) && !(await shown('#main')) && JSON.stringify(await panesOn()) === '["status"]');
+      dev.state.apMode = false; await sleep(3200);
+      check('nav: once the board has a network the bar is back', (await shown('#nav')) && !(await shown('#wifiCard')));
+    }
     await p.ev("document.getElementById('wHost').value='192.0.2.50'; document.getElementById('wCount').value='150'; document.getElementById('lPlace').value='top'; document.getElementById('save').click(); 1");
     await sleep(600);
     check('index: Save posts the config', dev.state.cfg.wled.host === '192.0.2.50' && dev.state.cfg.wled.count === 150, JSON.stringify(dev.state.cfg.wled));
@@ -155,10 +227,13 @@ async function cdp(wsUrl) {
       const grp = z => "document.querySelectorAll('#mapSvg g[data-zone]')[" + z + "]";
       const fillOf = async z => ota(grp(z) + ".querySelector('rect').getAttribute('fill')");
       const zonesCalls = () => dev.calls.filter(c => c === 'GET /api/zones').length;
-      const toMap = async () => { await ota("document.getElementById('mapCard').scrollIntoView(); 1"); await sleep(1500); };
+      const toMap = async () => { await ota("document.querySelector('#nav [data-tab=lights]').click(); document.querySelector('.seg [data-sub=layout]').click(); 1"); await sleep(1500); };
+      const markFill = z => ota("document.querySelectorAll('#mark rect')[" + z + "].getAttribute('fill')");
       dev.state.zones = Array.from({ length: 24 }, (_, z) => [z * 10, 255 - z * 10, 40]);
-      const farBefore = zonesCalls(); await sleep(1700);
-      check('live map: with the map off screen the page does not ask the board for colours', zonesCalls() === farBefore, zonesCalls() + ' vs ' + farBefore);
+      await ota("document.querySelector('#nav [data-tab=status]').click(); 1"); await sleep(600);
+      const farBefore = zonesCalls(); await sleep(3200);
+      check('live map: with the map in a section that is not open the page still asks, but only about once a second (the picture mark in the bar needs the colours)', zonesCalls() - farBefore >= 2 && zonesCalls() - farBefore <= 4, String(zonesCalls() - farBefore));
+      check('live map: the mark in the bar shows the picture whichever section is open (24 blocks, the colours the box sends)', (await ota("document.querySelectorAll('#mark rect').length")) === 24 && (await markFill(3)) === 'rgb(30,225,40)' && (await markFill(20)) === 'rgb(200,55,40)', await markFill(3));
       await toMap();
       check('live map: every zone shows the colour the box is sending', (await fillOf(3)) === 'rgb(30,225,40)' && (await fillOf(20)) === 'rgb(200,55,40)', await fillOf(3));
       check('live map: a zone a target follows is full, one nobody follows is faded', (await ota(grp(0) + ".getAttribute('opacity')")) === '1' && (await ota(grp(8) + ".getAttribute('opacity')")) === '0.4');
@@ -168,7 +243,7 @@ async function cdp(wsUrl) {
       await ota("var c=document.getElementById('mapLiveOn'); c.checked=false; c.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(400);
       check('live map: switched off, the zones are plain and the targets are blocks over them again', (await fillOf(3)) === 'var(--bg)' && (await ota("document.querySelector('#mapSvg rect[data-t=\"0\"]').getAttribute('height')")) !== '4');
       const before = zonesCalls(); await sleep(1700);
-      check('live map: switched off, the page stops asking the board for the colours', zonesCalls() === before, zonesCalls() + ' vs ' + before);
+      check('live map: switched off, the page stops asking the board for the colours (and the mark in the bar goes plain)', zonesCalls() === before && (await markFill(3)) === 'var(--line)', zonesCalls() + ' vs ' + before);
       await ota("location.reload(); 1"); await sleep(1900); await toMap();
       check('live map: the choice is remembered after a reload', (await ota("document.getElementById('mapLiveOn').checked")) === false && (await fillOf(3)) === 'var(--bg)');
       await ota("var c=document.getElementById('mapLiveOn'); c.checked=true; c.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(1500);

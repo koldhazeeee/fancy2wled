@@ -41,18 +41,22 @@ your lights and no PC has to stay on.
 
 ## Screenshots
 
-The setup page you open from your phone or PC (here with made-up sample data; follows your system's light or dark setting):
+The setup page you open from your phone or PC (here with made-up sample data; follows your system's light or dark setting). A bar at the top holds its five sections, **Status** (the picture the Sync Box is sending, and how everything is doing), **Lights** (each target: connection, layout, colour), **Look**, **Home Assistant** and **Device**, so nothing needs a long scroll; the small picture in the bar is the live one too:
 
-<p align="center"><img src="docs/images/overview-dark.png" alt="The setup page: status, the list of targets and the picture map showing which zones of the screen each target follows" width="520"></p>
+<p align="center"><img src="docs/images/overview-dark.png" alt="The setup page: the bar with its five sections, the live picture the Sync Box is sending, and the status" width="640"></p>
 
 <table>
 <tr>
-<td width="50%" valign="top"><img src="docs/images/wled-target.png" alt="A WLED target: address, brightness, what it follows"><br><sub>A WLED target (found by name or IP, set up from the page)</sub></td>
+<td width="50%" valign="top"><img src="docs/images/wled-target.png" alt="The Connection view of a WLED target on the Lights tab: name, type, address, brightness"><br><sub>A WLED target (found by name or IP, set up from the page)</sub></td>
 <td width="50%" valign="top"><img src="docs/images/govee-target.png" alt="A Govee light as a target: IP address, segments"><br><sub>A Govee light as a target, followed per segment</sub></td>
 </tr>
 <tr>
-<td width="50%" valign="top"><img src="docs/images/look-and-tv-off.png" alt="The Look sliders and the When the TV is off card"><br><sub>The Look sliders and what happens when the TV is off</sub></td>
+<td width="50%" valign="top"><img src="docs/images/look-and-tv-off.png" alt="The Look tab: sliders, the settings check and the When the TV is off settings"><br><sub>The Look sliders and what happens when the TV is off</sub></td>
 <td width="50%" valign="top"><img src="docs/images/firmware-updates.png" alt="Firmware updates over Wi-Fi with an update password"><br><sub>Firmware updates over Wi-Fi, behind a password</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><img src="docs/images/lights-layout.png" alt="The Layout view of the Lights tab: the steps to describe where the LEDs are, and the live picture map beside them"><br><sub>Layout: say where the LEDs are; the picture map beside it follows every change</sub></td>
+<td width="50%" valign="top"><img src="docs/images/phone-lights.png" alt="The Layout view on a phone, with the bar of sections at the top" width="260"><br><sub>The same page on a phone: the bar of sections stays at the top, one section at a time</sub></td>
 </tr>
 </table>
 
@@ -92,9 +96,9 @@ Developed and tested on this hardware. Reports that something else works (or doe
 2. **Join its Wi-Fi.** The LED blinks purple. On your phone connect to **`Fancy2WLED-Setup`**; the setup page opens by
    itself (otherwise browse to `http://192.168.5.5`). Choose your Wi-Fi, enter the password. The board restarts and joins it.
 3. **Open the setup page.** From any device on that network: **`http://fancy2wled.local`** (or the IP your router shows).
-4. **WLED:** press **Find** (or type its address), then **Check this WLED**. The **Targets** card at the top picks which target you are
-   editing; press **Add target** for each further strip or WLED (up to four) and give it a name.
-5. **Your LEDs** (for the target you picked; the **Picture map** above shows which part of the screen each target will follow): say *where* they are (above the TV, below it, left, right, or all the way around), how long the run is (first LED +
+4. **WLED:** open the **Lights** tab (*Connection*), press **Find** (or type its address), then **Check this WLED**. The picker at the top
+   chooses which target you are editing; press **Add target** for each further strip or WLED (up to four) and give it a name.
+5. **Layout** (the *Layout* view of the **Lights** tab, for the target you picked; the **Picture map** beside it shows which part of the screen each target will follow): say *where* they are (above the TV, below it, left, right, or all the way around), how long the run is (first LED +
    number of LEDs; e.g. the first 210 LEDs of the strip: first LED 0, length 210) and which part of the run covers the TV (e.g. LEDs
    83 to 163). Above the TV uses the *top* of the picture's colour map, below uses the *bottom*, left/right use that edge. Not sure
    where things are? Press **Find my LEDs** and drag the slider: a block of white LEDs lights up wherever you put it, with buttons to use
@@ -175,8 +179,8 @@ known pictures to a box (a laptop's HDMI into its input) and records what it bro
 |---|---|
 | WLED address | IP or `name.local` of your WLED (a pasted `http://wled-ceiling.local/` is cleaned up). **Prefer the name** (set it in WLED under Config > WiFi Setup > mDNS address): the board looks it up again every minute, so a WLED that gets a new IP from your router is found again on its own. The page shows which address the name points to. The *Find* button fills in the name. |
 | Only accept this box | the status card shows the Sync Box's address ("box at ..."). **Only accept this box** locks the relay to it, so no other device on your network can drive the lights; **Accept any box** undoes it (`box.host` in the config: an IP address, or empty for anyone; a name, `0.0.0.0` or a typo is refused, because it would silently switch the lock off). If your router gives the box a new address the relay stops hearing it, so the page then says frames from another address are being ignored and offers *Use <address>*; a reservation for the box in your router avoids that |
-| Settings check | not a setting: a card that checks the Look settings and each target as you edit (nothing is changed for you). **Fix** = something wrong or pointless (a boost at box speed 100, a TV part outside the run, two targets over the same LEDs of one WLED), **Tip** = something that could be better (the box left at speed 40, no TV part set, motion steps, a *Box speed* that differs from what the relay measures from the box) |
-| Picture map | not a setting (apart from a tick box for the live colours, remembered in your browser): the 24 zones drawn where the box really looks; each zone shows the colour the box is sending right now (`GET /api/zones`, twice a second, only while the map is on screen), zones no target follows are faded, and each target is a bar in its colour under the zones it follows, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`). **Click a zone** to light the LEDs that follow it in white on your WLED strips for 8 seconds (click again to switch it off; `POST /api/zonemark`; Govee lights are left alone) |
+| Settings check | not a setting: a note at the top of the Look tab (the tab shows how many notes there are) that checks the Look settings and each target as you edit (nothing is changed for you). **Fix** = something wrong or pointless (a boost at box speed 100, a TV part outside the run, two targets over the same LEDs of one WLED), **Tip** = something that could be better (the box left at speed 40, no TV part set, motion steps, a *Box speed* that differs from what the relay measures from the box) |
+| Picture map | (Lights, Layout) not a setting (apart from a tick box for the live colours, remembered in your browser): the 24 zones drawn where the box really looks; each zone shows the colour the box is sending right now (`GET /api/zones`, twice a second while the map is on screen, once a second otherwise because the picture in the page's top bar shows the same colours), zones no target follows are faded, and each target is a bar in its colour under the zones it follows, shaded by how many of its LEDs use each zone. It follows unsaved edits (the board does the counting with the same code that drives the lights; `POST /api/usage`). **Click a zone** to light the LEDs that follow it in white on your WLED strips for 8 seconds (click again to switch it off; `POST /api/zonemark`; Govee lights are left alone) |
 | When the TV is off | what to do when the picture has been completely black for the chosen number of seconds (3-600, default 15): **hand the WLEDs back** as they were before sync started (default), **switch them off**, or do nothing (the *TV on* sensor still works). They return with the first frame that has any colour. A long black screen counts as "TV off" too, so raise the delay if that bothers you. Inferred from the picture, not a signal from the box: see [PROTOCOL.md](docs/PROTOCOL.md) |
 | Firmware updates | off until an **update password** (8-64 characters) is set; then tick *Allow firmware updates over Wi-Fi* and upload `firmware.bin` here, or run `pio run -e atoms3-ota -t upload` with `FANCY2WLED_OTA_PASSWORD` set. Changing the password needs the current one; a config file cannot set it. Details, safety rules and rollback: [docs/OTA.md](docs/OTA.md) |
 | Target type | **WLED** (a strip running WLED, streamed over DDP) or **Govee light** (LAN control; streamed per segment, 1-60 segments, addressed by IP; see [docs/GOVEE.md](docs/GOVEE.md)) |

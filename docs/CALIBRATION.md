@@ -67,7 +67,7 @@ The page tells you what it could not see:
 
 ## Doing it by hand
 
-Under *Your LEDs* on the setup page you can instead say where the LEDs are and how they run:
+On the setup page, under *Lights* > *Layout*, you can instead say where the LEDs are and how they run:
 
 * **Above the TV** (ceiling / top of the wall): uses the top row of the picture's colour map. **Below the TV**: the bottom row.
   **Left of / right of the TV** (a vertical strip): the left / right column. For these, give the run (first LED, length), the part of

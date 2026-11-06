@@ -21,7 +21,7 @@ model to `GOVEE_MODELS` in `web/index.html` together with a row in this table.
 ## Set up
 
 1. In the Govee Home app, switch on **LAN control** for the light (without it the light does not answer on the network).
-2. Setup page > *Targets* > **Add target** > *Type*: **Govee light**. Press **Find** (a scan takes about 3 seconds) or type the light's **IP address**
+2. Setup page > *Lights* > **Add target** > *Connection* > *Type*: **Govee light**. Press **Find** (a scan takes about 3 seconds) or type the light's **IP address**
    (give it a fixed address in your router). **Check this light** shows the model, firmware and whether it is on.
 3. Pick **Where the LEDs are** (the edge of the picture the light follows, or all the way around) and the **number of segments** (1 to 60, 20 is a good start;
    the light has its own number of real segments, so going far beyond it gains nothing; **an H61C3 has 42**, each about 2.9 in on a full 10 ft strip, and

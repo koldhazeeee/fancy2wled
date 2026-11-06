@@ -52,3 +52,80 @@ ul{margin:.3rem 0 .3rem 1.2rem;padding:0}
 summary{cursor:pointer;color:var(--mut);margin-top:.5rem}
 details>div{margin:.3rem 0}
 .hidden{display:none!important}
+
+/* ---------------------------------------------------------------- the setup page's frame (index.html): a bar with the live picture mark and the sections, one section at a time */
+body.app main{max-width:1040px;padding-top:12px}
+.top{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line)}
+.top .in{max-width:1040px;margin:0 auto;padding:0 16px}
+.brand{display:flex;align-items:center;gap:12px;padding:10px 0 2px}
+.brand h1{margin:0;font-size:1.1rem;flex:1 1 auto}
+.brand .pill{margin:0}
+.mark{width:50px;height:27px;flex:0 0 auto;display:block}
+.tabs{display:flex;margin:0 -8px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{flex:1 1 0;min-height:44px;min-width:64px;color:var(--mut);background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:6px 8px;font-size:.9rem;font-weight:550;line-height:1.15;white-space:normal}
+.tabs button:hover{filter:none;color:var(--fg)}
+.tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--acc);font-weight:650}
+.tabs button:focus-visible{outline-offset:-3px}
+.badge{display:inline-block;min-width:18px;margin-left:5px;padding:0 5px;border-radius:9px;background:var(--warn);color:var(--bg);font-size:.72rem;font-weight:650;line-height:18px;text-align:center;vertical-align:1px}
+.badge.fix{background:var(--bad)}
+@media (min-width:760px){
+  .top .in{display:flex;align-items:center;gap:28px}
+  .brand{flex:0 0 auto;padding:8px 0}
+  .brand h1{flex:0 0 auto}
+  .tabs{flex:1 1 auto;margin:0;justify-content:flex-start}
+  .tabs button{flex:0 0 auto;padding:6px 16px}
+}
+
+.pane,.sub{display:none}
+.pane.on,.sub.on{display:block}
+.narrow{max-width:680px}
+
+/* Status: the picture the Sync Box is sending, as big as the bar's mark, beside the facts */
+.hero{align-items:start}
+.pic{margin:6px 0 14px}
+.bigmark{display:block;width:100%;height:auto;max-width:520px}
+.pic p{margin:6px 0 0}
+#boxLock{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:6px 0}
+@media (min-width:900px){.hero{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}.hero .pic{position:sticky;top:96px}}
+
+/* a row of choices inside one section (Lights: Connection / Layout / Colour) */
+.seg{display:flex;gap:3px;padding:3px;margin:6px 0 10px;background:var(--ctl);border:1px solid var(--line);border-radius:10px}
+.seg button{flex:1 1 0;min-height:38px;padding:4px 8px;color:var(--mut);background:none;border:1px solid transparent;border-radius:7px;font-weight:550}
+.seg button:hover{filter:none;color:var(--fg)}
+.seg button[aria-selected=true]{color:var(--fg);background:var(--bg);border-color:var(--line);font-weight:650}
+@media (min-width:600px){.seg{display:inline-flex;min-width:360px}}
+.picker{margin:6px 0}
+.picker>label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.picker select{flex:1 1 120px}
+.picker button{padding:8px 12px;flex:0 0 auto}
+
+/* panes hold groups; two columns once there is room */
+.cols{display:grid;grid-template-columns:minmax(0,1fr);gap:0 48px}
+.pane h2,.pane h3{margin:22px 0 2px;font-size:.98rem;font-weight:650}
+.cols>div>:first-child{margin-top:6px}
+.pane .row{margin:8px 0;gap:4px 12px}
+.cols .row>label{flex:1 1 100%}
+.cols .row:has(>input[type=checkbox])>label{flex:1 1 auto}
+.row:has(>#wCheck)>label{display:none}
+.pane .card{border-top:0;padding:0}
+.pane #adviceCard{border-top:0;margin-bottom:4px}
+@media (min-width:900px){
+  .cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .cols.map{grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
+  .stickcol{position:sticky;top:112px;align-self:start}
+}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:0 14px}
+.grid2 .row>label{flex:1 1 100%}
+
+/* help text: one quiet line that opens (nothing is removed, it is just not in the way) */
+.help{margin:4px 0 6px}
+.help>summary{margin:0;padding:3px 0;font-size:.85rem;min-height:28px}
+.help>p{margin:.3rem 0}
+.help:not(:has(>p:not(.hidden))){display:none}
+
+/* the Save bar belongs to Lights and Look only */
+body[data-tab=status] .sticky,body[data-tab=ha] .sticky,body[data-tab=device] .sticky{display:none}
+.sticky .row{margin:0}
+.sticky .row>button{flex:0 0 auto}
+@media (max-width:420px){.sticky .row{flex-wrap:nowrap}}

@@ -14,9 +14,37 @@ input[type=range].wide{width:100%}
 .legend{display:flex;gap:6px 18px;flex-wrap:wrap;margin:14px 0 6px}
 .chip{display:inline-flex;align-items:center;gap:6px}
 .sw{width:14px;height:14px;border-radius:4px;display:inline-block;flex:0 0 auto}
-</style></head><body><main>
-<h1>Fancy2WLED</h1>
-
+</style></head><body class="app" data-tab="status">
+<header class="top"><div class="in">
+  <div class="brand"><svg id="mark" class="mark" viewBox="0 0 71 39" role="img" aria-label="The picture the Sync Box is sending now, as 24 coloured blocks"></svg><h1>Fancy2WLED</h1><span id="hdrState" class="pill"></span></div>
+  <nav id="nav" class="tabs hidden" role="tablist" aria-label="Sections">
+    <button role="tab" id="tabStatus" data-tab="status" aria-selected="true" aria-controls="pane-status">Status</button>
+    <button role="tab" id="tabLights" data-tab="lights" aria-selected="false" tabindex="-1" aria-controls="pane-lights">Lights</button>
+    <button role="tab" id="tabLook" data-tab="look" aria-selected="false" tabindex="-1" aria-controls="pane-look">Look<span id="navLookBadge" class="badge hidden"></span></button>
+    <button role="tab" id="tabHa" data-tab="ha" aria-selected="false" tabindex="-1" aria-controls="pane-ha">Home Assistant</button>
+    <button role="tab" id="tabDevice" data-tab="device" aria-selected="false" tabindex="-1" aria-controls="pane-device">Device</button>
+  </nav>
+</div></header>
+<main>
+<div class="pane on" id="pane-status" data-pane="status" role="tabpanel" aria-labelledby="tabStatus">
+<div class="card hidden" id="boxWarn">
+  <h2><span class="err">The Sync Box is sending, but its data cannot be read</span></h2>
+  <p class="small">Data is arriving on the Sync Box port, but none of it can be decoded, so the lights are not following the picture. This usually means the box's firmware changed what it sends.
+  <span id="boxWarnN"></span></p>
+  <p class="small mut">Press <b>Download diagnostics</b> and attach the file to an issue on the project's GitHub page, together with your box's firmware versions (from its app). The file holds counters and a few raw frames (colours and sizes only: no addresses). If you kept a capture from before the update, <code>tools/check_capture.py</code> can compare it with the new one (see docs/RESILIENCE.md).</p>
+  <div class="row"><button id="diagBtn">Download diagnostics</button><span id="diagMsg" class="small"></span></div>
+</div>
+<div class="card hidden" id="wifiCard">
+  <h2>1. Connect to your Wi-Fi</h2>
+  <div class="row"><label>Network</label><select id="ssidSel"></select></div>
+  <div class="row"><label>Or type its name</label><input id="ssid" placeholder="network name" autocapitalize="none" autocorrect="off"></div>
+  <div class="row"><label>Password</label><input id="pass" type="password" autocomplete="off"></div>
+  <button id="wifiGo">Connect</button> <span id="wifiMsg" class="small"></span>
+  <p class="small mut">The board restarts and joins your network. Then open <code>http://fancy2wled.local</code> (or the address your router shows) from a device on the same network. It must be on the same network/VLAN as the Sync Box.</p>
+</div>
+<div class="cols hero">
+<div class="pic" id="picNow"><svg id="bigMark" class="bigmark" viewBox="0 0 71 39" role="img" aria-label="The picture the Sync Box is sending now, as 24 coloured blocks"></svg><p class="small mut" id="picNote">What the Sync Box is sending now</p></div>
+<div>
 <div class="card" id="stat">
   <div class="row"><span id="pWifi" class="pill">Wi-Fi</span><span id="pBox" class="pill">Sync Box</span><span id="wPills"></span><span id="pState" class="pill"></span><button id="syncBtn" class="sec hidden">Pause sync</button></div>
   <div id="statTxt" class="small mut"></div>
@@ -28,54 +56,31 @@ input[type=range].wide{width:100%}
     <p class="small mut">Counted from the moment a Sync Box frame reaches the board. Not included: the box's own smoothing and the Wi-Fi hop from the box to the board (see docs/LATENCY.md). The board's share is measured; the network share is half of a probe's round trip and the strip refresh is an estimate, so this is not a measurement of the light itself. A Govee light takes at most about 12 frames a second, so a new frame can wait up to 80 ms for its turn.</p>
   </details>
 </div>
-
-<div class="card hidden" id="boxWarn">
-  <h2><span class="err">The Sync Box is sending, but its data cannot be read</span></h2>
-  <p class="small">Data is arriving on the Sync Box port, but none of it can be decoded, so the lights are not following the picture. This usually means the box's firmware changed what it sends.
-  <span id="boxWarnN"></span></p>
-  <p class="small mut">Press <b>Download diagnostics</b> and attach the file to an issue on the project's GitHub page, together with your box's firmware versions (from its app). The file holds counters and a few raw frames (colours and sizes only: no addresses). If you kept a capture from before the update, <code>tools/check_capture.py</code> can compare it with the new one (see docs/RESILIENCE.md).</p>
-  <div class="row"><button id="diagBtn">Download diagnostics</button><span id="diagMsg" class="small"></span></div>
 </div>
-
-<div class="card hidden" id="wifiCard">
-  <h2>1. Connect to your Wi-Fi</h2>
-  <div class="row"><label>Network</label><select id="ssidSel"></select></div>
-  <div class="row"><label>Or type its name</label><input id="ssid" placeholder="network name" autocapitalize="none" autocorrect="off"></div>
-  <div class="row"><label>Password</label><input id="pass" type="password" autocomplete="off"></div>
-  <button id="wifiGo">Connect</button> <span id="wifiMsg" class="small"></span>
-  <p class="small mut">The board restarts and joins your network. Then open <code>http://fancy2wled.local</code> (or the address your router shows) from a device on the same network. It must be on the same network/VLAN as the Sync Box.</p>
 </div>
-
+</div>
 <div id="main" class="hidden">
-<div class="card">
-  <h2>Targets</h2>
+<div class="pane" id="pane-lights" data-pane="lights" role="tabpanel" aria-labelledby="tabLights">
+  <div class="row picker"><label for="tSel">Editing</label><select id="tSel" style="flex:1 1 120px"></select><button id="tAdd" class="sec">Add target</button><button id="tDel" class="bad">Remove</button></div>
+<details class="help"><summary>What is a target?</summary>
   <p class="small mut">A target is a WLED strip or a Govee light that follows one part of the picture, for example a strip behind the TV and a cabinet light. The sections below edit the target you pick here. The <i>Look</i> settings are shared; each target has its own brightness.</p>
-  <div class="row"><label for="tSel">Editing</label><select id="tSel" style="flex:1 1 120px"></select><button id="tAdd" class="sec">Add target</button><button id="tDel" class="bad">Remove</button></div>
+</details>
+<div class="seg" role="tablist" aria-label="Part of this target">
+  <button role="tab" id="subConn" data-sub="conn" aria-selected="true">Connection</button>
+  <button role="tab" id="subLayout" data-sub="layout" aria-selected="false" tabindex="-1">Layout</button>
+  <button role="tab" id="subColour" data-sub="colour" aria-selected="false" tabindex="-1">Colour</button>
+</div>
+<div class="sub on" data-sub="conn" role="tabpanel" aria-labelledby="subConn"><div class="cols">
+<div>
+<h3>This target</h3>
+<div class="grid2">
   <div class="row"><label for="tName">Name</label><input id="tName" maxlength="24" data-live="1"></div>
   <div class="row"><label for="tKind">Type</label><select id="tKind" data-live="1"><option value="wled">WLED strip</option><option value="govee">Govee light</option></select></div>
+</div>
   <div class="row"><label for="tOn">Stream to this target</label><input id="tOn" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
-  <div class="row"><label for="tTrim">This target's brightness compared with the others <span id="tTrimV"></span></label><input id="tTrim" type="range" min="0" max="1.5" step="0.05" data-live="1"></div>
-  <div class="row"><label for="tSharp">Zone edges <span id="tSharpV"></span></label><input id="tSharp" type="range" min="0" max="100" step="5" data-live="1"></div>
-  <p class="small mut">Smooth blends neighbouring zones along the strip. Sharp gives each zone its own block with a hard edge, like the Sync Box's own strip.</p>
-  <div class="row"><label for="tVivid">Vivid blending</label><input id="tVivid" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
-  <p class="small mut">Blends between two zones along the colour wheel (red, orange, yellow, green) instead of mixing them in RGB, which turns unlike colours into grey or brown in between. Best with smooth edges on a long strip.</p>
-  <div class="row"><label for="tSat">This target's colour saturation <span id="tSatV"></span></label><input id="tSat" type="range" min="0.5" max="2" step="0.05" data-live="1"></div>
-  <div class="row"><label for="tBlur">Blur along the strip <span id="tBlurV"></span></label><input id="tBlur" type="range" min="0" max="20" step="1" data-live="1"></div>
-  <p class="small mut">Softens the steps between zones: each LED is averaged with its neighbours over about this many LEDs. A little (4 to 6 LEDs) turns blocks into a soft blob that slides along the strip; more is blurrier. It only touches the part of the strip along the picture, and costs about 1 % of the board's processing when used on a few hundred LEDs.</p>
 </div>
-
-<div class="card" id="mapCard">
-  <h2>Picture map</h2>
-  <p class="small mut">The 24 zones of the Sync Box, drawn where each one really looks at the picture (the box averages those areas and never sends the parts in between), and which of them each target follows. The box only drives the edges, so the middle zones are never used. Tap a zone for its colour, or a target's bar for how many of its LEDs follow it. <b>Click a zone to light the LEDs that follow it</b> on your WLED strips (click it again to switch it off). The map follows your changes before you save them.</p>
-  <div class="row"><label for="mapLiveOn">Show the colours the Sync Box is sending, live</label><input id="mapLiveOn" type="checkbox" style="flex:0 0 auto" checked></div>
-  <p class="small mut" id="mapLiveNote"></p>
-  <p class="small" id="mapMarkNote" aria-live="polite"></p>
-  <div id="mapLegend" class="legend small"></div>
-  <svg id="mapSvg" viewBox="0 0 500 312" role="img" aria-label="Which zones of the picture each target follows" style="width:100%;max-width:560px;display:block;margin:8px auto"></svg>
-</div>
-
-<div class="card">
-  <h2 id="wTitle">WLED</h2>
+<div>
+  <h3 id="wTitle">WLED</h3>
   <p class="small mut hidden" id="gNote">A Govee light must have <b>LAN control</b> switched on in the Govee Home app (the light's settings). The board sends it a few colours per second and the light stretches them evenly over its whole length. The light is addressed by its IP address.</p>
   <div class="row"><label for="wHost" id="wHostLbl">WLED address</label><input id="wHost" placeholder="IP address or name, e.g. wled-ceiling.local" autocapitalize="none"><button id="wFind" class="sec">Find</button></div>
   <div id="wResolved" class="small mut hidden"></div>
@@ -86,12 +91,14 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="wBri" id="wBriLbl">Set WLED brightness (0-255, -1 = leave it)</label><input id="wBri" type="number" min="-1" max="255"></div>
   <div class="row"><label for="wRestore" id="wRestoreLbl">Put WLED back how it was when I stop</label><input id="wRestore" type="checkbox" style="flex:0 0 auto"></div>
 </div>
-
-<div class="card sec">
-  <h2>Your LEDs</h2>
+</div></div>
+<div class="sub" data-sub="layout" role="tabpanel" aria-labelledby="subLayout"><div class="cols map">
+<div class="sec">
   <p class="small mut" id="ledIntro">Your WLED has <b id="totLeds">?</b> LEDs, numbered from 0. Tell the board which of them are part of the TV lighting, where they are, and which part of them covers the TV.</p>
 
-  <p class="small mut hidden" id="gIntro">A Govee light is controlled in <b>segments</b>: the board sends a number of colours and the light stretches them evenly over its whole length, so more segments follow the picture in finer detail. <i>Check this light</i> fills in the right number for the models that have been tested; for any other, 20 is a good start. Tell the board where the light is, and which end of it is which.</p>
+<details class="help"><summary>How segments work</summary>
+<p class="small mut hidden" id="gIntro">A Govee light is controlled in <b>segments</b>: the board sends a number of colours and the light stretches them evenly over its whole length, so more segments follow the picture in finer detail. <i>Check this light</i> fills in the right number for the models that have been tested; for any other, 20 is a good start. Tell the board where the light is, and which end of it is which.</p>
+</details>
 
   <h3>1. Where are the LEDs?</h3>
   <div class="row"><label for="lPlace">The LEDs are</label><select id="lPlace" data-live="1">
@@ -105,15 +112,19 @@ input[type=range].wide{width:100%}
   <div class="row" id="calRow"><a class="btn" id="calBtn" href="/calibrate">Auto-calibrate with my phone</a></div>
 
   <h3 id="runHead">2. The whole run: how long is it?</h3>
-  <p class="small mut" id="runNote">The run is the stretch of your strip you want the TV to control; the rest of the strip is left alone. For example, if the first 210 LEDs of the strip are behind and beside the TV: first LED <b>0</b>, length <b>210</b>.</p>
+<details class="help"><summary>About the run</summary>
+<p class="small mut" id="runNote">The run is the stretch of your strip you want the TV to control; the rest of the strip is left alone. For example, if the first 210 LEDs of the strip are behind and beside the TV: first LED <b>0</b>, length <b>210</b>.</p>
+</details>
   <div class="row" id="wStartRow"><label for="wStart">First LED of the run</label><div class="num"><input id="wStart" type="number" min="0" data-live="1"><span class="nudge" data-nudge="wStart"></span></div></div>
   <div class="row"><label for="wCount" id="wCountLbl">Length of the run (number of LEDs)</label><div class="num"><input id="wCount" type="number" min="1" data-live="1"><span class="nudge" data-nudge="wCount"></span></div></div>
   <div id="rangeNote" class="small"></div>
 
   <div id="lLinear">
     <h3 id="tvHead">3. Which part of the run covers the TV?</h3>
-    <p class="small mut" id="tvIntro">Give the strip's own LED numbers where the TV starts and ends (<span id="endsTxt"></span>). Along that part the colours follow the picture exactly; the LEDs before and after it fade smoothly (see <i>Smooth beyond the TV</i> below). Leave both empty if the whole run is exactly as long as the TV.</p>
-    <p class="small mut hidden" id="tvIntroG">The picture is spread over the part of the strip that runs along the screen's edge. Give the first and last segment of that part (segment 0 is where the light starts); the segments outside it hold the colour of the zone at that end, or stay dark if you tick the box below. If the whole strip runs along the edge, leave both empty. <i>Find my segments</i> below shows where each segment starts and ends on the strip.</p>
+<details class="help"><summary>About the TV part</summary>
+<p class="small mut" id="tvIntro">Give the strip's own LED numbers where the TV starts and ends (<span id="endsTxt"></span>). Along that part the colours follow the picture exactly; the LEDs before and after it fade smoothly (see <i>Smooth beyond the TV</i> below). Leave both empty if the whole run is exactly as long as the TV.</p>
+<p class="small mut hidden" id="tvIntroG">The picture is spread over the part of the strip that runs along the screen's edge. Give the first and last segment of that part (segment 0 is where the light starts); the segments outside it hold the colour of the zone at that end, or stay dark if you tick the box below. If the whole strip runs along the edge, leave both empty. <i>Find my segments</i> below shows where each segment starts and ends on the strip.</p>
+</details>
     <div class="row"><label for="tvFirst"><span id="tvFirstLbl">TV starts at LED</span></label><div class="num"><input id="tvFirst" type="number" data-live="1"><span class="nudge" data-nudge="tvFirst"></span></div></div>
     <div class="row"><label for="tvLast"><span id="tvLastLbl">TV ends at LED</span></label><div class="num"><input id="tvLast" type="number" data-live="1"><span class="nudge" data-nudge="tvLast"></span></div></div>
     <div class="row"><label id="moverLbl">Slide the TV part along the run</label><span class="nudge" id="mover"></span></div>
@@ -146,38 +157,81 @@ input[type=range].wide{width:100%}
   </div>
   </div>
 </div>
-
-<div class="card">
-  <h2>Look</h2>
+<div class="stickcol">
+<div class="card" id="mapCard">
+  <h2>Picture map</h2>
+<details class="help"><summary>How to read the map</summary>
+<p class="small mut">The 24 zones of the Sync Box, drawn where each one really looks at the picture (the box averages those areas and never sends the parts in between), and which of them each target follows. The box only drives the edges, so the middle zones are never used. Tap a zone for its colour, or a target's bar for how many of its LEDs follow it. <b>Click a zone to light the LEDs that follow it</b> on your WLED strips (click it again to switch it off). The map follows your changes before you save them.</p>
+</details>
+  <div class="row"><label for="mapLiveOn">Show the colours the Sync Box is sending, live</label><input id="mapLiveOn" type="checkbox" style="flex:0 0 auto" checked></div>
+  <p class="small mut" id="mapLiveNote"></p>
+  <p class="small" id="mapMarkNote" aria-live="polite"></p>
+  <div id="mapLegend" class="legend small"></div>
+  <svg id="mapSvg" viewBox="0 0 500 312" role="img" aria-label="Which zones of the picture each target follows" style="width:100%;max-width:560px;display:block;margin:8px auto"></svg>
+</div>
+</div>
+</div></div>
+<div class="sub" data-sub="colour" role="tabpanel" aria-labelledby="subColour"><div class="narrow">
+  <div class="row"><label for="tTrim">This target's brightness compared with the others <span id="tTrimV"></span></label><input id="tTrim" type="range" min="0" max="1.5" step="0.05" data-live="1"></div>
+  <div class="row"><label for="tSharp">Zone edges <span id="tSharpV"></span></label><input id="tSharp" type="range" min="0" max="100" step="5" data-live="1"></div>
+<details class="help"><summary>About zone edges</summary>
+  <p class="small mut">Smooth blends neighbouring zones along the strip. Sharp gives each zone its own block with a hard edge, like the Sync Box's own strip.</p>
+</details>
+  <div class="row"><label for="tVivid">Vivid blending</label><input id="tVivid" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
+<details class="help"><summary>About vivid blending</summary>
+  <p class="small mut">Blends between two zones along the colour wheel (red, orange, yellow, green) instead of mixing them in RGB, which turns unlike colours into grey or brown in between. Best with smooth edges on a long strip.</p>
+</details>
+  <div class="row"><label for="tSat">This target's colour saturation <span id="tSatV"></span></label><input id="tSat" type="range" min="0.5" max="2" step="0.05" data-live="1"></div>
+  <div class="row"><label for="tBlur">Blur along the strip <span id="tBlurV"></span></label><input id="tBlur" type="range" min="0" max="20" step="1" data-live="1"></div>
+<details class="help"><summary>About blur</summary>
+  <p class="small mut">Softens the steps between zones: each LED is averaged with its neighbours over about this many LEDs. A little (4 to 6 LEDs) turns blocks into a soft blob that slides along the strip; more is blurrier. It only touches the part of the strip along the picture, and costs about 1 % of the board's processing when used on a few hundred LEDs.</p>
+</details>
+</div></div>
+</div>
+<div class="pane" id="pane-look" data-pane="look" role="tabpanel" aria-labelledby="tabLook">
+<div class="card" id="adviceCard">
+  <h2>Settings check</h2>
+<details class="help"><summary>What the settings check does</summary>
+  <p class="small mut">Looks at your settings (the ones you have not saved yet too) and points out combinations that waste delay, do nothing, or are probably not what you meant. <b>Fix</b> is something that is wrong, <b>Tip</b> is something that could be better.</p>
+</details>
+  <div id="advice" class="small" aria-live="polite"></div>
+</div>
+<div class="cols">
+<div>
+<h3>Colour</h3>
   <div class="row"><label for="kBri">Brightness <span id="kBriV"></span></label><input id="kBri" type="range" min="0.2" max="1.5" step="0.05" data-live="1"></div>
   <div class="row"><label for="kGam">Gamma <span id="kGamV"></span></label><input id="kGam" type="range" min="0.6" max="2.4" step="0.05" data-live="1"></div>
   <div class="row"><label for="kSat">Saturation <span id="kSatV"></span></label><input id="kSat" type="range" min="0" max="2" step="0.05" data-live="1"></div>
+<h3>Timing</h3>
   <div class="row"><label for="kSmo">Smoothing over time <span id="kSmoV"></span></label><input id="kSmo" type="range" min="0" max="0.9" step="0.05" data-live="1"></div>
   <div class="row"><label for="kBoost">Reaction boost <span id="kBoostV"></span></label><input id="kBoost" type="range" min="0" max="100" step="5" data-live="1"></div>
   <div class="row"><label for="kBsp">Box speed <span id="kBspV"></span></label><input id="kBsp" type="range" min="10" max="100" step="5" data-live="1"></div>
   <p class="small mut" id="bspDet" aria-live="polite"></p>
   <div class="row"><label for="kMot">Motion smoothing <span id="kMotV"></span></label><input id="kMot" type="range" min="0" max="100" step="5" data-live="1"></div>
+<details class="help"><summary>About motion smoothing and the box's own smoothing</summary>
   <p class="small mut"><b>Motion smoothing</b> slides the lights from one Sync Box picture to the next instead of jumping, so movement looks continuous. The box sends a new picture only about every 100 ms; at 100 the lights run one picture behind (about 100 ms) so they always have the next one to slide towards, at lower values less. While it is on it replaces <i>Smoothing over time</i> and <i>Reaction boost</i>. 0 is off.</p>
   <p class="small mut">The Sync Box smooths its own colours, which is most of the delay between the picture and the lights. In the box's app, <i>Speed of Diffusion</i> sets how far each packet moves towards the new picture (40% = 40% of the way, so a change takes about half a second to arrive). <b>The best fix is to set the box's speed to 100%</b>: it then sends the real picture at once. Set <b>Box speed</b> here to the same number as in the box's app. <b>Reaction boost</b> undoes the smoothing in software when the box is slower than 100%: 0 follows the box exactly, 100 rebuilds the picture it is aiming at (it does nothing at a box speed of 100). A lost packet at the wrong moment can make one frame overshoot, so around 60 is a good start. At high values fast flashes look sharper and a dark scene can flick to black a little early.</p>
+</details>
+</div>
+<div>
+<h3>Beyond the TV</h3>
   <div class="row"><label for="kOut">Smooth beyond the TV <span id="kOutV"></span></label><input id="kOut" type="range" min="0" max="100" step="5" data-live="1"></div>
+<details class="help"><summary>About smoothing beyond the TV</summary>
   <p class="small mut">LEDs along the TV follow the picture exactly. LEDs past the edge of the TV show the colour of the corner zone at their end of the strip (for LEDs on the ceiling: the top-left zone at the left end, the top-right zone at the right end),
   reaching it at the end of the strip. 100% = it takes the whole strip, lower = it blends faster, 0 = the end LEDs just repeat the TV's edge colour.</p>
+</details>
   <h3>Dark scenes and flicker</h3>
   <div class="row"><label for="kBcut">Black cut-off <span id="kBcutV"></span></label><input id="kBcut" type="range" min="0" max="10" step="1" data-live="1"></div>
   <div class="row"><label for="kDead">Hold steady <span id="kDeadV"></span></label><input id="kDead" type="range" min="0" max="8" step="0.5" data-live="1"></div>
   <div class="row"><label for="kDith">Dither while the colours move</label><input id="kDith" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
+<details class="help"><summary>About dark scenes and flicker</summary>
   <p class="small mut">Last step before the colours go to the lights, after Reaction boost, smoothing and Motion smoothing (so it does not fight them). All off by default. <b>Black cut-off</b>: an LED whose brightest colour is below this many levels (of 255) goes completely dark, so dark noise in the picture stays black instead of shimmering; once dark it needs one level more to light again. <b>Hold steady</b>: a colour keeps its value until the picture has moved it by more than this many levels, which stops a steady scene from flickering by one level; 1 to 3 is plenty, and a higher value makes slow fades go in visible steps. <b>Dither</b>: while the colours are moving, the rounding error is carried to the next frame, so slow fades and dark scenes show the steps between whole levels by flickering between the two neighbours instead of sticking to one; it needs Hold steady below 1.</p>
-</div>
-
-<div class="card" id="adviceCard">
-  <h2>Settings check</h2>
-  <p class="small mut">Looks at your settings (the ones you have not saved yet too) and points out combinations that waste delay, do nothing, or are probably not what you meant. <b>Fix</b> is something that is wrong, <b>Tip</b> is something that could be better.</p>
-  <div id="advice" class="small" aria-live="polite"></div>
-</div>
-
+</details>
 <div class="card" id="tvCard">
   <h2>When the TV is off</h2>
+<details class="help"><summary>How the board knows the TV is off</summary>
   <p class="small mut">The Sync Box sends no signal of its own when the TV is switched off (checked with the TV's power button, over CEC): it keeps sending, with a completely black picture. So the board decides the TV is off when the picture has been <i>completely</i> black for a while, and on again with the first colour. A long black screen counts as off too, which is why the delay is a setting.</p>
+</details>
   <div class="row"><label for="tvMode">Then</label><select id="tvMode" data-live="1">
     <option value="handback">Hand the WLEDs back, as they were before sync started</option>
     <option value="off">Switch the lights off (they come back on with the picture)</option>
@@ -185,27 +239,33 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="tvSecs">After this many seconds of black</label><input id="tvSecs" type="number" min="3" max="600" step="1" data-live="1"></div>
   <p class="small" id="tvNow"></p>
 </div>
-
-<div class="card">
+</div>
+</div>
+</div>
+<div class="pane" id="pane-ha" data-pane="ha" role="tabpanel" aria-labelledby="tabHa"><div class="narrow">
   <h2>Home Assistant (MQTT)</h2>
+<details class="help"><summary>How Home Assistant finds the board</summary>
   <p class="small mut">The board connects to your MQTT broker (for example Home Assistant's Mosquitto add-on) and appears in Home Assistant by itself as a <b>Fancy2WLED</b> device: a Sync light (on/off and brightness), status sensors and the Look settings. The board connects <i>out</i> to the broker, so your firewall must let it reach the broker (TCP, usually port 1883).</p>
+</details>
   <div class="row"><label for="mqOn">Connect to MQTT</label><input id="mqOn" type="checkbox" style="flex:0 0 auto"></div>
   <div class="row"><label for="mqHost">Broker address</label><input id="mqHost" placeholder="e.g. 192.168.1.10" autocapitalize="none"></div>
+<div class="grid2">
   <div class="row"><label for="mqPort">Port</label><input id="mqPort" type="number" min="1" max="65535" value="1883"></div>
   <div class="row"><label for="mqUser">User name (blank if none)</label><input id="mqUser" autocapitalize="none" autocomplete="off"></div>
+</div>
   <div class="row"><label for="mqPass">Password</label><input id="mqPass" type="password" autocomplete="off"></div>
+<div class="grid2">
   <div class="row"><label for="mqBase">Topic prefix (blank = automatic)</label><input id="mqBase" autocapitalize="none"></div>
   <div class="row"><label for="mqDisc">Home Assistant discovery prefix</label><input id="mqDisc" value="homeassistant" autocapitalize="none"></div>
+</div>
   <div class="row"><label for="mqPerf">Performance stats (debug)</label><input id="mqPerf" type="checkbox" style="flex:0 0 auto"></div>
+<details class="help"><summary>About performance stats</summary>
   <p class="small mut">Off by default. When on, the board measures its CPU load, memory and frame timing and publishes them every 5 seconds to <code>&lt;topic prefix&gt;/perf</code>, plus a set of diagnostic sensors in Home Assistant. The measuring itself uses a little CPU, so switch it off when you are done: it then stops measuring and publishing, and the sensors disappear from Home Assistant. Needs MQTT to be connected.</p>
+</details>
   <div class="row"><button id="mqSave">Save and connect</button><span id="mqStatus" class="small"></span></div>
-</div>
-
-<div class="sticky">
-  <div class="row"><button id="test" class="sec">Start rainbow test</button><button id="save">Save</button><span id="dirty" class="small warn"></span></div>
-  <div id="saveMsg" class="small"></div>
-</div>
-
+</div></div>
+<div class="pane" id="pane-device" data-pane="device" role="tabpanel" aria-labelledby="tabDevice"><div class="cols">
+<div>
 <div class="card" id="otaCard">
   <h2>Firmware updates</h2>
   <p class="small mut" id="otaVer"></p>
@@ -230,25 +290,35 @@ input[type=range].wide{width:100%}
     <div class="row"><label for="otaPw">Update password</label><input id="otaPw" type="password" autocomplete="current-password"></div>
     <div class="row"><button id="otaGo" class="sec">Update firmware</button></div>
     <progress id="otaBar" class="hidden" max="100" value="0" style="width:100%"></progress>
+<details class="help"><summary>Where to get firmware.bin</summary>
     <p class="small mut">The file is <code>firmware.bin</code> from <code>.pio/build/atoms3</code> (or the one attached to a release). Settings are kept. The WLEDs are handed back while it installs and the board restarts by itself; if the new firmware does not start properly the board returns to the old one.</p>
     <p class="small mut">From a computer with PlatformIO: set the environment variable <code>FANCY2WLED_OTA_PASSWORD</code> to the update password, then run <code>pio run -e atoms3-ota -t upload</code>.</p>
+</details>
   </div>
   <div id="otaMsg" class="small"></div>
 </div>
-
+</div>
+<div>
 <div class="card">
   <h2>Back up / move to another board</h2>
+<details class="help"><summary>What is exported</summary>
   <p class="small mut"><b>Export</b> saves your WLED address, LED layout, phone calibration, Look settings and MQTT settings to a file. <b>Import</b> loads such a file onto this board, for example a new ESP32 after you have set up its Wi-Fi. The Wi-Fi name and password are never included (a new board joins your Wi-Fi first, then you import).</p>
+</details>
   <div class="row"><label for="exSecrets">Also put the MQTT password in the file</label><input id="exSecrets" type="checkbox" style="flex:0 0 auto"></div>
   <div class="row"><button id="exportBtn" class="sec">Export config</button><button id="importBtn" class="sec">Import config</button><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div>
   <div id="bkMsg" class="small"></div>
 </div>
-
 <div class="card">
   <h2>Device</h2>
   <div class="row"><button id="reboot" class="sec">Restart</button><button id="reset" class="bad">Factory reset</button></div>
   <p class="small mut" id="resetTxt"></p>
   <p class="small mut">Factory reset clears the Wi-Fi and all settings. You can also hold the button on the AtomS3 for 8 seconds.</p>
+</div>
+</div>
+</div></div>
+<div class="sticky">
+  <div class="row"><button id="test" class="sec">Start rainbow test</button><button id="save">Save</button><span id="dirty" class="small warn"></span></div>
+  <div id="saveMsg" class="small"></div>
 </div>
 </div>
 
@@ -299,6 +369,8 @@ input[type=range].wide{width:100%}
       var lo=Math.max(a.start,c.start),hi=Math.min(a.start+a.count,c.start+c.count)-1;
       if(lo<=hi)add('fix',a.name+' and '+c.name+' both drive LEDs '+lo+' to '+hi+' of the same WLED, so each overwrites the other there.');
     }
+    var nb=$('navLookBadge'),nf=0;
+    if(nb){out.forEach(function(o){if(o.level==='fix')nf++;});nb.textContent=out.length?String(out.length):'';nb.className='badge'+(nf?' fix':'')+(out.length?'':' hidden');nb.setAttribute('aria-label',out.length+(out.length===1?' note':' notes')+' from the settings check');}
     box.textContent='';
     if(!out.length){var ok=document.createElement('span');ok.className='ok';ok.textContent='No problems found.';box.appendChild(ok);return;}
     out.sort(function(x,y){return (x.level==='fix'?0:1)-(y.level==='fix'?0:1);});
@@ -338,11 +410,12 @@ input[type=range].wide{width:100%}
     if(note)note.textContent=!liveOn?'':(live?'Each zone shows the colour the Sync Box is sending now, before the Look settings. Zones no target follows are faded; the bar under a zone is the target that follows it.':'Waiting for a picture from the Sync Box...');
   }
   async function liveTick(){
-    if(liveOn&&mapVisible&&!document.hidden){
+    if(liveOn&&!document.hidden){
       try{var zz=await j('/api/zones');live=(zz&&zz.zones&&zz.age!=null&&zz.age<3000)?zz.zones:null;}catch(e){live=null;}
       paintLive();
     }
-    setTimeout(liveTick,500);
+    paintMark();
+    setTimeout(liveTick,mapVisible?500:1000);
   }
   if(window.IntersectionObserver)new IntersectionObserver(function(en){mapVisible=en[0].isIntersecting;}).observe($('mapCard'));
   /* Where each zone looks (measured, see docs/PROTOCOL.md), in pixels of a 1920 x 1080 picture: the same windows as the board's layout maths. */
@@ -454,7 +527,7 @@ input[type=range].wide{width:100%}
       var s=await j('/api/status');
       var sp=(s.box&&s.box.speed)||null;
       if(JSON.stringify(sp)!==JSON.stringify(seenSpeed)){seenSpeed=sp;speedNote();try{advice();}catch(e){}}
-      show('wifiCard',s.mode==='ap');show('main',s.mode!=='ap');
+      show('wifiCard',s.mode==='ap');show('main',s.mode!=='ap');show('nav',s.mode!=='ap');show('picNow',s.mode!=='ap');if(s.mode==='ap'&&curTab!=='status')setView('status',curSub,true);
       pill('pWifi',s.mode==='ap'?'warn':'ok',s.mode==='ap'?'Setup mode':'Wi-Fi '+s.ssid);
       var bp=!!(s.box&&s.box.problem),bf=s.box.frames||{};
       pill('pBox',bp?'bad':(s.box.fps>0?'ok':'warn'),bp?'Sync Box: frames not understood':(s.box.fps>0?('Sync Box '+s.box.fps.toFixed(0)+' fps'):'Sync Box: nothing yet'));
@@ -471,6 +544,7 @@ input[type=range].wide{width:100%}
       var lh='';ts.forEach(function(t){var x=latText(t);if(x)lh+='<div><b>'+esc(t.name)+'</b>: '+esc(x)+'</div>';});
       $('latList').innerHTML=lh||'Nothing measured yet: the delay is measured while the TV is on.';
       pill('pState','',s.state);
+      var hs=$('hdrState');hs.textContent=s.state;hs.className='pill '+(s.state==='relaying'?'ok':'');
       $('statTxt').textContent=(s.ip||'')+'  |  '+s.hostname+'.local  |  signal '+s.rssi+' dBm  |  firmware '+s.ver+(s.box.sender?'  |  box at '+s.box.sender:'')+((s.reset&&s.reset.unexpected)?'  |  last restart: '+s.reset.reason:'');
       var bx=s.box||{},tvn=$('tvNow');
       /* lock to this Sync Box: anything on the network can send frames the relay would follow, until it is told which address to listen to */
@@ -956,7 +1030,40 @@ input[type=range].wide{width:100%}
   $('reset').onclick=function(){if(confirm('Erase Wi-Fi and all settings?'))j('/api/reset',{}).catch(function(){});};
   window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});
 
+  /* ---------------------------------------------------------------- the bar of sections: one is shown at a time and the address keeps the place (#lights/layout) */
+  var PANES=['status','lights','look','ha','device'],SUBS=['conn','layout','colour'],curTab='status',curSub='conn';
+  function each(sel,fn){Array.prototype.forEach.call(document.querySelectorAll(sel),fn);}
+  function setView(t,s,keep){
+    if(PANES.indexOf(t)<0)t='status';
+    if(SUBS.indexOf(s)<0)s=curSub;
+    curTab=t;curSub=s;
+    each('.pane',function(p){p.classList.toggle('on',p.getAttribute('data-pane')===t);});
+    each('.sub',function(p){p.classList.toggle('on',p.getAttribute('data-sub')===s);});
+    each('#nav [data-tab]',function(x){var on=x.getAttribute('data-tab')===t;x.setAttribute('aria-selected',on?'true':'false');x.tabIndex=on?0:-1;});
+    each('.seg [data-sub]',function(x){var on=x.getAttribute('data-sub')===s;x.setAttribute('aria-selected',on?'true':'false');x.tabIndex=on?0:-1;});
+    document.body.setAttribute('data-tab',t);
+    var h='#'+t+(t==='lights'?'/'+s:'');
+    try{if(location.hash!==h){if(keep)history.replaceState(null,'',h);else history.pushState(null,'',h);}}catch(e){}
+    if(!keep)window.scrollTo(0,0);
+  }
+  function viewFromAddress(){var m=(location.hash||'').replace('#','').split('/');setView(m[0]||'status',m[1]||curSub,true);}
+  each('#nav [data-tab]',function(x){x.onclick=function(){setView(x.getAttribute('data-tab'),curSub);};});
+  each('.seg [data-sub]',function(x){x.onclick=function(){setView('lights',x.getAttribute('data-sub'));};});
+  each('[role=tablist]',function(l){l.addEventListener('keydown',function(e){          /* the arrow keys move between the tabs of a bar */
+    var k=e.key;if(k!=='ArrowRight'&&k!=='ArrowLeft'&&k!=='Home'&&k!=='End')return;
+    var bs=Array.prototype.slice.call(l.querySelectorAll('[role=tab]')),i=bs.indexOf(document.activeElement);if(i<0)return;
+    i=k==='Home'?0:(k==='End'?bs.length-1:(i+(k==='ArrowRight'?1:-1)+bs.length)%bs.length);
+    e.preventDefault();bs[i].focus();bs[i].click();});});
+  window.addEventListener('popstate',viewFromAddress);
+  /* the mark in the bar and the big picture on Status are the picture the Sync Box is sending: the 24 zones as blocks, in the shape of a screen */
+  var markSets=['mark','bigMark'].map(function(id){var s=$(id),cells=[],i;for(i=0;i<24;i++)cells.push(svgEl('rect',{x:(i%6)*12,y:((i/6)|0)*10,width:11,height:9,rx:1.5,fill:'var(--line)'},s));return cells;});
+  function paintMark(){
+    for(var z=0;z<24;z++){var col=liveOn&&live&&live[z]?live[z]:null,f=col?'rgb('+col[0]+','+col[1]+','+col[2]+')':'var(--line)';markSets.forEach(function(cells){cells[z].setAttribute('fill',f);});}
+    var pn=$('picNote');if(pn)pn.textContent=!liveOn?'Live colours are switched off (Lights, Layout, Picture map).':(live?'What the Sync Box is sending now':'Waiting for a picture from the Sync Box...');
+  }
+
   (async function init(){
+    viewFromAddress();
     var s0=await status();
     if(s0&&s0.mode==='ap')try{var w=await j('/api/wifi/scan');var o=w.networks.map(function(n){return '<option>'+n.replace(/[<&]/g,'')+'</option>';}).join('');$('ssidSel').innerHTML=o;$('ssid').value=w.networks[0]||'';}catch(e){}
     $('mapLiveOn').checked=liveOn;
