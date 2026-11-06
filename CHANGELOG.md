@@ -4,6 +4,16 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## 0.4.10 - 2026-11-05
+
+* **Dark scenes and flicker** (setup page, Look; all off by default, so nothing changes until you use them). A last step on the colours, after Reaction boost, smoothing and
+  Motion smoothing so it does not fight them:
+  **Black cut-off** (an LED whose brightest colour is below N levels goes completely dark, so dark noise stays black; one level of hysteresis so it does not flicker at the edge),
+  **Hold steady** (a colour keeps its value until the picture has moved it by more than N levels, which stops a steady scene flickering by one level; a fade to black still
+  reaches black) and **Dither** (while the colours move, the rounding error is carried to the next frame so slow fades and dark scenes show the steps between whole levels).
+  On the real board, with noise in a dark picture: 84 flickering changes without it, 1 with a cut-off of 8. The Settings check points out Dither together with a Hold steady
+  of 1 or more, where it does nothing. Checked against an independent Python version on 30 simulated sequences, under the sanitizers, and on the board.
+
 ## 0.4.9 - 2026-11-05
 
 * **The relay measures the Sync Box's Speed of Diffusion** from the picture changes it sees (scene cuts, flashes): after a sudden change the box's second step is (1 - speed)

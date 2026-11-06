@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import govee, layout, motion, protocol, speed  # noqa: E402
+from reference import finish, govee, layout, motion, protocol, speed  # noqa: E402
 
 
 def ent(entries):
@@ -333,6 +333,46 @@ def main():
             ms, hx = ln.split()
             real.append((10000 + int(ms), [list(bytes.fromhex(hx)[i:i + 3]) for i in range(0, 72, 3)]))
         speed_case("real-box-" + str(want), real, want=want, shown=None if want == 100 else want)     # (the 100 % recording has too few changes for the held answer to appear)
+
+    # --- the finishing stage of the output (black cut-off, deadband, dither) --------------------------------------------------------------------------------------
+    frnd = random.Random(777)
+
+    def finish_case(name, frames, deadband, black_cut, dither, n=6):
+        """frames: [(fresh, moving, [n x 3 floats])]. One line: the parameters, then per frame the flags and the colours, then the expected whole numbers."""
+        for attempt in range(400):                         # nudge the whole sequence until no decision lies on a knife edge (where float and double could disagree)
+            shift = attempt * 0.00091
+            shifted = [(fr, mv, [[round(v + shift, 4) for v in row] for row in cols]) for fr, mv, cols in frames]       # (as the test file will hold them)
+            f = finish.Finish(n)
+            outs = [f.run(cols, deadband, black_cut, dither, moving, fresh) for fresh, moving, cols in shifted]
+            if f.margin > 3e-4:
+                break
+        assert f.margin > 3e-4, (name, f.margin)
+        frames = shifted
+        parts = ["FINISH %d %d %.3f %d %d %s" % (n, len(frames), deadband, black_cut, 1 if dither else 0, name)]
+        for (fresh, moving, cols), o in zip(frames, outs):
+            parts.append("%d %d %s | %s" % (1 if fresh else 0, 1 if moving else 0, " ".join("%.4f" % v for c in cols for v in c), " ".join(str(v) for r in o for v in r)))
+        lines.append(" ".join(parts))
+
+    def jitter():
+        return frnd.uniform(0.0123, 0.0391)               # keeps values off exact .5 and whole numbers
+
+    def wiggle(base, amp):
+        return [[max(0.0, b + frnd.uniform(-amp, amp)) + jitter() for b in row] for row in base]
+
+    still = [[0.0, 0.0, 0.0], [2.0, 1.0, 0.0], [3.0, 3.0, 2.0], [5.0, 4.0, 4.0], [80.0, 40.0, 20.0], [200.0, 150.0, 100.0]]
+    fade_up = [(i == 0, True, [[(k + 1) * (0.5 + 0.7 * i) % 255 + jitter() for _ in range(3)] for k in range(6)]) for i in range(60)]
+    fade_down = [(i == 0, True, [[max(0.0, 200.0 - 3.3 * i - 30.0 * k) + jitter() for _ in range(3)] for k in range(6)]) for i in range(70)]
+    noisy_dark = [(i == 0, False, wiggle(still, 1.4)) for i in range(80)]
+    noisy_mid = [(i == 0, False, wiggle([[100.0, 60.0, 30.0]] * 6, 1.6)) for i in range(80)]
+    mixed = []
+    for i in range(120):
+        mixed.append((i % 37 == 0, frnd.random() < 0.6, wiggle([[frnd.choice([0.0, 2.0, 6.0, 40.0, 130.0, 250.0]) for _ in range(3)] for _ in range(6)], 2.2)))
+    for dead, cut, dith, label in ((0.0, 0, False, "off"), (0.0, 0, True, "dither"), (0.0, 4, False, "cut"), (2.0, 0, False, "dead"), (2.5, 3, True, "all"), (7.5, 10, True, "max")):
+        finish_case("fade-up-" + label, fade_up, dead, cut, dith)
+        finish_case("fade-down-" + label, fade_down, dead, cut, dith)
+        finish_case("noisy-dark-" + label, noisy_dark, dead, cut, dith)
+        finish_case("noisy-mid-" + label, noisy_mid, dead, cut, dith)
+        finish_case("mixed-" + label, mixed, dead, cut, dith)
 
     out = os.path.join(HERE, "..", "test", "golden.txt")
     os.makedirs(os.path.dirname(out), exist_ok=True)

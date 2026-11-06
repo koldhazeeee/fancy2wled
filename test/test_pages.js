@@ -337,6 +337,28 @@ async function cdp(wsUrl) {
       check('check: a good setup (box 100, motion smoothing, no boost, no extra smoothing) shows no look advice', !/Reaction boost|Smoothing over time|box speed|box is smoothing/.test(await adv()), await adv());
       await sl('kBsp', 40); await sl('kMot', 0); await sl('kSmo', 0.5); await sl('kBoost', 0);          // back to the defaults
     }
+    // the finishing stage: black cut-off, hold steady, dither (all off by default)
+    {
+      const val = id => p.ev("(function(){var e=document.getElementById('" + id + "');return e.type==='checkbox'?e.checked:e.value;})()");
+      const txt = id => p.ev("document.getElementById('" + id + "').textContent");
+      const set = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); if(e.type==='checkbox'){e.checked=" + v + ";}else{e.value='" + v + "';} e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };
+      check('finish: all three start off, as the board reports them', (await val('kBcut')) === '0' && (await val('kDead')) === '0' && (await val('kDith')) === false && /off/.test(await txt('kBcutV')) && /off/.test(await txt('kDeadV')), (await val('kBcut')) + ' ' + (await val('kDead')) + ' ' + (await val('kDith')));
+      await set('kBcut', 4); await set('kDead', 2.5); await set('kDith', true);
+      check('finish: the labels name the levels', /4 levels/.test(await txt('kBcutV')) && /2\.5 levels/.test(await txt('kDeadV')), (await txt('kBcutV')) + ' ' + (await txt('kDeadV')));
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      const lk = dev.state.lastConfigPost && dev.state.lastConfigPost.look;
+      check('finish: Save sends black cut-off, hold steady and dither', lk && lk.blackCut === 4 && lk.deadband === 2.5 && lk.dither === true, JSON.stringify(lk));
+      check('finish: the board keeps them', dev.state.cfg.look.blackCut === 4 && dev.state.cfg.look.deadband === 2.5 && dev.state.cfg.look.dither === true);
+      await p.ev("location.reload(); 1"); await sleep(1500);
+      check('finish: after a reload the controls show what was saved', (await val('kBcut')) === '4' && (await val('kDead')) === '2.5' && (await val('kDith')) === true, (await val('kBcut')) + ' ' + (await val('kDead')) + ' ' + (await val('kDith')));
+      check('finish: dither together with a hold of 1 or more gets a tip', /Tip: Dither does nothing while Hold steady is 1 or more/.test(await p.ev("document.getElementById('advice').textContent")));
+      await set('kDead', 0.5);
+      check('finish: ... and not with a hold below 1', !/Dither does nothing/.test(await p.ev("document.getElementById('advice').textContent")));
+      await set('kBcut', 0); await set('kDead', 0); await set('kDith', false);
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('finish: set back to off and saved', dev.state.cfg.look.blackCut === 0 && dev.state.cfg.look.deadband === 0 && dev.state.cfg.look.dither === false);
+    }
     // the box speed the board measures from the picture changes: a note under the slider, and advice when it disagrees with the setting
     {
       const sl = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(120); };

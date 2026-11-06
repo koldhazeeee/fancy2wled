@@ -95,6 +95,10 @@ struct Mark {                                  // marker blocks (the setup page 
 struct Rt {
   float *tgt = nullptr, *cur = nullptr;        // wanted / shown colours of this target's LEDs (n * 3)
   int cap = 0;
+  float *held = nullptr, *resid = nullptr;     // the finishing stage's state per LED (n * 3 each) ...
+  uint8_t* dark = nullptr;                     // ... and whether an LED is below the black cut-off (n); allocated only while that stage is on
+  int finCap = 0;
+  uint32_t finGen = 0xFFFFFFFF;                // the settings generation the state belongs to (a change of settings starts it afresh)
   uint8_t* last = nullptr;                     // the last frame sent: identical frames are not sent again
   int lastCap = 0;
   size_t lastLen = 0;                          // 0 = nothing valid (the next frame is always sent)
@@ -142,8 +146,10 @@ static Rt gRt[kMaxTargets];
 static int gCalTarget = -1;                    // the target with a finder / calibration session (one at a time)
 
 static void freeBuffers(Rt& r) {
-  free(r.tgt); free(r.cur); free(r.last);
-  r.tgt = r.cur = nullptr;
+  free(r.tgt); free(r.cur); free(r.last); free(r.held); free(r.resid); free(r.dark);
+  r.tgt = r.cur = r.held = r.resid = nullptr;
+  r.dark = nullptr;
+  r.finCap = 0;
   r.last = nullptr;
   r.cap = r.lastCap = 0;
   r.lastLen = 0;
@@ -159,6 +165,18 @@ static bool ensureBuffers(Rt& r, int n) {
   if (!r.tgt || !r.cur || !r.last) { freeBuffers(r); return false; }
   r.cap = n;
   r.lastCap = n * 4;
+  return true;
+}
+
+static bool ensureFinish(Rt& r, int n) {                                  // the finishing stage's memory: only while the stage is on
+  if (r.finCap >= n && r.held && r.resid && r.dark) return true;
+  free(r.held); free(r.resid); free(r.dark);
+  r.held = (float*)calloc((size_t)n * 3, sizeof(float));
+  r.resid = (float*)calloc((size_t)n * 3, sizeof(float));
+  r.dark = (uint8_t*)calloc((size_t)n, 1);
+  r.finGen = 0xFFFFFFFF;
+  if (!r.held || !r.resid || !r.dark) { free(r.held); free(r.resid); free(r.dark); r.held = r.resid = nullptr; r.dark = nullptr; r.finCap = 0; return false; }
+  r.finCap = n;
   return true;
 }
 
@@ -977,6 +995,7 @@ void relayLoop() {
   TSnap sn[kMaxTargets];
   int nT, fps, tvMode, motionPct;
   bool globalOn, tvOff;
+  FinishParams fin;
   {
     Lock l;
     nT = gSet.nTargets;
@@ -984,6 +1003,7 @@ void relayLoop() {
     globalOn = gSet.enabled;
     tvMode = gSet.tvMode;
     motionPct = gSet.motion;
+    fin.deadband = gSet.deadband; fin.blackCut = gSet.blackCut; fin.dither = gSet.dither;
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
       const Target& t = gSet.t[i];
@@ -1108,6 +1128,7 @@ void relayLoop() {
         const float smo = gSet.kSmo;
         const float trim = sn[i].trim;
         const uint32_t nowUs = micros();
+        const bool freshCur = !r.curValid;
         if (!r.curValid) {
           for (int k = 0; k < n * 3; k++) r.cur[k] = r.tgt[k] * trim;
           r.curValid = true;
@@ -1127,7 +1148,13 @@ void relayLoop() {
           r.converged = worst < 0.5f;                        // less than half a colour step away: nothing visible left to smooth
         }
         r.smoothUs = nowUs;
-        len = packColours(r.cur, n, sn[i].whiteMin);
+        const float* shown = r.cur;
+        if (finishActive(fin) && ensureFinish(r, n)) {                                // black cut-off, deadband, dither: after every temporal stage, so Reaction boost is not touched
+          finishColours(r.cur, n, r.held, r.resid, r.dark, fin, !r.converged, freshCur || r.finGen != gSettingsGen, r.tgt);   // (the wanted colours are not needed any more: r.tgt takes the result)
+          r.finGen = gSettingsGen;
+          shown = r.tgt;
+        }
+        len = packColours(shown, n, sn[i].whiteMin);
         packed = true;
       }
     }

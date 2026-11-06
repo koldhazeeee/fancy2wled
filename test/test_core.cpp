@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[400000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -291,6 +291,33 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "FINISH") {
+      // FINISH <leds> <frames> <deadband> <blackCut> <dither> <name> then per frame: <fresh> <moving> <leds*3 colours> | <leds*3 whole numbers the stage must give>
+      const char* p = rest;
+      int n = 0, frames = 0, cut = 0, dith = 0, adv = 0;
+      float dead = 0;
+      char name[64] = {0};
+      if (sscanf(p, "%d %d %f %d %d %63s%n", &n, &frames, &dead, &cut, &dith, name, &adv) != 6) { CHECK(false, "bad FINISH line"); continue; }
+      p += adv;
+      std::vector<float> held((size_t)n * 3, 0.f), resid((size_t)n * 3, 0.f), cur((size_t)n * 3), out((size_t)n * 3);
+      std::vector<uint8_t> dark((size_t)n, 0);
+      FinishParams fp;
+      fp.deadband = dead; fp.blackCut = cut; fp.dither = dith != 0;
+      int badFrames = 0, firstBad = -1;
+      for (int fr = 0; fr < frames; fr++) {
+        int fresh = 0, moving = 0;
+        sscanf(p, " %d %d%n", &fresh, &moving, &adv);
+        p += adv;
+        for (int j = 0; j < n * 3; j++) { sscanf(p, " %f%n", &cur[j], &adv); p += adv; }
+        sscanf(p, " |%n", &adv);
+        p += adv;
+        finishColours(cur.data(), n, held.data(), resid.data(), dark.data(), fp, moving != 0, fresh != 0, out.data());
+        bool bad = false;
+        for (int j = 0; j < n * 3; j++) { int want = 0; sscanf(p, " %d%n", &want, &adv); p += adv; if ((int)out[j] != want) bad = true; }
+        if (bad) { badFrames++; if (firstBad < 0) firstBad = fr; }
+      }
+      CHECK(badFrames == 0, "finish %s: %d of %d frames differ from the reference (the first is frame %d)", name, badFrames, frames, firstBad);
+      nFinish++;
     } else if (k == "SPEED") {
       // SPEED <packets> <events> <estimates> <percent> <sure> <peak> <second> <shown> <name> then <ms> <hex zones> per packet (the detector of the box's Speed of Diffusion)
       const char* p = rest;
@@ -1004,11 +1031,48 @@ int main(int argc, char** argv) {
       }
       CHECK(speedBad == 0, "the speed detector never gives an impossible answer for random packets (%d problems)", speedBad);
     }
+    {
+      // the finishing stage: any colours, flags and settings give whole numbers 0..255; with everything off the colours pass through rounded; a black cut-off really is black
+      const int n = 9;
+      float held[n * 3] = {}, resid[n * 3] = {}, cur[n * 3], out[n * 3];
+      uint8_t dark[n] = {};
+      int finBad = 0;
+      for (int i = 0; i < 20000; i++) {
+        FinishParams fp;
+        fp.deadband = (rnd() % 3 == 0) ? 0.f : (float)(rnd() % 17) * 0.5f;
+        fp.blackCut = (int)(rnd() % 12);
+        fp.dither = rnd() % 2;
+        const bool fresh = rnd() % 50 == 0, moving = rnd() % 2;
+        for (int j = 0; j < n * 3; j++) {
+          const uint32_t mode = rnd() % 6;
+          cur[j] = mode == 0 ? -30.f + (float)(rnd() % 400) : (mode == 1 ? 300.f : (mode == 2 ? (float)(rnd() % 4) * 0.7f : (float)(rnd() % 2560) * 0.1f));
+        }
+        finishColours(cur, n, held, resid, dark, fp, moving, fresh, out);
+        for (int j = 0; j < n * 3; j++)
+          if (!(out[j] >= 0.f && out[j] <= 255.f) || out[j] != floorf(out[j])) finBad++;
+        if (!finishActive(fp)) {
+          float one[n * 3];
+          FinishParams off;
+          float h2[n * 3] = {}, r2[n * 3] = {};
+          uint8_t d2[n] = {};
+          finishColours(cur, n, h2, r2, d2, off, moving, true, one);
+          for (int j = 0; j < n * 3; j++) {
+            const float c = cur[j] < 0.f ? 0.f : (cur[j] > 255.f ? 255.f : cur[j]);
+            if (one[j] != floorf(c + 0.5f)) finBad++;
+          }
+        }
+        for (int l = 0; l < n; l++) {
+          const float m = fmaxf(fmaxf(cur[l * 3], cur[l * 3 + 1]), cur[l * 3 + 2]);
+          if (fp.blackCut > 0 && !fresh && m < (float)fp.blackCut && (out[l * 3] != 0.f || out[l * 3 + 1] != 0.f || out[l * 3 + 2] != 0.f)) finBad++;   // below the cut-off it is always dark
+        }
+      }
+      CHECK(finBad == 0, "the finishing stage always gives whole numbers 0..255, is transparent when off, and is dark below the cut-off (%d problems)", finBad);
+    }
     CHECK(markBad == 0, "the update marker is always found, in any chunking, and never in noise (%d problems)", markBad);
   }
 
-  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, g_pass, g_fail);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, nFinish, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

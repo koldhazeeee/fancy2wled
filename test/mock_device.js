@@ -46,7 +46,7 @@ function createDevice(opts) {
   const calls = [];
   const state = {
     cfg: { targets: [newTarget(0)],
-      look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, boxSpeed: 40, motion: 0, smoothOut: 100 }, box: { host: '' },
+      look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, boxSpeed: 40, motion: 0, deadband: 0, blackCut: 0, dither: false, smoothOut: 100 }, box: { host: '' },
       ota: { enabled: false, passSet: false },
       relay: { enabled: true, tvOff: { mode: 'handback', seconds: 15 } }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
     screen: 'idle', calActive: false, maps: {}, test: null, total: opts.total || 600

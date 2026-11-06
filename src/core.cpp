@@ -730,6 +730,45 @@ int boxStepsForGap(uint32_t gapMs) {
   return n < 1 ? 1 : n;
 }
 
+void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* dark, const FinishParams& p, bool moving, bool fresh, float* out) {
+  const float cut = (float)p.blackCut;
+  for (int i = 0; i < n; i++) {
+    float x[3];
+    for (int c = 0; c < 3; c++) x[c] = cur[i * 3 + c] < 0.f ? 0.f : (cur[i * 3 + c] > 255.f ? 255.f : cur[i * 3 + c]);
+    const float m = x[0] > x[1] ? (x[0] > x[2] ? x[0] : x[2]) : (x[1] > x[2] ? x[1] : x[2]);
+    const bool wasDark = dark[i] != 0;
+    if (p.blackCut > 0) {
+      if (fresh) dark[i] = m < cut;
+      else if (wasDark) { if (m >= cut + 1.f) dark[i] = 0; }
+      else if (m < cut) dark[i] = 1;
+    } else {
+      dark[i] = 0;
+    }
+    float* h = held + i * 3;
+    float* e = resid + i * 3;
+    if (dark[i]) {
+      for (int c = 0; c < 3; c++) { h[c] = 0.f; e[c] = 0.f; out[i * 3 + c] = 0.f; }
+      continue;
+    }
+    const bool restart = fresh || wasDark;                                              // coming back from dark: take the colour as it is
+    for (int c = 0; c < 3; c++) {
+      if (restart) { h[c] = x[c]; e[c] = 0.f; }
+      else if (p.deadband > 0.f && x[c] >= 1.f && h[c] >= 1.f && fabsf(x[c] - h[c]) <= p.deadband) { /* inside the deadband: keep what was shown */ }
+      else h[c] = x[c];
+      float o;
+      if (p.dither && moving) {
+        const float t = h[c] + e[c];
+        o = floorf(t + 0.5f);
+        e[c] = t - o;
+      } else {
+        o = floorf(h[c] + 0.5f);
+        e[c] = 0.f;
+      }
+      out[i * 3 + c] = o < 0.f ? 0.f : (o > 255.f ? 255.f : o);
+    }
+  }
+}
+
 void speedReset(SpeedDetect& d) { d = SpeedDetect(); }
 
 void speedPush(SpeedDetect& d, const uint8_t zones[kZones][3], int steps) {

@@ -144,6 +144,13 @@ static void loadFromFlash() {
   s.boxSpeed = gI("kBsp", 40);
   if (s.boxSpeed < 10) s.boxSpeed = 10;
   if (s.boxSpeed > 100) s.boxSpeed = 100;
+  s.deadband = gF("kDead", 0.f);
+  if (!(s.deadband >= 0.f)) s.deadband = 0.f;
+  if (s.deadband > 8.f) s.deadband = 8.f;
+  s.blackCut = gI("kBcut", 0);
+  if (s.blackCut < 0) s.blackCut = 0;
+  if (s.blackCut > 10) s.blackCut = 10;
+  s.dither = gB("kDith", false);
   s.motion = gI("kMot", 0);
   if (s.motion < 0) s.motion = 0;
   if (s.motion > 100) s.motion = 100;
@@ -197,6 +204,9 @@ void settingsSave() {
   prefs.putFloat("kSmo", s.kSmo);
   prefs.putFloat("kBoost", s.kBoost);
   prefs.putInt("kMot", s.motion);
+  prefs.putFloat("kDead", s.deadband);
+  prefs.putInt("kBcut", s.blackCut);
+  prefs.putBool("kDith", s.dither);
   prefs.putInt("kBsp", s.boxSpeed);
   prefs.putBool("enabled", s.enabled);
   prefs.putInt("tvMode", s.tvMode);
@@ -317,6 +327,9 @@ void settingsToJson(JsonDocument& d) {
   k["smoothing"] = s.kSmo;
   k["boost"] = s.kBoost;
   k["motion"] = s.motion;
+  k["deadband"] = s.deadband;
+  k["blackCut"] = s.blackCut;
+  k["dither"] = s.dither;
   k["boxSpeed"] = s.boxSpeed;
   k["smoothOut"] = s.smoothOut;
   d["box"]["host"] = s.boxHost;
@@ -463,6 +476,9 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["smoothing"].isNull()) n.kSmo = clampf(k["smoothing"].as<float>(), 0.f, 0.95f);
   if (!k["boost"].isNull()) n.kBoost = clampf(k["boost"].as<float>(), 0.f, 1.f);
   if (!k["motion"].isNull()) n.motion = (int)clampf(k["motion"].as<float>(), 0.f, 100.f);
+  if (!k["deadband"].isNull()) n.deadband = clampf(k["deadband"].as<float>(), 0.f, 8.f);
+  if (!k["blackCut"].isNull()) n.blackCut = (int)clampf(k["blackCut"].as<float>(), 0.f, 10.f);
+  if (!k["dither"].isNull()) n.dither = k["dither"].as<bool>();
   if (!k["boxSpeed"].isNull()) n.boxSpeed = (int)clampf(k["boxSpeed"].as<float>(), 10.f, 100.f);
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
   if (!b["host"].isNull()) {                                  // only accept the Sync Box from this address: an IP address, or empty for anyone

@@ -190,6 +190,21 @@ void speedReset(SpeedDetect& d);
 void speedPush(SpeedDetect& d, const uint8_t zones[kZones][3], int steps);   // steps = boxStepsForGap since the previous packet
 SpeedResult speedResult(const SpeedDetect& d);
 
+// The finishing stage of the output: what is done to one target's LEDs after every temporal stage (motion smoothing or easing) and just before the colours are rounded
+// to bytes. It comes after the temporal stages on purpose: Reaction boost works earlier, on the Sync Box's own frames, so nothing here can fight it. All three parts are off
+// by default (then the colours pass through untouched).
+//  * black cut-off: an LED whose brightest channel is below blackCut (levels, 0 = off) goes fully dark, so dark noise stays black instead of shimmering. One level of hysteresis:
+//    once dark, it needs blackCut + 1 to light again, so an LED sitting right at the edge does not flicker either.
+//  * deadband (levels, 0 = off): a channel keeps the value it showed until the colour has moved more than this far from it (the anti-flicker hold). Channels under one level
+//    are never held, so a fade to black reaches black. The price is up to `deadband` levels of standing error; 1 to 3 is plenty.
+//  * dither: while the colours are moving, the rounding error of each channel is carried to the next frame (error feedback), so a slow fade or a dark scene shows its steps
+//    between whole levels by flickering between the two neighbours instead of sticking to one. When the colours are still the exact rounded value is shown.
+// State per LED (held, resid: 3 floats; dark: 1 byte) belongs to the caller; fresh = the state is not valid (first frame, or the settings changed). out gets whole numbers
+// 0..255 as floats. Independent version: tools/reference/finish.py.
+struct FinishParams { float deadband = 0.f; int blackCut = 0; bool dither = false; };
+inline bool finishActive(const FinishParams& p) { return p.deadband > 0.f || p.blackCut > 0 || p.dither; }
+void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* dark, const FinishParams& p, bool moving, bool fresh, float* out);
+
 // Vivid blending between two zone colours. Mixing two colours in RGB (red and green half and half is a dull dark yellow) turns unlike hues into
 // grey or brown in between. This blends along the colour wheel instead: the hue takes the shorter way round from one colour to the other (red -> orange ->
 // yellow -> green), saturation and brightness blend straight. A grey or black end has no hue of its own and takes the other end's. w = 0 gives a, 1 gives b.
