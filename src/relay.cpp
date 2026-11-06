@@ -361,42 +361,18 @@ static void ddpSend(int ti, const uint8_t* payload, size_t len, int ledStart, bo
 }
 
 // ---------------------------------------------------------------- relay
-static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // Brightness / gamma / saturation applied to 24 zone colours given as 0..255 floats (the box's value or the boosted one).
 static void adjustInto(float out[kZones][3], const float raw[kZones][3]) {
   float br, gm, sat;
   { Lock l; br = gSet.kBri; gm = gSet.kGam; sat = gSet.kSat; }
-  for (int z = 0; z < kZones; z++) {
-    float c[3] = {raw[z][0] / 255.f, raw[z][1] / 255.f, raw[z][2] / 255.f};
-    if (sat != 1.f) {
-      float y = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
-      for (int k = 0; k < 3; k++) c[k] = clampf(y + (c[k] - y) * sat, 0.f, 1.f);
-    }
-    if (gm != 1.f) for (int k = 0; k < 3; k++) c[k] = powf(c[k], gm);
-    for (int k = 0; k < 3; k++) out[z][k] = clampf(c[k] * br * 255.f, 0.f, 255.f);
-  }
+  adjustZones(out, raw, br, gm, sat);
 }
 
 static void rainbowZones(float z[kZones][3]) {
   static const uint8_t col[6][3] = {{255, 0, 0}, {255, 130, 0}, {255, 255, 0}, {0, 255, 0}, {0, 80, 255}, {200, 0, 255}};
   for (int i = 0; i < kZones; i++)
     for (int k = 0; k < 3; k++) z[i][k] = col[i % 6][k];
-}
-
-static size_t packColours(const float* cur, int n, bool whiteMin) {
-  size_t o = 0;
-  for (int i = 0; i < n; i++) {
-    int r = (int)(cur[i * 3] + 0.5f), g = (int)(cur[i * 3 + 1] + 0.5f), b = (int)(cur[i * 3 + 2] + 0.5f);
-    r = r < 0 ? 0 : (r > 255 ? 255 : r); g = g < 0 ? 0 : (g > 255 ? 255 : g); b = b < 0 ? 0 : (b > 255 ? 255 : b);
-    if (whiteMin) {
-      int w = r < g ? (r < b ? r : b) : (g < b ? g : b);
-      gPayload[o++] = r - w; gPayload[o++] = g - w; gPayload[o++] = b - w; gPayload[o++] = w;
-    } else {
-      gPayload[o++] = r; gPayload[o++] = g; gPayload[o++] = b;
-    }
-  }
-  return o;
 }
 
 // ---------------------------------------------------------------- WLED on / off, in the background
@@ -1130,21 +1106,15 @@ void relayLoop() {
         const uint32_t nowUs = micros();
         const bool freshCur = !r.curValid;
         if (!r.curValid) {
-          for (int k = 0; k < n * 3; k++) r.cur[k] = r.tgt[k] * trim;
+          scaleColours(r.cur, r.tgt, n, trim);
           r.curValid = true;
           r.converged = interp ? motionSettled : true;
         } else if (interp && !testing) {                     // motion smoothing: the picture is already slid in time, no easing on top of it
-          for (int k = 0; k < n * 3; k++) r.cur[k] = r.tgt[k] * trim;
+          scaleColours(r.cur, r.tgt, n, trim);
           r.converged = motionSettled;
         } else {
           const float decay = smoothDecay(smo, (nowUs - r.smoothUs) / 1000.f, (float)tickMs);
-          float worst = 0.f;
-          for (int k = 0; k < n * 3; k++) {
-            const float d = r.tgt[k] * trim - r.cur[k];
-            r.cur[k] += d * (1.f - decay);
-            const float left = d * decay;
-            if (left > worst) worst = left; else if (-left > worst) worst = -left;
-          }
+          const float worst = easeColours(r.cur, r.tgt, n, trim, decay);
           r.converged = worst < 0.5f;                        // less than half a colour step away: nothing visible left to smooth
         }
         r.smoothUs = nowUs;
@@ -1154,7 +1124,7 @@ void relayLoop() {
           r.finGen = gSettingsGen;
           shown = r.tgt;
         }
-        len = packColours(shown, n, sn[i].whiteMin);
+        len = packColours(shown, n, sn[i].whiteMin, gPayload);
         packed = true;
       }
     }

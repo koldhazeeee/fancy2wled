@@ -1,0 +1,123 @@
+{
+ "label": "before",
+ "platform": "host",
+ "unit": "ns per operation",
+ "runs": 3,
+ "cases": {
+  "classify_frame_88": {
+   "min": 279.86,
+   "med": 293.01,
+   "iters": 100540
+  },
+  "classify_frame_91": {
+   "min": 275.56,
+   "med": 281.49,
+   "iters": 108455
+  },
+  "black_frame": {
+   "min": 1.95,
+   "med": 2.0,
+   "iters": 15529282
+  },
+  "lead_boost_72ch": {
+   "min": 289.23,
+   "med": 298.5,
+   "iters": 103134
+  },
+  "adjust_zones_default": {
+   "min": 137.66,
+   "med": 140.62,
+   "iters": 215941
+  },
+  "adjust_zones_gamma": {
+   "min": 963.09,
+   "med": 968.51,
+   "iters": 30945
+  },
+  "motion_push_at": {
+   "min": 31.26,
+   "med": 31.97,
+   "iters": 951935
+  },
+  "speed_push": {
+   "min": 76.96,
+   "med": 77.67,
+   "iters": 383786
+  },
+  "apply_table_linear": {
+   "min": 936.49,
+   "med": 944.84,
+   "iters": 31365
+  },
+  "apply_table_loop": {
+   "min": 804.07,
+   "med": 813.76,
+   "iters": 37106
+  },
+  "apply_table_vivid": {
+   "min": 3433.81,
+   "med": 3463.17,
+   "iters": 8741
+  },
+  "saturate_266": {
+   "min": 461.14,
+   "med": 465.33,
+   "iters": 64449
+  },
+  "blur_266": {
+   "min": 1586.39,
+   "med": 1617.75,
+   "iters": 18814
+  },
+  "dark_outside_266": {
+   "min": 173.61,
+   "med": 178.04,
+   "iters": 164460
+  },
+  "ease_266": {
+   "min": 1172.9,
+   "med": 1190.41,
+   "iters": 25452
+  },
+  "finish_all_266": {
+   "min": 2742.23,
+   "med": 2768.86,
+   "iters": 10865
+  },
+  "pack_rgb_266": {
+   "min": 571.29,
+   "med": 573.89,
+   "iters": 52371
+  },
+  "pack_rgbw_266": {
+   "min": 690.68,
+   "med": 695.19,
+   "iters": 43133
+  },
+  "tick_minimal_266": {
+   "min": 2698.52,
+   "med": 2707.89,
+   "iters": 11072
+  },
+  "tick_rich_266": {
+   "min": 7269.12,
+   "med": 7336.24,
+   "iters": 3973
+  },
+  "tick_everything_266": {
+   "min": 10313.48,
+   "med": 10657.04,
+   "iters": 2700
+  },
+  "govee_json_50": {
+   "min": 112.77,
+   "med": 114.81,
+   "iters": 265290
+  },
+  "ddp_header": {
+   "min": 3.77,
+   "med": 3.82,
+   "iters": 7827920
+  }
+ }
+}

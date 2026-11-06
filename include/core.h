@@ -190,6 +190,16 @@ void speedReset(SpeedDetect& d);
 void speedPush(SpeedDetect& d, const uint8_t zones[kZones][3], int steps);   // steps = boxStepsForGap since the previous packet
 SpeedResult speedResult(const SpeedDetect& d);
 
+// The shared look applied to the box's 24 zone colours (0..255) once per Sync Box frame: saturation (around the luma), gamma, then brightness. out may equal raw.
+void adjustZones(float out[kZones][3], const float raw[kZones][3], float brightness, float gamma, float saturation);
+// One easing step of a target's shown colours (n LEDs, 3 floats each) towards the wanted ones times `trim`: cur += (tgt * trim - cur) * (1 - decay).
+// Returns the largest distance still left after the step (0.5 or less = nothing visible left to ease).
+float easeColours(float* cur, const float* tgt, int n, float trim, float decay);
+// cur = tgt * trim (no easing: the first frame, or the picture is already slid in time by Motion smoothing).
+void scaleColours(float* cur, const float* tgt, int n, float trim);
+// Rounds n LEDs of whole-number-ish colours to bytes (clamped 0..255) into out: RGB, or (whiteMin) RGBW with the common part of the three taken out into W. Returns the bytes written.
+size_t packColours(const float* cur, int n, bool whiteMin, uint8_t* out);
+
 // The finishing stage of the output: what is done to one target's LEDs after every temporal stage (motion smoothing or easing) and just before the colours are rounded
 // to bytes. It comes after the temporal stages on purpose: Reaction boost works earlier, on the Sync Box's own frames, so nothing here can fight it. All three parts are off
 // by default (then the colours pass through untouched).

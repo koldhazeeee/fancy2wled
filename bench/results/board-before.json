@@ -1,0 +1,123 @@
+{
+ "label": "before",
+ "platform": "esp32-s3 @ 240 MHz",
+ "unit": "ns per operation",
+ "passes": 3,
+ "cases": {
+  "classify_frame_88": {
+   "min": 8184.6,
+   "med": 8184.6,
+   "iters": 4886
+  },
+  "classify_frame_91": {
+   "min": 7790.2,
+   "med": 7790.4,
+   "iters": 5134
+  },
+  "black_frame": {
+   "min": 209.8,
+   "med": 209.8,
+   "iters": 190594
+  },
+  "lead_boost_72ch": {
+   "min": 65564.9,
+   "med": 65576.4,
+   "iters": 609
+  },
+  "adjust_zones_default": {
+   "min": 25929.3,
+   "med": 25930.6,
+   "iters": 1542
+  },
+  "adjust_zones_gamma": {
+   "min": 221933.3,
+   "med": 221977.8,
+   "iters": 180
+  },
+  "motion_push_at": {
+   "min": 50686.9,
+   "med": 50686.9,
+   "iters": 789
+  },
+  "speed_push": {
+   "min": 14818.1,
+   "med": 14819.2,
+   "iters": 2699
+  },
+  "apply_table_linear": {
+   "min": 183073.4,
+   "med": 183105.5,
+   "iters": 218
+  },
+  "apply_table_loop": {
+   "min": 151577.9,
+   "med": 151604.6,
+   "iters": 263
+  },
+  "apply_table_vivid": {
+   "min": 471178.6,
+   "med": 471261.9,
+   "iters": 84
+  },
+  "saturate_266": {
+   "min": 86967.3,
+   "med": 86982.6,
+   "iters": 459
+  },
+  "blur_266": {
+   "min": 216967.4,
+   "med": 216994.6,
+   "iters": 184
+  },
+  "dark_outside_266": {
+   "min": 20363.0,
+   "med": 20363.5,
+   "iters": 1964
+  },
+  "ease_266": {
+   "min": 73898.1,
+   "med": 73940.7,
+   "iters": 540
+  },
+  "finish_all_266": {
+   "min": 467670.6,
+   "med": 467764.7,
+   "iters": 85
+  },
+  "pack_rgb_266": {
+   "min": 22640.1,
+   "med": 22640.1,
+   "iters": 1767
+  },
+  "pack_rgbw_266": {
+   "min": 35537.8,
+   "med": 35540.4,
+   "iters": 1125
+  },
+  "tick_minimal_266": {
+   "min": 279412.6,
+   "med": 279419.6,
+   "iters": 143
+  },
+  "tick_rich_266": {
+   "min": 866043.5,
+   "med": 866195.7,
+   "iters": 46
+  },
+  "tick_everything_266": {
+   "min": 1233562.5,
+   "med": 1233687.5,
+   "iters": 32
+  },
+  "govee_json_50": {
+   "min": 12254.7,
+   "med": 12255.0,
+   "iters": 3263
+  },
+  "ddp_header": {
+   "min": 251.8,
+   "med": 251.8,
+   "iters": 158836
+  }
+ }
+}

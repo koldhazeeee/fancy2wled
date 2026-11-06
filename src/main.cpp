@@ -5,6 +5,11 @@
 
 #include "app.h"
 
+#ifdef FWB_BENCH
+void benchMain();                    // src/bench_main.cpp: the benchmark build runs the benchmark cases instead of the relay
+void setup() { benchMain(); }
+void loop() {}
+#else
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -32,3 +37,4 @@ void loop() {
   if (gPerfOn) perfLoopEnd();
   relayWait(10);                     // sleeps until a Sync Box packet arrives or the relay has something to do (at most 10 ms)
 }
+#endif

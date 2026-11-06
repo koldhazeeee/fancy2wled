@@ -730,6 +730,49 @@ int boxStepsForGap(uint32_t gapMs) {
   return n < 1 ? 1 : n;
 }
 
+void adjustZones(float out[kZones][3], const float raw[kZones][3], float br, float gm, float sat) {
+  auto clampf = [](float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); };
+  for (int z = 0; z < kZones; z++) {
+    float c[3] = {raw[z][0] / 255.f, raw[z][1] / 255.f, raw[z][2] / 255.f};
+    if (sat != 1.f) {
+      float y = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
+      for (int k = 0; k < 3; k++) c[k] = clampf(y + (c[k] - y) * sat, 0.f, 1.f);
+    }
+    if (gm != 1.f) for (int k = 0; k < 3; k++) c[k] = powf(c[k], gm);
+    for (int k = 0; k < 3; k++) out[z][k] = clampf(c[k] * br * 255.f, 0.f, 255.f);
+  }
+}
+
+float easeColours(float* cur, const float* tgt, int n, float trim, float decay) {
+  float worst = 0.f;
+  for (int k = 0; k < n * 3; k++) {
+    const float d = tgt[k] * trim - cur[k];
+    cur[k] += d * (1.f - decay);
+    const float left = d * decay;
+    if (left > worst) worst = left; else if (-left > worst) worst = -left;
+  }
+  return worst;
+}
+
+void scaleColours(float* cur, const float* tgt, int n, float trim) {
+  for (int k = 0; k < n * 3; k++) cur[k] = tgt[k] * trim;
+}
+
+size_t packColours(const float* cur, int n, bool whiteMin, uint8_t* out) {
+  size_t o = 0;
+  for (int i = 0; i < n; i++) {
+    int r = (int)(cur[i * 3] + 0.5f), g = (int)(cur[i * 3 + 1] + 0.5f), b = (int)(cur[i * 3 + 2] + 0.5f);
+    r = r < 0 ? 0 : (r > 255 ? 255 : r); g = g < 0 ? 0 : (g > 255 ? 255 : g); b = b < 0 ? 0 : (b > 255 ? 255 : b);
+    if (whiteMin) {
+      int w = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      out[o++] = (uint8_t)(r - w); out[o++] = (uint8_t)(g - w); out[o++] = (uint8_t)(b - w); out[o++] = (uint8_t)w;
+    } else {
+      out[o++] = (uint8_t)r; out[o++] = (uint8_t)g; out[o++] = (uint8_t)b;
+    }
+  }
+  return o;
+}
+
 void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* dark, const FinishParams& p, bool moving, bool fresh, float* out) {
   const float cut = (float)p.blackCut;
   for (int i = 0; i < n; i++) {
