@@ -1078,6 +1078,17 @@ int main(int argc, char** argv) {
     uint32_t rng = 0xC0FFEE11u;
     auto rnd = [&rng]() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
     auto rf = [&]() { return (float)(rnd() % 25600) / 100.f; };             // 0 .. 255.99
+    char exApply[220] = "", exSat[220] = "", exEase[220] = "", exLead[220] = "";
+    auto firstDiff = [](char* dst, size_t cap, const float* x, const float* y, size_t n, const char* tag) {      // describes the first element that differs, with the raw bits
+      if (dst[0]) return;
+      for (size_t k = 0; k < n; k++) {
+        if (memcmp(&x[k], &y[k], sizeof(float)) == 0) continue;
+        uint32_t bx, by;
+        memcpy(&bx, &x[k], 4); memcpy(&by, &y[k], 4);
+        snprintf(dst, cap, " [%s: element %zu of %zu, new %.9g (%08x) vs original %.9g (%08x)]", tag, k, n, (double)x[k], (unsigned)bx, (double)y[k], (unsigned)by);
+        return;
+      }
+    };
     int applyBad = 0, blurBad = 0, leadBad = 0, frameBad = 0, finBad = 0, easeBad = 0, packBad = 0, darkBad = 0, adjBad = 0, tables = 0;
     for (int iter = 0; iter < 400; iter++) {
       float zones[kZones][3];
@@ -1102,7 +1113,7 @@ int main(int argc, char** argv) {
         std::vector<float> a((size_t)count * 3), o((size_t)count * 3);
         applyTable(tbl.data(), count, zones, a.data(), sm, vivid != 0);
         legacy::applyTable(tbl.data(), count, zones, o.data(), sm, vivid != 0);
-        if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) applyBad++;
+        if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) { applyBad++; firstDiff(exApply, sizeof exApply, a.data(), o.data(), a.size(), vivid ? "vivid" : "plain"); }
       }
       {                                                                    // blur: random span and width
         std::vector<float> a((size_t)count * 3), o, sa((size_t)count * 6), sb((size_t)count * 6);
@@ -1127,7 +1138,7 @@ int main(int argc, char** argv) {
         const float trim = (float)(rnd() % 120) / 100.f, decay = (rnd() % 5 == 0) ? 0.f : (float)(rnd() % 96) / 100.f;
         const float w1 = easeColours(c1.data(), tg.data(), count, trim, decay);
         const float w2 = legacy::easeColours(c2.data(), tg.data(), count, trim, decay);
-        if (w1 != w2 || memcmp(c1.data(), c2.data(), c1.size() * sizeof(float)) != 0) easeBad++;
+        if (w1 != w2 || memcmp(c1.data(), c2.data(), c1.size() * sizeof(float)) != 0) { easeBad++; firstDiff(exEase, sizeof exEase, c1.data(), c2.data(), c1.size(), "cur"); if (!exEase[0]) snprintf(exEase, sizeof exEase, " [worst %.9g vs %.9g]", (double)w1, (double)w2); }
         std::vector<float> wild((size_t)count * 3);
         for (auto& v : wild) v = -40.f + (float)(rnd() % 40000) / 100.f;       // -40 .. 360: includes the clamped ends
         for (int w = 0; w < 2; w++) {
@@ -1146,14 +1157,17 @@ int main(int argc, char** argv) {
       const float sat = (rnd() % 6 == 0) ? 1.f : (float)(rnd() % 301) / 100.f;
       saturateColours(a.data(), n, sat);
       legacy::saturateColours(o.data(), n, sat);
-      if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) satBad++;
+      if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) { satBad++; firstDiff(exSat, sizeof exSat, a.data(), o.data(), a.size(), "sat"); }
     }
-    CHECK(satBad == 0, "saturateColours is bit-identical to the original for any length and saturation (%d differ)", satBad);
+    CHECK(satBad == 0, "saturateColours is bit-identical to the original for any length and saturation (%d differ)%s", satBad, exSat);
     for (int iter = 0; iter < 20000; iter++) {                              // Reaction boost
       const float y = rf(), yp = rf(), boost = (float)(rnd() % 121) / 100.f - 0.1f;
       const int speed = (int)(rnd() % 120), steps = (int)(rnd() % 12) - 1;
       const float want = legacy::leadBoost(y, yp, boost, speed, steps);
-      if (leadBoost(y, yp, boost, speed, steps) != want || leadApply(y, yp, leadFactor(boost, speed, steps)) != want) leadBad++;
+      if (leadBoost(y, yp, boost, speed, steps) != want || leadApply(y, yp, leadFactor(boost, speed, steps)) != want) {
+        leadBad++;
+        if (!exLead[0]) snprintf(exLead, sizeof exLead, " [y %.9g prev %.9g boost %.9g speed %d steps %d: original %.9g, leadBoost %.9g, leadApply %.9g]", (double)y, (double)yp, (double)boost, speed, steps, (double)want, (double)leadBoost(y, yp, boost, speed, steps), (double)leadApply(y, yp, leadFactor(boost, speed, steps)));
+      }
     }
     for (int iter = 0; iter < 6000; iter++) {                               // frames: valid ones with any key length, and corrupted ones
       uint8_t f[100];
@@ -1198,10 +1212,10 @@ int main(int argc, char** argv) {
       legacy::adjustZones(o, raw, br, gm, sat);
       for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) if (fabsf(a[z][c] - o[z][c]) > 0.002f) adjBad++;
     }
-    CHECK(applyBad == 0, "applyTable is bit-identical to the original on %d random tables, plain and vivid (%d differ)", tables, applyBad);
+    CHECK(applyBad == 0, "applyTable is bit-identical to the original on %d random tables, plain and vivid (%d differ)%s", tables, applyBad, exApply);
     CHECK(blurBad == 0, "blurColours is bit-identical to the original (%d differ)", blurBad);
-    CHECK(darkBad == 0 && easeBad == 0 && packBad == 0, "darkOutside, easeColours and packColours are bit-identical to the originals (%d, %d, %d differ)", darkBad, easeBad, packBad);
-    CHECK(leadBad == 0, "leadBoost, and leadApply(leadFactor) are bit-identical to the original (%d differ)", leadBad);
+    CHECK(darkBad == 0 && easeBad == 0 && packBad == 0, "darkOutside, easeColours and packColours are bit-identical to the originals (%d, %d, %d differ)%s", darkBad, easeBad, packBad, exEase);
+    CHECK(leadBad == 0, "leadBoost, and leadApply(leadFactor) are bit-identical to the original (%d differ)%s", leadBad, exLead);
     CHECK(frameBad == 0, "classifyFrame gives the original's answer for valid and damaged frames (%d differ)", frameBad);
     CHECK(finBad == 0, "finishColours, with its state, is bit-identical to the original over random sequences (%d frames differ)", finBad);
     CHECK(adjBad == 0, "adjustZones is within 0.002 of the original (%d values outside)", adjBad);
