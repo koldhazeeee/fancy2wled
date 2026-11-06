@@ -95,10 +95,14 @@ struct Mark {                                  // marker blocks (the setup page 
 struct Rt {
   float *tgt = nullptr, *cur = nullptr;        // wanted / shown colours of this target's LEDs (n * 3)
   int cap = 0;
-  float *held = nullptr, *resid = nullptr;     // the finishing stage's state per LED (n * 3 each) ...
+  float *held = nullptr, *resid = nullptr, *fin = nullptr;   // the finishing stage's state per LED (n * 3 each) and its output ...
   uint8_t* dark = nullptr;                     // ... and whether an LED is below the black cut-off (n); allocated only while that stage is on
   int finCap = 0;
   uint32_t finGen = 0xFFFFFFFF;                // the settings generation the state belongs to (a change of settings starts it afresh)
+  float lastZones[kZones][3] = {};             // the zone colours tgt was computed from: a tick with no new picture (easing toward it) does not compute it again
+  bool tgtValid = false;
+  int tgtN = 0;
+  uint32_t tgtGen = 0xFFFFFFFF;
   uint8_t* last = nullptr;                     // the last frame sent: identical frames are not sent again
   int lastCap = 0;
   size_t lastLen = 0;                          // 0 = nothing valid (the next frame is always sent)
@@ -146,10 +150,11 @@ static Rt gRt[kMaxTargets];
 static int gCalTarget = -1;                    // the target with a finder / calibration session (one at a time)
 
 static void freeBuffers(Rt& r) {
-  free(r.tgt); free(r.cur); free(r.last); free(r.held); free(r.resid); free(r.dark);
-  r.tgt = r.cur = r.held = r.resid = nullptr;
+  free(r.tgt); free(r.cur); free(r.last); free(r.held); free(r.resid); free(r.fin); free(r.dark);
+  r.tgt = r.cur = r.held = r.resid = r.fin = nullptr;
   r.dark = nullptr;
   r.finCap = 0;
+  r.tgtValid = false;
   r.last = nullptr;
   r.cap = r.lastCap = 0;
   r.lastLen = 0;
@@ -169,16 +174,45 @@ static bool ensureBuffers(Rt& r, int n) {
 }
 
 static bool ensureFinish(Rt& r, int n) {                                  // the finishing stage's memory: only while the stage is on
-  if (r.finCap >= n && r.held && r.resid && r.dark) return true;
-  free(r.held); free(r.resid); free(r.dark);
+  if (r.finCap >= n && r.held && r.resid && r.fin && r.dark) return true;
+  free(r.held); free(r.resid); free(r.fin); free(r.dark);
   r.held = (float*)calloc((size_t)n * 3, sizeof(float));
   r.resid = (float*)calloc((size_t)n * 3, sizeof(float));
+  r.fin = (float*)calloc((size_t)n * 3, sizeof(float));
   r.dark = (uint8_t*)calloc((size_t)n, 1);
   r.finGen = 0xFFFFFFFF;
-  if (!r.held || !r.resid || !r.dark) { free(r.held); free(r.resid); free(r.dark); r.held = r.resid = nullptr; r.dark = nullptr; r.finCap = 0; return false; }
+  if (!r.held || !r.resid || !r.fin || !r.dark) { free(r.held); free(r.resid); free(r.fin); free(r.dark); r.held = r.resid = r.fin = nullptr; r.dark = nullptr; r.finCap = 0; return false; }
   r.finCap = n;
   return true;
 }
+
+// ---------------------------------------------------------------- tick statistics (a measurement build only: pio run -e atoms3-tickstat)
+// Times the colour work of every output tick of every target (mixing, easing, finishing, packing; not the network send) and prints the average and worst time and how many
+// ticks reused the previous wanted colours, every five seconds on the USB serial port. Not in the normal firmware: the macros are empty there.
+#ifdef FWB_TICK_STATS
+static uint32_t gTsT0, gTsSum, gTsN, gTsMax, gTsReused, gTsLast;
+static bool gTsSame;
+static void tickStatEnd(bool packed) {
+  if (packed) {
+    const uint32_t d = micros() - gTsT0;
+    gTsSum += d; gTsN++;
+    if (d > gTsMax) gTsMax = d;
+    if (gTsSame) gTsReused++;
+  }
+  if (millis() - gTsLast >= 5000) {
+    Serial.printf("TICKSTAT n=%u avg_us=%.1f max_us=%u reused=%u\n", (unsigned)gTsN, gTsN ? (double)gTsSum / gTsN : 0.0, (unsigned)gTsMax, (unsigned)gTsReused);
+    gTsSum = gTsN = gTsMax = gTsReused = 0;
+    gTsLast = millis();
+  }
+}
+#define FWB_TICK_STAT_BEGIN() do { gTsT0 = micros(); gTsSame = false; } while (0)
+#define FWB_TICK_STAT_NOTE(same) (gTsSame = (same))
+#define FWB_TICK_STAT_END(packed) tickStatEnd(packed)
+#else
+#define FWB_TICK_STAT_BEGIN() do {} while (0)
+#define FWB_TICK_STAT_NOTE(same) do { (void)(same); } while (0)
+#define FWB_TICK_STAT_END(packed) do { (void)(packed); } while (0)
+#endif
 
 // ---------------------------------------------------------------- WLED HTTP helpers
 static bool httpGet(const String& host, const char* path, String& body, int timeoutMs = 1500) {
@@ -804,11 +838,14 @@ static bool pollBox() {
       gHave = true;
       gFrames++;
       float f[kZones][3];                                          // what the lights should follow: the box's value, or (boost) the colour it is aiming at
-      for (int q = 0; q < kZones; q++)
-        for (int c = 0; c < 3; c++) {
-          f[q][c] = (boost > 0.f && motionPct == 0 && gPrevValid) ? leadBoost(z[q][c], gPrevY[q][c], boost, boxSpeed, steps) : (float)z[q][c];   // (motion smoothing replaces the boost)
-          gPrevY[q][c] = z[q][c];
-        }
+      if (boost > 0.f && motionPct == 0 && gPrevValid) {           // (motion smoothing replaces the boost)
+        const float lead = leadFactor(boost, boxSpeed, steps);     // the same for all 72 channels of this packet
+        for (int q = 0; q < kZones; q++)
+          for (int c = 0; c < 3; c++) { f[q][c] = leadApply((float)z[q][c], gPrevY[q][c], lead); gPrevY[q][c] = z[q][c]; }
+      } else {
+        for (int q = 0; q < kZones; q++)
+          for (int c = 0; c < 3; c++) { f[q][c] = (float)z[q][c]; gPrevY[q][c] = z[q][c]; }
+      }
       gPrevValid = true;
       adjustInto(gAdj, f);
       if (motionPct > 0) motionPush(gMotion, now, gAdj);
@@ -1089,6 +1126,7 @@ void relayLoop() {
     size_t len = 0;
     bool packed = false;
     const int n = sn[i].count;
+    FWB_TICK_STAT_BEGIN();
     {
       Lock l;
       if (gTableN[i] == n && n > 0 && ensureBuffers(r, n)) {
@@ -1096,10 +1134,20 @@ void relayLoop() {
         const float(*zones)[3] = interp ? zi : gAdj;
         if (testing) { float raw[kZones][3]; rainbowZones(raw); adjustInto(adjR, raw); zones = adjR; }
         if (r.smoothGen != gSettingsGen) { r.smooth = smoothInfo(gTable[i], n, gSet.smoothOut); r.smoothGen = gSettingsGen; }
-        applyTable(gTable[i], n, zones, r.tgt, r.smooth, sn[i].vivid);
-        if (sn[i].sat != 1.f) saturateColours(r.tgt, n, sn[i].sat);                  // this target's own saturation, on top of the shared one
-        if (sn[i].blur > 0) blurPart(r.tgt, n, sn[i].spanFirst, sn[i].spanLast, sn[i].blur);   // soften the steps between zones along the picture part
-        if (sn[i].darkOut) darkOutside(r.tgt, n, sn[i].spanFirst, sn[i].spanLast);   // the part of the strip that is not along the picture stays dark
+        // The wanted colours depend only on the picture, the settings and the table: while this target eases toward a picture that has not changed (several output
+        // ticks per Sync Box packet), they are not worked out again.
+        const bool sameInput = !testing && r.tgtValid && r.tgtN == n && r.tgtGen == gSettingsGen && memcmp(r.lastZones, zones, sizeof r.lastZones) == 0;
+        if (!sameInput) {
+          applyTable(gTable[i], n, zones, r.tgt, r.smooth, sn[i].vivid);
+          if (sn[i].sat != 1.f) saturateColours(r.tgt, n, sn[i].sat);                  // this target's own saturation, on top of the shared one
+          if (sn[i].blur > 0) blurPart(r.tgt, n, sn[i].spanFirst, sn[i].spanLast, sn[i].blur);   // soften the steps between zones along the picture part
+          if (sn[i].darkOut) darkOutside(r.tgt, n, sn[i].spanFirst, sn[i].spanLast);   // the part of the strip that is not along the picture stays dark
+          memcpy(r.lastZones, zones, sizeof r.lastZones);
+          r.tgtValid = !testing;
+          r.tgtN = n;
+          r.tgtGen = gSettingsGen;
+        }
+        FWB_TICK_STAT_NOTE(sameInput);
         r.computedGen = gSettingsGen;
         const float smo = gSet.kSmo;
         const float trim = sn[i].trim;
@@ -1120,14 +1168,15 @@ void relayLoop() {
         r.smoothUs = nowUs;
         const float* shown = r.cur;
         if (finishActive(fin) && ensureFinish(r, n)) {                                // black cut-off, deadband, dither: after every temporal stage, so Reaction boost is not touched
-          finishColours(r.cur, n, r.held, r.resid, r.dark, fin, !r.converged, freshCur || r.finGen != gSettingsGen, r.tgt);   // (the wanted colours are not needed any more: r.tgt takes the result)
+          finishColours(r.cur, n, r.held, r.resid, r.dark, fin, !r.converged, freshCur || r.finGen != gSettingsGen, r.fin);
           r.finGen = gSettingsGen;
-          shown = r.tgt;
+          shown = r.fin;
         }
         len = packColours(shown, n, sn[i].whiteMin, gPayload);
         packed = true;
       }
     }
+    FWB_TICK_STAT_END(packed);
     if (!packed) continue;
     if (!r.converged) allConverged = false;
     const bool same = len == r.lastLen && sn[i].start == r.lastStart && sn[i].whiteMin == r.lastRgbw && memcmp(gPayload, r.last, len) == 0;

@@ -12,7 +12,6 @@ static uint32_t gDownSince = 0;
 static const char* kHostname = FWB_HOSTNAME;
 
 bool wifiIsAp() { return gAp; }
-String wifiSsid() { return WiFi.SSID(); }
 
 void requestRestart(uint32_t inMs) { gRestartAt = millis() + inMs; if (!gRestartAt) gRestartAt = 1; }
 bool restartDue() { return gRestartAt && (int32_t)(millis() - gRestartAt) >= 0; }

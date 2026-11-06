@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core.h"
+#include "legacy_core.h"      // the core functions as they were before the performance work (tools/freeze_legacy.py)
 
 using namespace fwb;
 
@@ -1069,6 +1070,141 @@ int main(int argc, char** argv) {
       CHECK(finBad == 0, "the finishing stage always gives whole numbers 0..255, is transparent when off, and is dark below the cut-off (%d problems)", finBad);
     }
     CHECK(markBad == 0, "the update marker is always found, in any chunking, and never in noise (%d problems)", markBad);
+  }
+
+  {
+    // The optimised functions against the originals from before the performance work (test/legacy_core.h), on random inputs. Wherever the change was only to the way the
+    // result is reached, the results must be bit-identical; adjustZones does the same sums in another order, so it is compared to within a tiny tolerance.
+    uint32_t rng = 0xC0FFEE11u;
+    auto rnd = [&rng]() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
+    auto rf = [&]() { return (float)(rnd() % 25600) / 100.f; };             // 0 .. 255.99
+    int applyBad = 0, blurBad = 0, leadBad = 0, frameBad = 0, finBad = 0, easeBad = 0, packBad = 0, darkBad = 0, adjBad = 0, tables = 0;
+    for (int iter = 0; iter < 400; iter++) {
+      float zones[kZones][3];
+      for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) zones[z][c] = (rnd() % 7 == 0) ? 0.f : ((rnd() % 9 == 0) ? 255.f : rf());
+      const int count = 2 + (int)(rnd() % 300);
+      std::vector<Entry> tbl((size_t)count);
+      if (iter % 3 == 2) {                                                // arbitrary entries (a calibrated table can hold anything): the beyond-the-TV blend does real work here
+        for (int i = 0; i < count; i++) {
+          const bool middle = i > count / 4 && i < count - count / 4;
+          tbl[(size_t)i] = Entry{(uint8_t)(rnd() % kZones), (uint8_t)(rnd() % kZones), (uint8_t)(rnd() % 256), (uint8_t)(middle ? 0 : 1 + rnd() % 255)};
+        }
+      } else if (rnd() % 2) {
+        const int sf = (int)(rnd() % (uint32_t)count), sl = sf + (int)(rnd() % (uint32_t)(count - sf));
+        tableLinear(tbl.data(), count, rnd() % 2 != 0, rnd() % 4 ? sf : -1, rnd() % 4 ? sl : -1, (int)(rnd() % 4));
+      } else if (!tableLoop(tbl.data(), count, (int)(rnd() % 4), rnd() % 2 != 0, nullptr, (int)(rnd() % 20), 16, 9)) {
+        tableLinear(tbl.data(), count, false, -1, -1, 0);
+      }
+      tables++;
+      const int pcts[3] = {0, 50, 100};
+      const SmoothInfo sm = smoothInfo(tbl.data(), count, pcts[rnd() % 3]);
+      for (int vivid = 0; vivid < 2; vivid++) {
+        std::vector<float> a((size_t)count * 3), o((size_t)count * 3);
+        applyTable(tbl.data(), count, zones, a.data(), sm, vivid != 0);
+        legacy::applyTable(tbl.data(), count, zones, o.data(), sm, vivid != 0);
+        if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) applyBad++;
+      }
+      {                                                                    // blur: random span and width
+        std::vector<float> a((size_t)count * 3), o, sa((size_t)count * 6), sb((size_t)count * 6);
+        for (auto& v : a) v = rf();
+        o = a;
+        const int first = (rnd() % 3 == 0) ? -1 : (int)(rnd() % (uint32_t)count), last = (int)(rnd() % (uint32_t)count), width = (int)(rnd() % 40);
+        blurColours(a.data(), count, first, last, width, sa.data());
+        legacy::blurColours(o.data(), count, first, last, width, sb.data());
+        if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) blurBad++;
+      }
+      {                                                                    // dark outside, easing and packing
+        std::vector<float> a((size_t)count * 3), o;
+        for (auto& v : a) v = rf();
+        o = a;
+        const int first = (int)(rnd() % (uint32_t)(count + 3)) - 1, last = (int)(rnd() % (uint32_t)(count + 3)) - 1;
+        darkOutside(a.data(), count, first, last);
+        legacy::darkOutside(o.data(), count, first, last);
+        if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) darkBad++;
+        std::vector<float> tg((size_t)count * 3), c1((size_t)count * 3), c2;
+        for (size_t k = 0; k < tg.size(); k++) { tg[k] = rf(); c1[k] = rf(); }
+        c2 = c1;
+        const float trim = (float)(rnd() % 120) / 100.f, decay = (rnd() % 5 == 0) ? 0.f : (float)(rnd() % 96) / 100.f;
+        const float w1 = easeColours(c1.data(), tg.data(), count, trim, decay);
+        const float w2 = legacy::easeColours(c2.data(), tg.data(), count, trim, decay);
+        if (w1 != w2 || memcmp(c1.data(), c2.data(), c1.size() * sizeof(float)) != 0) easeBad++;
+        std::vector<float> wild((size_t)count * 3);
+        for (auto& v : wild) v = -40.f + (float)(rnd() % 40000) / 100.f;       // -40 .. 360: includes the clamped ends
+        for (int w = 0; w < 2; w++) {
+          std::vector<uint8_t> p1((size_t)count * 4), p2((size_t)count * 4);
+          const size_t n1 = packColours(wild.data(), count, w != 0, p1.data()), n2 = legacy::packColours(wild.data(), count, w != 0, p2.data());
+          if (n1 != n2 || memcmp(p1.data(), p2.data(), n1) != 0) packBad++;
+        }
+      }
+    }
+    int satBad = 0;
+    for (int iter = 0; iter < 600; iter++) {                                // saturation: any length (odd and even), saturation below and above 1
+      const int n = 1 + (int)(rnd() % 120);
+      std::vector<float> a((size_t)n * 3), o;
+      for (auto& v : a) v = (rnd() % 8 == 0) ? 0.f : ((rnd() % 8 == 0) ? 255.f : rf());
+      o = a;
+      const float sat = (rnd() % 6 == 0) ? 1.f : (float)(rnd() % 301) / 100.f;
+      saturateColours(a.data(), n, sat);
+      legacy::saturateColours(o.data(), n, sat);
+      if (memcmp(a.data(), o.data(), a.size() * sizeof(float)) != 0) satBad++;
+    }
+    CHECK(satBad == 0, "saturateColours is bit-identical to the original for any length and saturation (%d differ)", satBad);
+    for (int iter = 0; iter < 20000; iter++) {                              // Reaction boost
+      const float y = rf(), yp = rf(), boost = (float)(rnd() % 121) / 100.f - 0.1f;
+      const int speed = (int)(rnd() % 120), steps = (int)(rnd() % 12) - 1;
+      const float want = legacy::leadBoost(y, yp, boost, speed, steps);
+      if (leadBoost(y, yp, boost, speed, steps) != want || leadApply(y, yp, leadFactor(boost, speed, steps)) != want) leadBad++;
+    }
+    for (int iter = 0; iter < 6000; iter++) {                               // frames: valid ones with any key length, and corrupted ones
+      uint8_t f[100];
+      const size_t q = 3 + rnd() % 8, len = 83 + q;
+      f[0] = 0x55; f[1] = 0xAA; f[2] = 0x5A; f[3] = (uint8_t)(len - 5);
+      for (int i = 4; i < 8; i++) f[i] = (uint8_t)rnd();
+      for (size_t i = 0; i < q; i++) f[8 + i] = (uint8_t)rnd();
+      uint8_t pt[75];
+      pt[0] = 6; pt[1] = 4; pt[2] = 6;
+      for (int i = 3; i < 75; i++) pt[i] = (uint8_t)rnd();
+      for (size_t i = 0; i < 75; i++) f[8 + q + i] = pt[i] ^ f[8 + (i % q)];
+      size_t use = len;
+      const uint32_t mode = rnd() % 6;
+      if (mode == 1) f[8 + q + rnd() % 3] ^= 0x10;                          // breaks the built-in check
+      else if (mode == 2) use = len - 1 - rnd() % 3;
+      else if (mode == 3) f[(int)(rnd() % 8)] ^= (uint8_t)(1u << (rnd() % 8));
+      uint8_t z1[kZones][3] = {}, z2[kZones][3] = {};
+      FrameInfo i1, i2;
+      const FrameClass c1 = classifyFrame(f, use, z1, &i1), c2 = legacy::classifyFrame(f, use, z2, &i2);
+      if (c1 != c2 || i1.checksumOk != i2.checksumOk || i1.headKnown != i2.headKnown || memcmp(i1.head, i2.head, 3) != 0 || (c1 == kFrameOk && memcmp(z1, z2, sizeof z1) != 0)) frameBad++;
+    }
+    for (int iter = 0; iter < 60; iter++) {                                 // the finishing stage over a sequence of frames, state included
+      const int n = 1 + (int)(rnd() % 40);
+      std::vector<float> h1((size_t)n * 3), e1((size_t)n * 3), o1((size_t)n * 3), h2((size_t)n * 3), e2((size_t)n * 3), o2((size_t)n * 3), cur((size_t)n * 3);
+      std::vector<uint8_t> d1((size_t)n), d2((size_t)n);
+      FinishParams fp;
+      fp.deadband = (rnd() % 3 == 0) ? 0.f : (float)(rnd() % 17) * 0.5f; fp.blackCut = (int)(rnd() % 11); fp.dither = rnd() % 2;
+      for (int fr = 0; fr < 80; fr++) {
+        for (auto& v : cur) { const uint32_t m = rnd() % 6; v = m == 0 ? -20.f + (float)(rnd() % 300) : (m == 1 ? 300.f : (m == 2 ? (float)(rnd() % 4) * 0.7f : rf())); }
+        const bool moving = rnd() % 2, fresh = fr == 0 || rnd() % 30 == 0;
+        finishColours(cur.data(), n, h1.data(), e1.data(), d1.data(), fp, moving, fresh, o1.data());
+        legacy::finishColours(cur.data(), n, h2.data(), e2.data(), d2.data(), fp, moving, fresh, o2.data());
+        if (memcmp(o1.data(), o2.data(), o1.size() * sizeof(float)) != 0 || memcmp(h1.data(), h2.data(), h1.size() * sizeof(float)) != 0 ||
+            memcmp(e1.data(), e2.data(), e1.size() * sizeof(float)) != 0 || memcmp(d1.data(), d2.data(), d1.size()) != 0) finBad++;
+      }
+    }
+    for (int iter = 0; iter < 4000; iter++) {                               // the box's zone colours (tolerance: the sums are done in another order)
+      float raw[kZones][3], a[kZones][3], o[kZones][3];
+      for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) raw[z][c] = (rnd() % 3 == 0) ? (float)(rnd() % 256) : rf();
+      const float br = 0.2f + (float)(rnd() % 131) / 100.f, gm = (rnd() % 2) ? 1.f : 0.6f + (float)(rnd() % 181) / 100.f, sat = (rnd() % 2) ? 1.f : (float)(rnd() % 301) / 100.f;
+      adjustZones(a, raw, br, gm, sat);
+      legacy::adjustZones(o, raw, br, gm, sat);
+      for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) if (fabsf(a[z][c] - o[z][c]) > 0.002f) adjBad++;
+    }
+    CHECK(applyBad == 0, "applyTable is bit-identical to the original on %d random tables, plain and vivid (%d differ)", tables, applyBad);
+    CHECK(blurBad == 0, "blurColours is bit-identical to the original (%d differ)", blurBad);
+    CHECK(darkBad == 0 && easeBad == 0 && packBad == 0, "darkOutside, easeColours and packColours are bit-identical to the originals (%d, %d, %d differ)", darkBad, easeBad, packBad);
+    CHECK(leadBad == 0, "leadBoost, and leadApply(leadFactor) are bit-identical to the original (%d differ)", leadBad);
+    CHECK(frameBad == 0, "classifyFrame gives the original's answer for valid and damaged frames (%d differ)", frameBad);
+    CHECK(finBad == 0, "finishColours, with its state, is bit-identical to the original over random sequences (%d frames differ)", finBad);
+    CHECK(adjBad == 0, "adjustZones is within 0.002 of the original (%d values outside)", adjBad);
   }
 
   printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d vectors; %d checks passed, %d failed\n",

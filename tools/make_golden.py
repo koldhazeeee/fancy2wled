@@ -268,12 +268,6 @@ def main():
     # --- the Sync Box speed detector ----------------------------------------------------------------------------------------------------------------------------
     srnd = random.Random(4242)
 
-    def sp_picture(lo=70, hi=230, changing=24):
-        zs = []
-        for z in range(24):
-            zs.append([srnd.randrange(lo, hi) for _ in range(3)] if z < changing else None)
-        return zs
-
     def sp_jumps(count, hold, lo=70, hi=230, partial=False):
         """A picture that jumps to a new random one every `hold` packets (only some zones when partial; the others stay as they were)."""
         seq = []

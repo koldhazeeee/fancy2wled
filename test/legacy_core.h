@@ -284,24 +284,4 @@ void darkOutside(float* rgb, int n, int first, int last) {
     if (i < first || i > last) rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = 0.f;
 }
 
-bool motionAt(const Motion& m, uint32_t timeMs, float out[kZones][3]) {
-  if (m.n == 0) { memset(out, 0, sizeof(float) * kZones * 3); return true; }
-  const MotionKnot& last = m.k[m.n - 1];
-  if ((int32_t)(timeMs - last.ms) >= 0) { memcpy(out, last.z, sizeof last.z); return true; }
-  if ((int32_t)(timeMs - m.k[0].ms) <= 0) { memcpy(out, m.k[0].z, sizeof m.k[0].z); return knotsSameFrom(m, 0); }
-  for (int i = 0; i + 1 < m.n; i++) {
-    const int32_t a = (int32_t)(timeMs - m.k[i].ms);
-    const int32_t span = (int32_t)(m.k[i + 1].ms - m.k[i].ms);
-    if (a >= 0 && a < span) {
-      if (knotsSameFrom(m, i)) { memcpy(out, m.k[i].z, sizeof m.k[i].z); return true; }   // a picture that does not change: settled, so the output can stop ticking
-      const float f = (float)a / (float)span;
-      for (int z = 0; z < kZones; z++)
-        for (int c = 0; c < 3; c++) out[z][c] = m.k[i].z[z][c] + (m.k[i + 1].z[z][c] - m.k[i].z[z][c]) * f;
-      return false;
-    }
-  }
-  memcpy(out, last.z, sizeof last.z);                               // (not reached: the knots are in strictly increasing order)
-  return true;
-}
-
 }  // namespace legacy

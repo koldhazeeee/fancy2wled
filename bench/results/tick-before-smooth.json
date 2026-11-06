@@ -1,0 +1,84 @@
+{
+ "label": "before-smoothing0.5",
+ "smoothing": 0.5,
+ "windows": 12,
+ "ticks": 4470,
+ "avg_us_weighted": 473.4,
+ "avg_us_median_of_windows": 469.1,
+ "worst_us": 6237,
+ "reused_share": 0.0,
+ "per_window": [
+  {
+   "n": 353,
+   "avg_us": 558.4,
+   "max_us": 6237,
+   "reused": 0
+  },
+  {
+   "n": 401,
+   "avg_us": 484.0,
+   "max_us": 750,
+   "reused": 0
+  },
+  {
+   "n": 406,
+   "avg_us": 483.6,
+   "max_us": 747,
+   "reused": 0
+  },
+  {
+   "n": 401,
+   "avg_us": 485.7,
+   "max_us": 761,
+   "reused": 0
+  },
+  {
+   "n": 397,
+   "avg_us": 483.1,
+   "max_us": 789,
+   "reused": 0
+  },
+  {
+   "n": 396,
+   "avg_us": 463.4,
+   "max_us": 914,
+   "reused": 0
+  },
+  {
+   "n": 344,
+   "avg_us": 430.6,
+   "max_us": 736,
+   "reused": 0
+  },
+  {
+   "n": 356,
+   "avg_us": 463.3,
+   "max_us": 797,
+   "reused": 0
+  },
+  {
+   "n": 348,
+   "avg_us": 441.0,
+   "max_us": 810,
+   "reused": 0
+  },
+  {
+   "n": 332,
+   "avg_us": 449.1,
+   "max_us": 807,
+   "reused": 0
+  },
+  {
+   "n": 397,
+   "avg_us": 474.8,
+   "max_us": 724,
+   "reused": 0
+  },
+  {
+   "n": 339,
+   "avg_us": 455.5,
+   "max_us": 851,
+   "reused": 0
+  }
+ ]
+}

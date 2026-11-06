@@ -51,8 +51,8 @@ python tools/check_capture.py captures/box-....jsonl --compare captures/before.j
 ```
 
 It lists every difference that matters: datagram sizes, magic bytes, header bytes, the checksum, the key lengths, the payload marker and size, the number of
-zones, the source port, the frame rate, and how strongly the box smooths its own colours (the *Reaction boost* assumes 0.6 per step; if it changes, adjust
-`kBoxLead` in `include/core.h`).
+zones, the source port, the frame rate, and how strongly the box smooths its own colours (the *Reaction boost* works from the *Box speed* setting, the box's
+own Speed of Diffusion; if the box changes how it smooths, the setup page's measured box speed shows it).
 
 ## What the relay already tolerates
 

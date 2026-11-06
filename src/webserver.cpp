@@ -687,4 +687,3 @@ void webBegin() {
 #endif
 }
 
-void webLoop() {}

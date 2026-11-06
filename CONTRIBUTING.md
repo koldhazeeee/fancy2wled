@@ -37,8 +37,9 @@ CI runs the same checks on every push and pull request, and a release is only pu
   `cp tools/git-hooks/pre-commit .git/hooks/pre-commit` (git does not version hooks).
 * **Sources are plain ASCII with LF line endings.** The board shows non-ASCII garbled.
 * **Add a line to [CHANGELOG.md](CHANGELOG.md)** under *Unreleased* for anything a user would notice, written for someone deciding whether to update.
-* **Measure, do not guess.** Timing, size and CPU claims in the docs come from measurements (see [docs/LATENCY.md](docs/LATENCY.md) and `tools/sync_probe`); say how you
-  measured when you change one.
+* **Measure, do not guess.** Timing, size and CPU claims in the docs come from measurements (see [docs/LATENCY.md](docs/LATENCY.md), `tools/sync_probe` and
+  [docs/PERFORMANCE.md](docs/PERFORMANCE.md)); say how you measured when you change one. A speed-up is measured on the board (the PC can disagree) and must not change what the
+  relay outputs: `tools/freeze_legacy.py` keeps the original functions for `test/test_core.cpp` to compare against, and `tools/output_fingerprint.py` compares complete LED output.
 * Keep the firmware small and the loop fast: CI fails an image above 90 % of its update slot, and the output loop runs about 30 times a second.
 * Do not add dependencies lightly; the build is pinned (PlatformIO, the ESP32 platform, ArduinoJson) on purpose.
 * Keep pull requests focused: one change, with the reason in the description.

@@ -7,8 +7,6 @@
 namespace fwb {
 
 constexpr int kZones = 24;      // 6 columns x 4 rows, zone = row * 6 + col (row 0 = top, col 0 = left)
-constexpr int kCols = 6;
-constexpr int kRows = 4;
 constexpr uint16_t kBoxPort = 19875;
 constexpr int kMaxLeds = 1000;  // per-LED table size limit
 
@@ -150,8 +148,14 @@ float smoothDecay(float smoothing, float dtMs, float refMs);
 // speedPercent is the box's setting (10..100; 100 = nothing to undo); steps = how many smoothing steps lie between the two packets (see boxStepsForGap).
 // The result is clamped to a valid colour. One case cannot be told from the stream: when the packet just before a change is lost, the first packet after
 // it already holds two steps while looking like one, so that single frame overshoots (about 60 % of the change at boost 1; boost 0.6 halves it).
-constexpr float kBoxLead = 1.5f;
 float leadBoost(float y, float yPrev, float boost, int speedPercent = 40, int steps = 1);
+// The same in two steps, for a whole packet: the factor depends only on the settings and the gap, so it is worked out once (leadFactor) and each of the 72 channels
+// then costs a multiply-add (leadApply). leadBoost(...) == leadApply(y, yPrev, leadFactor(...)).
+float leadFactor(float boost, int speedPercent = 40, int steps = 1);
+inline float leadApply(float y, float yPrev, float factor) {
+  const float v = y + factor * (y - yPrev);
+  return v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+}
 // How many smoothing steps happened between two packets that arrived gapMs apart: the box makes one about every 73 ms (13.7 packets a second) and the
 // link drops some, so a long gap holds several (measured: a gap of 200 ms held 3 steps). Packets that arrive together, or a normal 100 ms apart, are
 // one step apart. 0 = a pause of more than 600 ms: the colours were not following each other, do not extrapolate across it.

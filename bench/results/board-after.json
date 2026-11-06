@@ -1,0 +1,128 @@
+{
+ "label": "after",
+ "platform": "esp32-s3 @ 240 MHz",
+ "unit": "ns per operation",
+ "passes": 3,
+ "cases": {
+  "classify_frame_88": {
+   "min": 7409.8,
+   "med": 7410.0,
+   "iters": 5398
+  },
+  "classify_frame_91": {
+   "min": 7486.4,
+   "med": 7486.4,
+   "iters": 5343
+  },
+  "black_frame": {
+   "min": 180.4,
+   "med": 180.5,
+   "iters": 221630
+  },
+  "lead_boost_72ch": {
+   "min": 63186.4,
+   "med": 63188.0,
+   "iters": 633
+  },
+  "lead_boost_packet": {
+   "min": 8069.2,
+   "med": 8069.4,
+   "iters": 4955
+  },
+  "adjust_zones_default": {
+   "min": 5705.6,
+   "med": 5705.8,
+   "iters": 7012
+  },
+  "adjust_zones_gamma": {
+   "min": 198084.6,
+   "med": 198119.4,
+   "iters": 201
+  },
+  "motion_push_at": {
+   "min": 50661.6,
+   "med": 50670.5,
+   "iters": 789
+  },
+  "speed_push": {
+   "min": 14789.6,
+   "med": 14789.9,
+   "iters": 2704
+  },
+  "apply_table_linear": {
+   "min": 97894.6,
+   "med": 97894.6,
+   "iters": 408
+  },
+  "apply_table_loop": {
+   "min": 66645.0,
+   "med": 66646.7,
+   "iters": 600
+  },
+  "apply_table_vivid": {
+   "min": 232719.3,
+   "med": 232771.9,
+   "iters": 171
+  },
+  "saturate_266": {
+   "min": 75846.3,
+   "med": 75859.6,
+   "iters": 527
+  },
+  "blur_266": {
+   "min": 106949.1,
+   "med": 106967.8,
+   "iters": 373
+  },
+  "dark_outside_266": {
+   "min": 10339.6,
+   "med": 10341.2,
+   "iters": 3866
+  },
+  "ease_266": {
+   "min": 43765.4,
+   "med": 43777.4,
+   "iters": 912
+  },
+  "finish_all_266": {
+   "min": 272605.4,
+   "med": 272612.2,
+   "iters": 147
+  },
+  "pack_rgb_266": {
+   "min": 22614.5,
+   "med": 22615.0,
+   "iters": 1769
+  },
+  "pack_rgbw_266": {
+   "min": 35501.8,
+   "med": 35502.7,
+   "iters": 1126
+  },
+  "tick_minimal_266": {
+   "min": 164061.7,
+   "med": 164090.5,
+   "iters": 243
+  },
+  "tick_rich_266": {
+   "min": 466270.6,
+   "med": 466352.9,
+   "iters": 85
+  },
+  "tick_everything_266": {
+   "min": 676135.6,
+   "med": 676271.2,
+   "iters": 59
+  },
+  "govee_json_50": {
+   "min": 12229.6,
+   "med": 12229.9,
+   "iters": 3271
+  },
+  "ddp_header": {
+   "min": 230.8,
+   "med": 230.8,
+   "iters": 173318
+  }
+ }
+}

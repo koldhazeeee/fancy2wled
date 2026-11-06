@@ -4,6 +4,14 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## Unreleased
+
+* **Faster output, same lights.** The colour work of an output tick (mixing the LEDs from the zones, blur, saturation, easing, the Dark scenes stage) is about 1.8 times faster on
+  the board, measured on the real ESP32-S3 and on the author's real three targets (392 to 216 microseconds per tick; 473 to 247 with Smoothing over time at 0.5). While a target
+  eases toward a picture that has not changed it no longer recomputes the LEDs (38 to 52 % of ticks on the real setup). Reaction boost works its factor out once per packet. The LED
+  output is byte for byte the same as before (checked on the board with 36 fixed pictures, and by comparing every optimised function with its original on random input). It costs
+  about 6 KB of flash and 1.2 KB of RAM. Dead code removed. The method, the benchmarks you can run yourself and every number are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ## 0.4.10 - 2026-11-05
 
 * **Dark scenes and flicker** (setup page, Look; all off by default, so nothing changes until you use them). A last step on the colours, after Reaction boost, smoothing and

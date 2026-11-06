@@ -216,10 +216,13 @@ bool decodeFrame(const uint8_t* d, size_t len, uint8_t zones[kZones][3]) {
   const size_t n = len - 8 - q;  // 75
   if (n != 75) return false;
   uint8_t pt[75];
-  for (size_t i = 0; i < n; i++) pt[i] = body[i] ^ key[i % q];
+  size_t ki = 0;
+  for (size_t i = 0; i < n; i++) {
+    pt[i] = body[i] ^ key[ki];
+    if (++ki == q) ki = 0;                                   // (key[i % q] without a division per byte)
+  }
   if (pt[0] != 0x06 || pt[1] != 0x04 || pt[2] != 0x06) return false;  // built-in integrity check
-  for (int z = 0; z < kZones; z++)
-    for (int c = 0; c < 3; c++) zones[z][c] = pt[3 + z * 3 + c];
+  memcpy(zones, pt + 3, (size_t)kZones * 3);
   return true;
 }
 
@@ -414,6 +417,15 @@ SmoothInfo smoothInfo(const Entry* t, int count, int percent) {
   if (s.lastZero >= 0 && s.lastZero < count - 1) s.maskEnd = tailTarget(t[count - 1]);
   return s;
 }
+// f / 255 for every f (the same division, done by the compiler), so applyTable reads a table instead of dividing for every LED. (Built with a template, not a loop,
+// because the host tests are compiled as C++11.)
+template <int... I> struct IntSeq {};
+template <int N, int... I> struct MakeSeq : MakeSeq<N - 1, N - 1, I...> {};
+template <int... I> struct MakeSeq<0, I...> { typedef IntSeq<I...> type; };
+struct Weights255 { float v[256]; };
+template <int... I> constexpr Weights255 makeWeights255(IntSeq<I...>) { return Weights255{{((float)I / 255.f)...}}; }
+static constexpr Weights255 kWeights255 = makeWeights255(MakeSeq<256>::type());
+
 static inline float smoothstep01(float x) {
   x = x < 0.f ? 0.f : (x > 1.f ? 1.f : x);
   return x * x * (3.f - 2.f * x);
@@ -434,26 +446,36 @@ static void averageOf(const float zones[kZones][3], uint32_t mask, float avg[3])
 // ---- vivid blending: through the colour wheel (see core.h; tools/reference/layout.py blend_vivid is the independent version)
 static void toHsv(const float c[3], float* h, float* s, float* v) {
   const float r = c[0], g = c[1], b = c[2];
-  const float mx = fmaxf(r, fmaxf(g, b)), mn = fminf(r, fminf(g, b)), d = mx - mn;
+  const float mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b), d = mx - mn;     // (fmaxf / fminf are library calls on the ESP32)
   *v = mx / 255.f;
   *s = mx > 0.f ? d / mx : 0.f;
   if (d <= 0.f) { *h = 0.f; return; }
   float hh;
-  if (mx == r) { hh = (g - b) / d; hh -= 6.f * floorf(hh / 6.f); hh *= 60.f; }
+  if (mx == r) { hh = (g - b) / d; if (hh < 0.f) hh += 6.f; hh *= 60.f; }       // (the value is in [-1, 1]: one conditional step is the same as the floorf wrap)
   else if (mx == g) hh = 60.f * ((b - r) / d + 2.f);
   else hh = 60.f * ((r - g) / d + 4.f);
   *h = hh;
 }
 static void fromHsv(float h, float s, float v, float out[3]) {
-  h -= 360.f * floorf(h / 360.f);
-  const float c = v * s, x = c * (1.f - fabsf(fmodf(h / 60.f, 2.f) - 1.f)), m = v - c;
+  if (h >= 360.f || h < 0.f) {                       // a blend of two hues lands in (-180, 540): one step wraps it; anything else falls back to the general wrap
+    if (h >= 360.f && h < 720.f) h -= 360.f;
+    else if (h < 0.f && h >= -360.f) h += 360.f;
+    else h -= 360.f * floorf(h / 360.f);
+  }
+  float hs = h / 60.f;
+  int sec = (int)hs;                                 // 0..5 (6 only for h == 360, which is the same as 0)
+  if (sec > 5) { sec = 0; hs = 0.f; }
+  const float c = v * s, m = v - c;
+  const float x = c * (1.f - fabsf((hs - (float)(sec & ~1)) - 1.f));    // the same as c * (1 - |fmod(hs, 2) - 1|)
   float r, g, b;
-  if (h < 60.f) { r = c; g = x; b = 0; }
-  else if (h < 120.f) { r = x; g = c; b = 0; }
-  else if (h < 180.f) { r = 0; g = c; b = x; }
-  else if (h < 240.f) { r = 0; g = x; b = c; }
-  else if (h < 300.f) { r = x; g = 0; b = c; }
-  else { r = c; g = 0; b = x; }
+  switch (sec) {
+    case 0: r = c; g = x; b = 0; break;
+    case 1: r = x; g = c; b = 0; break;
+    case 2: r = 0; g = c; b = x; break;
+    case 3: r = 0; g = x; b = c; break;
+    case 4: r = x; g = 0; b = c; break;
+    default: r = c; g = 0; b = x; break;
+  }
   out[0] = (r + m) * 255.f; out[1] = (g + m) * 255.f; out[2] = (b + m) * 255.f;
 }
 struct Hsv { float h, s, v; };
@@ -482,29 +504,63 @@ void vividBlend(const float a[3], const float b[3], float w, float out[3]) {
 }
 
 // ---------------------------------------------------------------------------
+namespace {
+// One LED's colour from the table entry: the blend of its two zones (or, vivid, through the colour wheel).
+template <bool kVivid>
+inline void ledColour(const Entry& e, const float zones[kZones][3], const Weights255& kW, Hsv* zh, bool* zhHave, float* o) {
+  const float* za = zones[e.a];
+  const float* zb = zones[e.b];
+  if (kVivid && e.a != e.b && e.f != 0 && e.f != 255) {
+    const int ia = e.a, ib = e.b;
+    if (!zhHave[ia]) { toHsv(za, &zh[ia].h, &zh[ia].s, &zh[ia].v); zhHave[ia] = true; }
+    if (!zhHave[ib]) { toHsv(zb, &zh[ib].h, &zh[ib].s, &zh[ib].v); zhHave[ib] = true; }
+    vividBlendHsv(zh[ia], zh[ib], kW.v[e.f], o);
+  } else if (e.f == 0 || e.a == e.b) {                  // (the blend would add exactly nothing)
+    o[0] = za[0]; o[1] = za[1]; o[2] = za[2];
+  } else {
+    const float w = kW.v[e.f];
+    o[0] = za[0] + (zb[0] - za[0]) * w; o[1] = za[1] + (zb[1] - za[1]) * w; o[2] = za[2] + (zb[2] - za[2]) * w;
+  }
+}
+
+// LEDs lo..hi-1 of a table. tail: the LEDs are beyond the TV (a run of `len` LEDs settles toward avg); otherwise they are along it and nothing is added.
+template <bool kVivid>
+void applyRange(const Entry* t, int lo, int hi, const float zones[kZones][3], float* out, bool tail, int len, const float* avg, Hsv* zh, bool* zhHave) {
+  const Weights255& kW = kWeights255;
+  if (!tail || len <= 0) {
+    for (int i = lo; i < hi; i++) ledColour<kVivid>(t[i], zones, kW, zh, zhHave, out + i * 3);
+    return;
+  }
+  for (int i = lo; i < hi; i++) {
+    float* o = out + i * 3;
+    ledColour<kVivid>(t[i], zones, kW, zh, zhHave, o);
+    if (t[i].d > 0) {                                    // beyond the TV: settle toward the end colour
+      const float g = smoothstep01(t[i].d / (float)len);
+      for (int c = 0; c < 3; c++) o[c] = o[c] + (avg[c] - o[c]) * g;
+    }
+  }
+}
+}  // namespace
+
 void applyTable(const Entry* t, int count, const float zones[kZones][3], float* out, const SmoothInfo& sm, bool vivid) {
   float avgS[3] = {0, 0, 0}, avgE[3] = {0, 0, 0};
   if (sm.lenStart > 0) averageOf(zones, sm.maskStart, avgS);
   if (sm.lenEnd > 0) averageOf(zones, sm.maskEnd, avgE);
   Hsv zh[kZones];                                         // vivid: each zone's hue / saturation / value, converted the first time it is needed
   bool zhHave[kZones] = {};
-  for (int i = 0; i < count; i++) {
-    const float w = t[i].f / 255.f;
-    const float* za = zones[t[i].a];
-    const float* zb = zones[t[i].b];
-    const bool before = i < sm.firstZero;
-    const int len = before ? sm.lenStart : (i > sm.lastZero ? sm.lenEnd : 0);
-    const float* avg = before ? avgS : avgE;
-    const float g = (len > 0 && t[i].d > 0) ? smoothstep01(t[i].d / (float)len) : 0.f;
-    float mixed[3];
-    if (vivid && t[i].a != t[i].b && t[i].f != 0 && t[i].f != 255) {
-      const int ia = t[i].a, ib = t[i].b;
-      if (!zhHave[ia]) { toHsv(za, &zh[ia].h, &zh[ia].s, &zh[ia].v); zhHave[ia] = true; }
-      if (!zhHave[ib]) { toHsv(zb, &zh[ib].h, &zh[ib].s, &zh[ib].v); zhHave[ib] = true; }
-      vividBlendHsv(zh[ia], zh[ib], w, mixed);
-    }
-    else for (int c = 0; c < 3; c++) mixed[c] = za[c] + (zb[c] - za[c]) * w;
-    for (int c = 0; c < 3; c++) out[i * 3 + c] = mixed[c] + (avg[c] - mixed[c]) * g;
+  // the strip in three parts: before the first LED that is lined up with the TV, along it, and after the last one
+  int a = sm.firstZero < count ? sm.firstZero : count;
+  int b = sm.lastZero + 1;
+  if (b < a) b = a;
+  if (b > count) b = count;
+  if (vivid) {
+    applyRange<true>(t, 0, a, zones, out, true, sm.lenStart, avgS, zh, zhHave);
+    applyRange<true>(t, a, b, zones, out, false, 0, avgS, zh, zhHave);
+    applyRange<true>(t, b, count, zones, out, true, sm.lenEnd, avgE, zh, zhHave);
+  } else {
+    applyRange<false>(t, 0, a, zones, out, true, sm.lenStart, avgS, zh, zhHave);
+    applyRange<false>(t, a, b, zones, out, false, 0, avgS, zh, zhHave);
+    applyRange<false>(t, b, count, zones, out, true, sm.lenEnd, avgE, zh, zhHave);
   }
 }
 // ---------------------------------------------------------------------------
@@ -527,7 +583,17 @@ void sharpenTable(Entry* t, int count, int percent) {
 
 void saturateColours(float* rgb, int n, float sat) {
   if (sat == 1.f || !rgb) return;
-  for (int i = 0; i < n; i++) {
+  int i = 0;
+  for (; i + 1 < n; i += 2) {                          // two LEDs at a time: their sums do not depend on each other, so the FPU works on both at once (the same arithmetic as one at a time)
+    float* a = rgb + i * 3;
+    float* b = a + 3;
+    const float ya = 0.299f * a[0] + 0.587f * a[1] + 0.114f * a[2], yb = 0.299f * b[0] + 0.587f * b[1] + 0.114f * b[2];
+    const float a0 = ya + (a[0] - ya) * sat, a1 = ya + (a[1] - ya) * sat, a2 = ya + (a[2] - ya) * sat;
+    const float b0 = yb + (b[0] - yb) * sat, b1 = yb + (b[1] - yb) * sat, b2 = yb + (b[2] - yb) * sat;
+    a[0] = a0 < 0.f ? 0.f : (a0 > 255.f ? 255.f : a0); a[1] = a1 < 0.f ? 0.f : (a1 > 255.f ? 255.f : a1); a[2] = a2 < 0.f ? 0.f : (a2 > 255.f ? 255.f : a2);
+    b[0] = b0 < 0.f ? 0.f : (b0 > 255.f ? 255.f : b0); b[1] = b1 < 0.f ? 0.f : (b1 > 255.f ? 255.f : b1); b[2] = b2 < 0.f ? 0.f : (b2 > 255.f ? 255.f : b2);
+  }
+  for (; i < n; i++) {
     float* c = rgb + i * 3;
     const float y = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
     for (int k = 0; k < 3; k++) {
@@ -547,16 +613,31 @@ int blurHalfWidth(int blurLeds) {
 // One box average (half width h, 2h+1 LEDs) over m colours, with the first and last colour repeated beyond the ends; a running sum, so it costs the same for any width.
 static void boxPassColours(const float* in, float* out, int m, int h) {
   const float inv = 1.f / (float)(2 * h + 1);
-  for (int c = 0; c < 3; c++) {
-    float sum = 0.f;
-    for (int d = -h; d <= h; d++) sum += in[(d < 0 ? 0 : (d >= m ? m - 1 : d)) * 3 + c];
-    for (int i = 0; i < m; i++) {
-      out[i * 3 + c] = sum * inv;
-      int add = i + h + 1, sub = i - h;
-      add = add >= m ? m - 1 : add;
-      sub = sub < 0 ? 0 : sub;
-      sum += in[add * 3 + c] - in[sub * 3 + c];
-    }
+  float s0 = 0.f, s1 = 0.f, s2 = 0.f;
+  for (int d = -h; d <= h; d++) {
+    const float* p = in + (d < 0 ? 0 : (d >= m ? m - 1 : d)) * 3;
+    s0 += p[0]; s1 += p[1]; s2 += p[2];
+  }
+  int i = 0;
+  for (; i < m && i - h < 0; i++) {                    // the first LEDs: the left end of the window is clamped to LED 0
+    out[i * 3] = s0 * inv; out[i * 3 + 1] = s1 * inv; out[i * 3 + 2] = s2 * inv;
+    const int add = i + h + 1 >= m ? m - 1 : i + h + 1;
+    const float* pa = in + add * 3;
+    s0 += pa[0] - in[0]; s1 += pa[1] - in[1]; s2 += pa[2] - in[2];
+  }
+  for (; i < m && i + h + 1 < m; i++) {                // the middle: nothing is clamped
+    out[i * 3] = s0 * inv; out[i * 3 + 1] = s1 * inv; out[i * 3 + 2] = s2 * inv;
+    const float* pa = in + (i + h + 1) * 3;
+    const float* ps = in + (i - h) * 3;
+    s0 += pa[0] - ps[0]; s1 += pa[1] - ps[1]; s2 += pa[2] - ps[2];
+  }
+  for (; i < m; i++) {                                 // the last LEDs: the right end is clamped to the last LED
+    out[i * 3] = s0 * inv; out[i * 3 + 1] = s1 * inv; out[i * 3 + 2] = s2 * inv;
+    const int add = i + h + 1 >= m ? m - 1 : i + h + 1;
+    const int sub = i - h < 0 ? 0 : i - h;
+    const float* pa = in + add * 3;
+    const float* ps = in + sub * 3;
+    s0 += pa[0] - ps[0]; s1 += pa[1] - ps[1]; s2 += pa[2] - ps[2];
   }
 }
 
@@ -680,8 +761,9 @@ float wledShowMs(int totalLeds, float fps) {
 
 void darkOutside(float* rgb, int n, int first, int last) {
   if (!rgb || first < 0 || last < first) return;
-  for (int i = 0; i < n; i++)
-    if (i < first || i > last) rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = 0.f;
+  const int a = first < n ? first : n;
+  for (int i = 0; i < a * 3; i++) rgb[i] = 0.f;
+  for (int i = (last + 1 < 0 ? 0 : last + 1) * 3; i < n * 3; i++) rgb[i] = 0.f;
 }
 
 int zoneRuns(const Entry* t, int count, int zone, int out[][2], int maxRuns) {
@@ -711,7 +793,7 @@ void zoneUsage(const Entry* t, int count, float out[kZones]) {
   }
 }
 
-float leadBoost(float y, float yPrev, float boost, int speedPercent, int steps) {
+float leadFactor(float boost, int speedPercent, int steps) {
   const float b = boost < 0.f ? 0.f : (boost > 1.f ? 1.f : boost);
   float k = 0.f;                                          // nothing to undo at 100 % or when the packets did not follow each other
   if (speedPercent < 100 && steps > 0) {
@@ -720,8 +802,11 @@ float leadBoost(float y, float yPrev, float boost, int speedPercent, int steps) 
     for (int i = 0; i < (steps > 8 ? 8 : steps); i++) qm *= q;
     k = qm / (1.f - qm);
   }
-  const float v = y + b * k * (y - yPrev);
-  return v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+  return b * k;
+}
+
+float leadBoost(float y, float yPrev, float boost, int speedPercent, int steps) {
+  return leadApply(y, yPrev, leadFactor(boost, speedPercent, steps));
 }
 
 int boxStepsForGap(uint32_t gapMs) {
@@ -731,27 +816,54 @@ int boxStepsForGap(uint32_t gapMs) {
 }
 
 void adjustZones(float out[kZones][3], const float raw[kZones][3], float br, float gm, float sat) {
-  auto clampf = [](float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); };
-  for (int z = 0; z < kZones; z++) {
-    float c[3] = {raw[z][0] / 255.f, raw[z][1] / 255.f, raw[z][2] / 255.f};
-    if (sat != 1.f) {
-      float y = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
-      for (int k = 0; k < 3; k++) c[k] = clampf(y + (c[k] - y) * sat, 0.f, 1.f);
+  const float* in = &raw[0][0];
+  float* o = &out[0][0];
+  if (sat == 1.f && gm == 1.f) {                         // the usual case: only brightness
+    const float k = br;
+    for (int i = 0; i < kZones * 3; i++) {
+      const float v = in[i] * k;
+      o[i] = v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
     }
-    if (gm != 1.f) for (int k = 0; k < 3; k++) c[k] = powf(c[k], gm);
-    for (int k = 0; k < 3; k++) out[z][k] = clampf(c[k] * br * 255.f, 0.f, 255.f);
+    return;
+  }
+  const float inv255 = 1.f / 255.f, scale = br * 255.f;
+  for (int z = 0; z < kZones; z++) {
+    float c0 = in[z * 3] * inv255, c1 = in[z * 3 + 1] * inv255, c2 = in[z * 3 + 2] * inv255;
+    if (sat != 1.f) {
+      const float y = 0.299f * c0 + 0.587f * c1 + 0.114f * c2;
+      c0 = y + (c0 - y) * sat; c1 = y + (c1 - y) * sat; c2 = y + (c2 - y) * sat;
+      c0 = c0 < 0.f ? 0.f : (c0 > 1.f ? 1.f : c0);
+      c1 = c1 < 0.f ? 0.f : (c1 > 1.f ? 1.f : c1);
+      c2 = c2 < 0.f ? 0.f : (c2 > 1.f ? 1.f : c2);
+    }
+    if (gm != 1.f) { c0 = powf(c0, gm); c1 = powf(c1, gm); c2 = powf(c2, gm); }
+    c0 *= scale; c1 *= scale; c2 *= scale;
+    o[z * 3] = c0 < 0.f ? 0.f : (c0 > 255.f ? 255.f : c0);
+    o[z * 3 + 1] = c1 < 0.f ? 0.f : (c1 > 255.f ? 255.f : c1);
+    o[z * 3 + 2] = c2 < 0.f ? 0.f : (c2 > 255.f ? 255.f : c2);
   }
 }
 
 float easeColours(float* cur, const float* tgt, int n, float trim, float decay) {
-  float worst = 0.f;
-  for (int k = 0; k < n * 3; k++) {
-    const float d = tgt[k] * trim - cur[k];
-    cur[k] += d * (1.f - decay);
-    const float left = d * decay;
-    if (left > worst) worst = left; else if (-left > worst) worst = -left;
+  const float a = 1.f - decay;
+  float w0 = 0.f, w1 = 0.f;                            // the largest |distance| (two running maxima, so the compares do not wait for each other); what is left after the step is that times `decay`
+  const int total = n * 3;
+  int k = 0;
+  for (; k + 1 < total; k += 2) {
+    const float d0 = tgt[k] * trim - cur[k], d1 = tgt[k + 1] * trim - cur[k + 1];
+    cur[k] += d0 * a;
+    cur[k + 1] += d1 * a;
+    const float a0 = fabsf(d0), a1 = fabsf(d1);
+    w0 = a0 > w0 ? a0 : w0;
+    w1 = a1 > w1 ? a1 : w1;
   }
-  return worst;
+  for (; k < total; k++) {
+    const float d = tgt[k] * trim - cur[k];
+    cur[k] += d * a;
+    const float ad = fabsf(d);
+    w0 = ad > w0 ? ad : w0;
+  }
+  return (w0 > w1 ? w0 : w1) * decay;
 }
 
 void scaleColours(float* cur, const float* tgt, int n, float trim) {
@@ -773,14 +885,17 @@ size_t packColours(const float* cur, int n, bool whiteMin, uint8_t* out) {
   return o;
 }
 
-void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* dark, const FinishParams& p, bool moving, bool fresh, float* out) {
-  const float cut = (float)p.blackCut;
+namespace {
+template <bool kBand, bool kDither, bool kCut>
+void finishRange(const float* cur, int n, float* held, float* resid, uint8_t* dark, float band, float cut, bool fresh, float* out) {
   for (int i = 0; i < n; i++) {
-    float x[3];
-    for (int c = 0; c < 3; c++) x[c] = cur[i * 3 + c] < 0.f ? 0.f : (cur[i * 3 + c] > 255.f ? 255.f : cur[i * 3 + c]);
-    const float m = x[0] > x[1] ? (x[0] > x[2] ? x[0] : x[2]) : (x[1] > x[2] ? x[1] : x[2]);
+    float x0 = cur[i * 3], x1 = cur[i * 3 + 1], x2 = cur[i * 3 + 2];
+    x0 = x0 < 0.f ? 0.f : (x0 > 255.f ? 255.f : x0);
+    x1 = x1 < 0.f ? 0.f : (x1 > 255.f ? 255.f : x1);
+    x2 = x2 < 0.f ? 0.f : (x2 > 255.f ? 255.f : x2);
     const bool wasDark = dark[i] != 0;
-    if (p.blackCut > 0) {
+    if (kCut) {
+      const float m = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
       if (fresh) dark[i] = m < cut;
       else if (wasDark) { if (m >= cut + 1.f) dark[i] = 0; }
       else if (m < cut) dark[i] = 1;
@@ -789,27 +904,41 @@ void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* 
     }
     float* h = held + i * 3;
     float* e = resid + i * 3;
-    if (dark[i]) {
-      for (int c = 0; c < 3; c++) { h[c] = 0.f; e[c] = 0.f; out[i * 3 + c] = 0.f; }
+    float* o = out + i * 3;
+    if (kCut && dark[i]) {
+      h[0] = h[1] = h[2] = 0.f; e[0] = e[1] = e[2] = 0.f; o[0] = o[1] = o[2] = 0.f;
       continue;
     }
     const bool restart = fresh || wasDark;                                              // coming back from dark: take the colour as it is
+    const float x[3] = {x0, x1, x2};
     for (int c = 0; c < 3; c++) {
-      if (restart) { h[c] = x[c]; e[c] = 0.f; }
-      else if (p.deadband > 0.f && x[c] >= 1.f && h[c] >= 1.f && fabsf(x[c] - h[c]) <= p.deadband) { /* inside the deadband: keep what was shown */ }
-      else h[c] = x[c];
-      float o;
-      if (p.dither && moving) {
-        const float t = h[c] + e[c];
-        o = floorf(t + 0.5f);
-        e[c] = t - o;
+      float hc = h[c];
+      if (restart) { hc = x[c]; e[c] = 0.f; }
+      else if (kBand && x[c] >= 1.f && hc >= 1.f && fabsf(x[c] - hc) <= band) { /* inside the deadband: keep what was shown */ }
+      else hc = x[c];
+      h[c] = hc;
+      float v;
+      if (kDither) {
+        const float t = hc + e[c];
+        v = (float)(int)(t + 0.5f);                    // t + 0.5 is never negative here (hc >= 0 and the carried error is >= -0.5), so truncating is the floor
+        e[c] = t - v;
       } else {
-        o = floorf(h[c] + 0.5f);
+        v = (float)(int)(hc + 0.5f);
         e[c] = 0.f;
       }
-      out[i * 3 + c] = o < 0.f ? 0.f : (o > 255.f ? 255.f : o);
+      o[c] = v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
     }
   }
+}
+}  // namespace
+
+void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* dark, const FinishParams& p, bool moving, bool fresh, float* out) {
+  const float cut = (float)p.blackCut;
+  const bool band = p.deadband > 0.f, dith = p.dither && moving, useCut = p.blackCut > 0;
+#define FWB_FINISH(B, D, C) finishRange<B, D, C>(cur, n, held, resid, dark, p.deadband, cut, fresh, out)
+  if (band) { if (dith) { if (useCut) FWB_FINISH(true, true, true); else FWB_FINISH(true, true, false); } else { if (useCut) FWB_FINISH(true, false, true); else FWB_FINISH(true, false, false); } }
+  else      { if (dith) { if (useCut) FWB_FINISH(false, true, true); else FWB_FINISH(false, true, false); } else { if (useCut) FWB_FINISH(false, false, true); else FWB_FINISH(false, false, false); } }
+#undef FWB_FINISH
 }
 
 void speedReset(SpeedDetect& d) { d = SpeedDetect(); }

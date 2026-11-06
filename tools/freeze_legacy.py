@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # in dependency order
 WANTED = [
     "smoothstep01", "averageOf", "toHsv", "fromHsv", "vividBlendHsv", "applyTable", "saturateColours", "boxPassColours", "blurColours",
-    "adjustZones", "easeColours", "packColours", "leadBoost", "decodeFrame", "frameChecksumOk", "classifyFrame", "finishColours", "darkOutside", "motionAt",
+    "adjustZones", "easeColours", "packColours", "leadBoost", "decodeFrame", "frameChecksumOk", "classifyFrame", "finishColours", "darkOutside",
 ]
 EXTRA_STRUCT = "struct Hsv { float h, s, v; };\n"
 

@@ -121,7 +121,6 @@ void settingsRevert();
 // Store a calibrated table for a target (hex: 8 chars per LED = a, b, f, d). Switches that target's layout to "table".
 String tableStoreHex(int target, int start, int count, const char* hex, size_t hexLen);
 void tableRebuild();                        // regenerate every gTable from the layout settings
-bool tableHasStored(int target);
 // The picture map of a target: how many of its LEDs follow each zone (for an unsaved edit in `req`, or the saved settings when req is null).
 String targetUsage(int target, JsonVariantConst req, float out[fwb::kZones], int* leds);
 String targetAdd(int* index);               // new empty target at the end; "" or an error
@@ -256,7 +255,6 @@ void mqttStatus(MqttStatus& s);
 
 // ---------------------------------------------------------------- web / network
 void webBegin();                            // start HTTP (+ HTTPS if available)
-void webLoop();
 bool webHasHttps();
 
 void wifiBegin();                           // joins the saved network or starts the setup access point
@@ -265,7 +263,6 @@ bool wifiIsAp();
 String deviceId();                          // stable id of this board (12 hex digits from its MAC), used by Home Assistant
 String wifiScanJson();
 bool wifiSave(const String& ssid, const String& pass);   // store + schedule restart
-String wifiSsid();
 
 void ledStatusBegin();
 void ledStatusLoop();

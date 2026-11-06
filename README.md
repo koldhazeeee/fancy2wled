@@ -255,6 +255,7 @@ python test/test_capture_tools.py  # the capture / firmware-change tools
 python test/test_check_size.py    # the firmware size check (CI fails an image above 90 % of its update slot: python tools/check_size.py <.bin files>)
 python test/test_sync_probe.py    # the Sync Box probe's analysis against a simulated box (and the page in a headless browser if Edge or Chrome is installed)
 node test/test_lint.js            # sources must be plain ASCII, LF, no BOM (non-ASCII shows up garbled on the device)
+python bench/run_host.py          # optional: time the hot paths on this computer (the board's own figures: docs/PERFORMANCE.md)
 pio run -e atoms3                 # compile the firmware
 pio run -e atoms3-phonecal        # ... with the phone-camera calibration and the secure web server it needs
 ```
@@ -282,6 +283,7 @@ to choose for *Update firmware* on the setup page ([docs/OTA.md](docs/OTA.md)). 
 * `src/webserver.cpp` - HTTP on :80 (and, in the phone-calibration build, HTTPS on :443 with a self-signed key generated on first boot), JSON API.
 * `src/mqtt_ha.cpp` - Home Assistant over MQTT (discovery, state, commands), runs in its own task.
 * `src/perf.cpp` - optional performance statistics (CPU load per core, memory, frame timing), only active when switched on.
+* `bench/` - benchmarks of the hot paths that run on a PC and on the board itself (`pio run -e atoms3-bench`), plus the relay's per-tick timing (`atoms3-tickstat`); the method and the results are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 * `tools/` - Python reference implementation, test-vector generator, a Sync Box simulator, `check_mqtt.py` (checks the board's MQTT discovery), `latency_test.py` (measures how fast the output follows a step), `capture_frames.py` and `check_capture.py` (record the box's broadcast and compare captures, see [docs/RESILIENCE.md](docs/RESILIENCE.md)), and `sync_probe/` (shows known test pictures full screen on a laptop whose HDMI feeds the box and records what the box broadcasts, then reports its delay, smoothing, levels and the window each zone looks at: `python tools/sync_probe/probe.py --yes`; its flicker tests flash the whole screen at up to 30 Hz, leave them out with `--no-flash`).
 
 (Phone-calibration build:) the image analysis runs in the phone's browser (`web/analysis.js`, `web/calibration.js`); the board only

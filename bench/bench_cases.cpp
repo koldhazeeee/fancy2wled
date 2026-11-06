@@ -3,6 +3,7 @@
 // can be compared on both. See docs/PERFORMANCE.md for how to run it and what it measured.
 //
 // Every case does `iters` repetitions of one operation on realistic, deterministic input and feeds a result into gBenchSink so nothing can be optimised away.
+#pragma GCC optimize("O3")             // like src/core.cpp, so the variants below are compared with the core on equal terms
 #include "bench_cases.h"
 
 #include <math.h>
@@ -61,6 +62,16 @@ void leadboost72(int n) {
     const uint8_t* a = &gZonesB[i % kPics][0][0];
     const uint8_t* b = &gZonesB[(i + 3) % kPics][0][0];
     for (int k = 0; k < kZones * 3; k++) acc += leadBoost((float)a[k], (float)b[k], 0.6f, 50, 1);
+  }
+  gBenchSink += (uint32_t)acc;
+}
+void leadboostPacket(int n) {          // how the relay does it now: the factor once, then a multiply-add per channel
+  float acc = 0;
+  for (int i = 0; i < n; i++) {
+    const uint8_t* a = &gZonesB[i % kPics][0][0];
+    const uint8_t* b = &gZonesB[(i + 3) % kPics][0][0];
+    const float k = leadFactor(0.6f, 50, 1);
+    for (int j = 0; j < kZones * 3; j++) acc += leadApply((float)a[j], (float)b[j], k);
   }
   gBenchSink += (uint32_t)acc;
 }
@@ -140,6 +151,7 @@ const BenchCase kCases[] = {
   {"classify_frame_91", "decode one 91 byte Sync Box packet", classify91},
   {"black_frame", "TV-off tracking for one packet", blackframe},
   {"lead_boost_72ch", "Reaction boost over one packet (72 channels)", leadboost72},
+  {"lead_boost_packet", "Reaction boost over one packet, factor once (how the relay does it now)", leadboostPacket},
   {"adjust_zones_default", "brightness only, per packet", adjustDefault},
   {"adjust_zones_gamma", "gamma 1.2 and saturation 1.3, per packet", adjustGamma},
   {"motion_push_at", "Motion smoothing: push a picture and read one interpolated", motionPushAt},

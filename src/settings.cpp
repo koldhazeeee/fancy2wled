@@ -20,7 +20,6 @@ static Preferences prefs;
 
 static const char* kNs = "fwb";
 
-bool tableHasStored(int t) { return t >= 0 && t < kMaxTargets && gStoredN[t] > 0; }
 
 static bool gPreview = false;     // settings in RAM differ from flash (live preview in the web UI)
 
