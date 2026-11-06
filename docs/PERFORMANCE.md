@@ -21,7 +21,10 @@ Nothing here is estimated from the PC; the figures that matter come from the ESP
   stage off and once with all three parts on. The baseline firmware and the optimised one gave **identical frames for all 36 pictures**.
 * **Same results in the tests**: `test/legacy_core.h` holds the original functions, cut out of the baseline commit by `tools/freeze_legacy.py`. `test/test_core.cpp` runs every
   optimised function against its original on random inputs (400 random tables, plain and vivid, 20,000 Reaction boost calls, 6,000 valid and damaged frames, 60 finishing-stage
-  sequences of 80 frames, ...) and requires **bit-identical** results; only `adjustZones` (the same sums in another order) is compared to within 0.002 of a colour level. A
+  sequences of 80 frames, ...) and requires **bit-identical** results; only `adjustZones` (the same sums in another order) is compared to within 0.002 of a colour level. The
+  tests are built with fused multiply-adds switched off (`-ffp-contract=off`): `core.cpp` is forced to `-O3` by a pragma and GCC fuses `a * b + c` into one rounding there but not
+  in the `-O1` test file, which made CI show one-bit differences between code that computes the same thing. (The board's compiler does fuse, in both the old and the new code;
+  that is what the complete-output check above covers.) A
   deliberately injected error of 0.1 % in one branch is caught by these tests (that is how a hole in the first version of the test was found: random tables from the layout
   builders never exercised the "smooth beyond the TV" blend, because for them it adds nothing; tables with arbitrary entries were added).
 

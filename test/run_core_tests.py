@@ -35,7 +35,10 @@ def main():
     cc, san = compiler()
     if "--no-sanitize" in sys.argv:
         san = []
-    cmd = cc + ["-std=c++11", "-O1", "-Wall", "-Wextra", "-Wno-nullability-completeness"] + san + ["-I", os.path.join(ROOT, "include"),
+    # -ffp-contract=off: no fused multiply-adds. core.cpp is forced to -O3 by a pragma and the tests are -O1; GCC fuses a * b + c into one instruction (one rounding) at -O3 but
+    # not at -O1, so the optimised functions and the originals in test/legacy_core.h would differ by one unit in the last place for reasons that have nothing to do with what
+    # they compute. With fusing off, "bit-identical" means the arithmetic is identical.
+    cmd = cc + ["-std=c++11", "-O1", "-ffp-contract=off", "-Wall", "-Wextra", "-Wno-nullability-completeness"] + san + ["-I", os.path.join(ROOT, "include"),
                 os.path.join(ROOT, "src", "core.cpp"), os.path.join(ROOT, "test", "test_core.cpp"), "-o", exe]
     subprocess.check_call(cmd)
     print("sanitizers: %s" % (" ".join(f for f in san if f.startswith("-fsanitize=")) or "none"))
