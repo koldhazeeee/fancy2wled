@@ -4,7 +4,7 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
-## Unreleased
+## 0.4.11 - 2026-11-05
 
 * **Faster output, same lights.** The colour work of an output tick (mixing the LEDs from the zones, blur, saturation, easing, the Dark scenes stage) is about 1.8 times faster on
   the board, measured on the real ESP32-S3 and on the author's real three targets (392 to 216 microseconds per tick; 473 to 247 with Smoothing over time at 0.5). While a target
