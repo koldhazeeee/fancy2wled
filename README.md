@@ -6,6 +6,9 @@ Make a **WLED** strip follow your **FancyLEDs Sync Box** (HDMI ambient light). A
 box's wireless sync broadcast and relays the colours to your WLED, so the box's own LED strip is not needed to feed
 your lights and no PC has to stay on.
 
+<p align="center"><a href="docs/video/demo.mp4"><img src="docs/images/demo-poster.jpg" alt="Video: a TV playing moving colours, with the lights around it following the picture" width="720"></a></p>
+<p align="center"><sub>Click to play (14 seconds, no sound): the lights around the TV follow the picture.</sub></p>
+
 > ### Never expose this to the internet
 > Everything the relay does on the network is **in plain text** (the setup page is plain HTTP, the Wi-Fi password you type at first setup, the update password, the MQTT
 > login, the commands to your WLEDs and Govee lights) and **the setup page has no password**. Keep it on a network you trust: **no port forwarding, no DMZ, no UPnP, no
@@ -19,7 +22,7 @@ your lights and no PC has to stay on.
 * **See what each target follows**: a *picture map* on the setup page draws the Sync Box's 24 zones **where each one really looks at the picture** (not an even
   grid, see [What the Sync Box sends](#what-the-sync-box-sends)) with the zones every target pulls from, each zone filled with the colour the box is sending **live**
   and each target a coloured bar under the zones it follows (shaded by how many of its LEDs use the zone). **Click a zone** to light the LEDs that follow it on your
-  WLED strips. It redraws as you edit, before you save; the live colours are only fetched while the map is on screen.
+  WLED strips. It redraws as you edit, before you save; the live colours are fetched twice a second while the map is on screen and once a second otherwise (the little picture in the page's top bar shows them too).
 * **A settings check**: a card on the setup page looks at your settings, saved or not, and says what is wrong (**Fix**) or could be better (**Tip**): a Reaction
   boost that does nothing, settings that Motion smoothing overrides, a box left at its slow default speed, a TV part that is missing or outside the run, or two targets
   driving the same LEDs of one WLED.

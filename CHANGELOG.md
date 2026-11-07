@@ -4,6 +4,10 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## Unreleased
+
+* The README has a 14-second video of the lights following the picture, so people can see the result before setting anything up (no sound, no metadata).
+
 ## 0.4.12 - 2026-11-06
 
 * **The setup page has a navigation bar, and no long scroll.** It used to be one page about eleven screens tall on a phone; it is now five sections in a bar at the top, one shown at
