@@ -6,7 +6,7 @@ repository's releases page.
 
 ## Unreleased
 
-* The README has a 14-second video of the lights following the picture, so people can see the result before setting anything up (no sound, no metadata).
+* The README shows a 14-second animation of the lights following the picture (an animated image, so it plays on the README itself), with a 1080p video file to download, so people can see the result before setting anything up. No sound, no metadata.
 
 ## 0.4.12 - 2026-11-06
 

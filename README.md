@@ -6,8 +6,8 @@ Make a **WLED** strip follow your **FancyLEDs Sync Box** (HDMI ambient light). A
 box's wireless sync broadcast and relays the colours to your WLED, so the box's own LED strip is not needed to feed
 your lights and no PC has to stay on.
 
-<p align="center"><a href="docs/video/demo.mp4"><img src="docs/images/demo-poster.jpg" alt="Video: a TV playing moving colours, with the lights around it following the picture" width="720"></a></p>
-<p align="center"><sub>Click to play (14 seconds, no sound): the lights around the TV follow the picture.</sub></p>
+<p align="center"><img src="docs/images/demo.webp" alt="A TV playing moving colours, with the lights around it following the picture" width="720"></p>
+<p align="center"><sub>The lights around the TV follow the picture (14 seconds, no sound, loops). A <a href="docs/video/demo.mp4">1080p version</a> is in the repository: GitHub does not play video files on its file pages, so use <b>Download raw file</b> there.</sub></p>
 
 > ### Never expose this to the internet
 > Everything the relay does on the network is **in plain text** (the setup page is plain HTTP, the Wi-Fi password you type at first setup, the update password, the MQTT
