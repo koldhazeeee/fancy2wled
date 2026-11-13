@@ -67,13 +67,15 @@ static String stateJson(const RelayStatus& s) {
   d["wled_leds"] = s.wledLeds;
   d["rssi"] = WiFi.RSSI();
   d["uptime"] = (uint32_t)(millis() / 1000);
-  int bri, sat, smo, out, boo;
-  float gam;
-  bool en;
+  int bri, sat, smo, out, boo, bsp, mot, adp, bcut, fps, fade;
+  float gam, dead;
+  bool en, dith, snap;
   { Lock l;
     en = gSet.enabled;
     bri = (int)(gSet.kBri * 100.f + 0.5f); sat = (int)(gSet.kSat * 100.f + 0.5f); smo = (int)(gSet.kSmo * 100.f + 0.5f); boo = (int)(gSet.kBoost * 100.f + 0.5f);
-    out = gSet.smoothOut; gam = gSet.kGam; }
+    out = gSet.smoothOut; gam = gSet.kGam;
+    bsp = gSet.boxSpeed; mot = gSet.motion; adp = gSet.adaptive; bcut = gSet.blackCut; dead = gSet.deadband; dith = gSet.dither; snap = gSet.snapCuts;
+    fps = gSet.fps; fade = gSet.fadeMs; }
   d["enabled"] = en;
   d["brightness"] = bri > 100 ? 100 : bri;      // the Home Assistant control is 0-100 % (the setup page can go higher)
   d["gamma"] = gam;
@@ -81,6 +83,15 @@ static String stateJson(const RelayStatus& s) {
   d["smoothing"] = smo;
   d["boost"] = boo;
   d["smooth_out"] = out;
+  d["box_speed"] = bsp;
+  d["motion"] = mot;
+  d["adaptive"] = adp;
+  d["snap_cuts"] = snap;
+  d["output_rate"] = fps;
+  d["black_cut"] = bcut;
+  d["hold_steady"] = dead;
+  d["dither"] = dith;
+  d["fade"] = fade;
   d["relaying"] = String(s.state) == "relaying";
   { Lock l;
     JsonArray ta = d["targets"].to<JsonArray>();
@@ -130,6 +141,19 @@ static void number(const char* obj, const char* name, float mn, float mx, float 
   d["entity_category"] = "config";
   d["icon"] = "mdi:tune";
   discover("number", obj, d);
+}
+
+// An on/off Look setting (Dither, Snap on scene cuts): command look/<obj>/set with ON or OFF, state from the state JSON's <key> (true / false).
+static void lookSwitch(const char* obj, const char* name, const char* key, const char* icon) {
+  JsonDocument d;
+  d["name"] = name;
+  withState(d, String("{{ 'ON' if value_json.") + key + " else 'OFF' }}");
+  d["command_topic"] = T(String("look/") + obj + "/set");
+  d["payload_on"] = "ON";
+  d["payload_off"] = "OFF";
+  d["entity_category"] = "config";
+  d["icon"] = icon;
+  discover("switch", obj, d);
 }
 
 static void button(const char* obj, const char* name, const char* icon, const char* devClass, bool diagnostic) {
@@ -331,6 +355,15 @@ static void publishDiscovery() {
   number("smoothing", "Smoothing over time", 0, 90, 5, "%", "{{ value_json.smoothing }}");
   number("boost", "Reaction boost", 0, 100, 5, "%", "{{ value_json.boost }}");
   number("smooth_out", "Smooth beyond the TV", 0, 100, 5, "%", "{{ value_json.smooth_out }}");
+  number("box_speed", "Box speed", 10, 100, 5, "%", "{{ value_json.box_speed }}");
+  number("motion", "Motion smoothing", 0, 100, 5, "%", "{{ value_json.motion }}");
+  number("adaptive", "Adaptive smoothing", 0, 100, 5, "", "{{ value_json.adaptive }}");
+  number("output_rate", "Output rate", 30, 60, 15, "fps", "{{ value_json.output_rate }}");
+  number("black_cut", "Black cut-off", 0, 10, 1, "", "{{ value_json.black_cut }}");
+  number("hold_steady", "Hold steady", 0, 8, 0.5f, "", "{{ value_json.hold_steady }}");
+  number("fade", "Fade in and out", 0, 2000, 100, "ms", "{{ value_json.fade }}");
+  lookSwitch("dither", "Dither", "dither", "mdi:blur");
+  lookSwitch("snap_cuts", "Snap on scene cuts", "snap_cuts", "mdi:content-cut");
   button("rainbow", "Rainbow test", "mdi:looks", nullptr, false);
   button("stop_test", "Stop test", "mdi:stop", nullptr, false);
   button("restart", "Restart", "mdi:restart", "restart", true);
@@ -351,16 +384,31 @@ static bool parseNumber(const String& s, float* out) {
 
 // Same ranges as the Home Assistant entities announce (the light's brightness is 0-100); anything outside them is ignored.
 static bool applyLook(const String& key, const String& payload) {
-  float v;
-  if (!parseNumber(payload, &v)) return false;
   JsonDocument d;
   JsonObject look = d["look"].to<JsonObject>();
+  if (key == "dither" || key == "snap_cuts") {                // the two switches: ON or OFF, anything else is ignored
+    String p = payload;
+    p.trim();
+    const bool on = p.equalsIgnoreCase("ON"), off = p.equalsIgnoreCase("OFF");
+    if (!on && !off) return false;
+    look[key == "dither" ? "dither" : "snapCuts"] = on;
+    return settingsFromJson(d.as<JsonVariantConst>(), true).length() == 0;
+  }
+  float v;
+  if (!parseNumber(payload, &v)) return false;
   if (key == "brightness" && v >= 0.f && v <= 100.f) look["brightness"] = v / 100.f;
   else if (key == "gamma" && v >= 0.6f && v <= 2.4f) look["gamma"] = v;
   else if (key == "saturation" && v >= 0.f && v <= 200.f) look["saturation"] = v / 100.f;
   else if (key == "smoothing" && v >= 0.f && v <= 90.f) look["smoothing"] = v / 100.f;
   else if (key == "boost" && v >= 0.f && v <= 100.f) look["boost"] = v / 100.f;
   else if (key == "smooth_out" && v >= 0.f && v <= 100.f) look["smoothOut"] = v;
+  else if (key == "box_speed" && v >= 10.f && v <= 100.f) look["boxSpeed"] = v;
+  else if (key == "motion" && v >= 0.f && v <= 100.f) look["motion"] = v;
+  else if (key == "adaptive" && v >= 0.f && v <= 100.f) look["adaptive"] = v;
+  else if (key == "output_rate" && v >= 20.f && v <= 60.f) look["fps"] = v;
+  else if (key == "black_cut" && v >= 0.f && v <= 10.f) look["blackCut"] = v;
+  else if (key == "hold_steady" && v >= 0.f && v <= 8.f) look["deadband"] = v;
+  else if (key == "fade" && v >= 0.f && v <= 2000.f) look["fadeMs"] = v;
   else return false;
   return settingsFromJson(d.as<JsonVariantConst>(), true).length() == 0;
 }

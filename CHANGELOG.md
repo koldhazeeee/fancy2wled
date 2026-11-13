@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* **Home Assistant**: every Look setting is there now: Box speed, Motion smoothing, Adaptive smoothing, Output rate, Black cut-off, Hold steady and Fade in
+  and out as numbers, Dither and Snap on scene cuts as switches (before, only gamma, saturation, smoothing, boost and smooth beyond the TV).
 * Setup page: a field you changed is marked *not saved* beside its name until you save, and screen readers hear each slider's value as the page shows it
   ("60%", "0.6 s", "off"). The colours were checked against WCAG AA in both themes (all text at 4.6:1 or better).
 * **Network and Sync Box** (Status, a fold-out under the status): how the box's packets arrived over the last minute (packets a second, how many came in
