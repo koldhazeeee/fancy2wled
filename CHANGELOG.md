@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* **Box levels** (Look, Colour; off by default): give back the 26-28 levels the Sync Box takes off every colour, so white reaches full white, and optionally
+  stretch limited-range video to full range. What the box cut to black stays black.
 * **Getting started** (Status): until a board is set up, a short checklist (find the WLED, where the LEDs are, the TV part, the rainbow test, lock to the box),
   ticked by itself as each step is done, with a button to the right place. *Hide this* puts it away for good.
 * **Ambient colour for Home Assistant** (Home Assistant tab, off by default): a sensor with the picture's colour (average, dominant, ambient tone or lightest

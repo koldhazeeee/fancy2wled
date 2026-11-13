@@ -170,8 +170,8 @@ known pictures to a box (a laptop's HDMI into its input) and records what it bro
 * **The box smooths in time.** Its app's *Speed of Diffusion* sets how far each packet moves towards the new picture: at the default 40 % a change takes about 0.4 s to
   arrive; at **100 % it does not smooth at all**. The app's diffusion mode and its brightness slider change nothing in the broadcast.
 * **The box lowers the levels.** It subtracts about 26-28 from every colour value and does not expand limited-range video: white 255 arrives as about 227 (209 for
-  limited-range video such as a console or streaming stick), and the darkest 30 or so levels arrive as 0. Hue and saturation are kept. The relay does not
-  compensate for this yet; raise *Brightness* if you want full white.
+  limited-range video such as a console or streaming stick), and the darkest 30 or so levels arrive as 0. Hue and saturation are kept. *Box levels* (Look) can
+  give the offset back (and stretch limited-range video); by default the relay copies the box as it is.
 * **So the limit is 24 numbers.** No software can rebuild the full picture from them, and the box throws the rest away before it broadcasts. What the relay can do is
   place those 24 values accurately along each edge (it does, using the measured windows), take the box's smoothing out, and smooth movement itself. Lighting from the real image
   would need a different source, such as an HDMI splitter feeding a capture card.
@@ -203,6 +203,7 @@ known pictures to a box (a laptop's HDMI into its input) and records what it bro
 | Put WLED back how it was | when the box goes quiet, restore WLED's previous on/off + brightness |
 | Layout | a straight line, around the TV, or (with the phone-calibration build) a table measured by the phone |
 | How the lights move | (Look, Timing) not a setting of its own: picks one of three ways and shows only its sliders. *Follow the box* (Smoothing over time, Reaction boost), *Motion smoothing* (slide from picture to picture), *Adaptive* (calm when still, quick on big changes). It is worked out from the values below (Motion smoothing above 0, then Adaptive smoothing above 0, otherwise following the box) |
+| Box levels | **As sent** (default) copies the box. **Give the offset back** adds the 26-28 the box takes off every lit colour (it follows *Box speed*), so white is white again; what the box cut to black stays black, so a scene fading in from black starts at about 11 % (a *Black cut-off* of 2-4 hides that). **Stretch video** also expands limited-range video (16-235) to full, for a source that sends it |
 | Brightness / gamma / saturation | 1.0 = copy the box exactly. The box lowers every colour value by about 26-28, so white arrives as about 227 (209 for limited-range video); raise brightness if you want full white |
 | Smoothing over time | 0 = instant, 0.9 = slow fades (the box itself already smooths: a change takes about 0.4 s to arrive at its default speed, none at 100 %) |
 | Box speed | The box app's *Speed of Diffusion* (default 40 %): enter the same number here. **Better: set the box's speed to 100 %**, then it does not smooth at all and the lights follow the real picture. The page also shows the speed the relay *measures* from the box's picture changes and the Settings check warns when it differs from your number (advice only). See [docs/LATENCY.md](docs/LATENCY.md) |

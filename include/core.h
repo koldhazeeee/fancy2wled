@@ -194,6 +194,13 @@ void speedReset(SpeedDetect& d);
 void speedPush(SpeedDetect& d, const uint8_t zones[kZones][3], int steps);   // steps = boxStepsForGap since the previous packet
 SpeedResult speedResult(const SpeedDetect& d);
 
+// "Box levels": the Sync Box broadcasts every value lowered and clipped, out = max(0, code - offset), offset 26 at Speed of Diffusion 100 % and 28 at 40 % (measured with
+// tools/sync_probe; in between interpolated), and does not expand limited-range video. mode 0 leaves the zones as sent; 1 gives every lit value its offset back (the exact
+// inverse wherever the box did not clip; 0 stays 0, so the first lit level is offset + 1); 2 does that and then stretches limited-range video (16-235) to the full range.
+// Applied to the box's values (after Reaction boost, before adjustZones). Independent version: tools/reference/levels.py.
+float boxLevelOffset(int boxSpeedPercent);
+void boxLevels(float zones[kZones][3], int mode, int boxSpeedPercent);
+
 // The shared look applied to the box's 24 zone colours (0..255) once per Sync Box frame: saturation (around the luma), gamma, then brightness. out may equal raw.
 void adjustZones(float out[kZones][3], const float raw[kZones][3], float brightness, float gamma, float saturation);
 // One easing step of a target's shown colours (n LEDs, 3 floats each) towards the wanted ones times `trim`: cur += (tgt * trim - cur) * (1 - decay).

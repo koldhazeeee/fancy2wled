@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import adaptive, cuts, finish, govee, layout, motion, protocol, single, speed  # noqa: E402
+from reference import adaptive, cuts, finish, govee, layout, levels, motion, protocol, single, speed  # noqa: E402
 
 
 def ent(entries):
@@ -316,6 +316,14 @@ def main():
     for zset in range(5):
         for n in (1, 42, 266):
             lines.append("SINGLEU %d %d %s" % (zset, n, " ".join("%.4f" % v for v in single.usage(single.mask(zset), n))))
+
+    # --- box levels: the box's values with their offset given back (and limited-range video stretched), at several box speeds --------------------------------
+    lrnd = random.Random(55)
+    for i in range(30):
+        zs = [tuple(lrnd.choice([0, 0, 1, 2, lrnd.randrange(256), 229, 209, 255]) for _ in range(3)) for _ in range(24)]
+        mode, spd = i % 3, [100, 40, 70, 10, 55][i % 5]
+        out = levels.apply(zs, mode, spd)
+        lines.append("LEVELS %d %d %.4f %s %s" % (mode, spd, levels.offset(spd), hexz(zs), " ".join("%.4f" % v for z in out for v in z)))
 
     # --- blur along a strip --------------------------------------------------------------------------------------------------------------------------------------
     for n, first, last, blur in ((30, -1, -1, 5), (30, 5, 24, 5), (30, 0, 29, 1), (30, 10, 12, 8), (12, 2, 9, 20), (50, -1, -1, 3), (40, 3, 200, 6), (25, 7, 3, 4), (2, -1, -1, 10), (64, 8, 55, 12)):

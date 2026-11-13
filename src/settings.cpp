@@ -147,6 +147,8 @@ static void loadFromFlash() {
   s.kSat = gF("kSat", 1.f);
   s.kSmo = gF("kSmo", 0.5f);
   s.kBoost = gF("kBoost", 0.f);
+  s.levels = gI("kLvl", 0);
+  if (s.levels < 0 || s.levels > 2) s.levels = 0;
   s.boxSpeed = gI("kBsp", 40);
   if (s.boxSpeed < 10) s.boxSpeed = 10;
   if (s.boxSpeed > 100) s.boxSpeed = 100;
@@ -225,6 +227,7 @@ void settingsSave() {
   prefs.putInt("kBcut", s.blackCut);
   prefs.putBool("kDith", s.dither);
   prefs.putInt("kBsp", s.boxSpeed);
+  prefs.putInt("kLvl", s.levels);
   prefs.putBool("enabled", s.enabled);
   prefs.putInt("tvMode", s.tvMode);
   prefs.putInt("tvSecs", s.tvSecs);
@@ -366,6 +369,7 @@ void settingsToJson(JsonDocument& d) {
   k["blackCut"] = s.blackCut;
   k["dither"] = s.dither;
   k["boxSpeed"] = s.boxSpeed;
+  { static const char* kLv[3] = {"sent", "restore", "video"}; k["levels"] = kLv[s.levels < 0 || s.levels > 2 ? 0 : s.levels]; }
   k["smoothOut"] = s.smoothOut;
   k["fps"] = s.fps;
   d["box"]["host"] = s.boxHost;
@@ -535,6 +539,13 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["blackCut"].isNull()) n.blackCut = (int)clampf(k["blackCut"].as<float>(), 0.f, 10.f);
   if (!k["dither"].isNull()) n.dither = k["dither"].as<bool>();
   if (!k["boxSpeed"].isNull()) n.boxSpeed = (int)clampf(k["boxSpeed"].as<float>(), 10.f, 100.f);
+  if (!k["levels"].isNull()) {
+    const String lv = k["levels"].as<String>();
+    if (lv == "sent") n.levels = 0;
+    else if (lv == "restore") n.levels = 1;
+    else if (lv == "video") n.levels = 2;
+    else return "levels must be sent, restore or video";
+  }
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
   if (!k["fps"].isNull()) n.fps = (int)clampf(k["fps"].as<float>(), 20.f, 60.f);
   if (!b["host"].isNull()) {                                  // only accept the Sync Box from this address: an IP address, or empty for anyone

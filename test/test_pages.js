@@ -544,6 +544,15 @@ async function cdp(wsUrl) {
       check('timing mode: back to following the box sets both to 0', (await val('kAdp')) === '0' && (await val('kMot')) === '0' && !(await hid('kSmo')));
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // box levels (F6): as sent by default, saved
+    {
+      check('levels: start as the box sends them', (await p.ev("document.getElementById('kLvl').value")) === 'sent');
+      await p.ev("var e=document.getElementById('kLvl'); e.value='video'; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150);
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('levels: Save sends the choice', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.levels === 'video', JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+      await p.ev("var e=document.getElementById('kLvl'); e.value='sent'; e.dispatchEvent(new Event('change',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(600);
+    }
     // fade in and out (F5): off by default, shown in seconds, saved
     {
       check('fade: starts off', (await p.ev("document.getElementById('kFade').value")) === '0' && /off/.test(await p.ev("document.getElementById('kFadeV').textContent")));

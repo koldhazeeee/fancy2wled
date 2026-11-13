@@ -845,7 +845,8 @@ static bool pollBox() {
   float boost;
   int motionPct, boxSpeed;
   bool snap;
-  { Lock l; boost = gSet.kBoost; motionPct = gSet.motion; boxSpeed = gSet.boxSpeed; snap = gSet.snapCuts; }
+  int levels;
+  { Lock l; boost = gSet.kBoost; motionPct = gSet.motion; boxSpeed = gSet.boxSpeed; snap = gSet.snapCuts; levels = gSet.levels; }
   uint8_t buf[300];                                       // longer than any frame seen (86-93 bytes) so a bigger one is not cut short
   for (int guard = 0; guard < 16; guard++) {
     sockaddr_in sa;
@@ -893,6 +894,7 @@ static bool pollBox() {
           for (int c = 0; c < 3; c++) { f[q][c] = (float)z[q][c]; gPrevY[q][c] = z[q][c]; }
       }
       gPrevValid = true;
+      boxLevels(f, levels, boxSpeed);                              // Box levels: give the box's level offset back (off by default)
       adjustInto(gAdj, f);
       if (cut && snap) {                                           // a scene cut: show it at once instead of smoothing into it
         gCutPending = true;                                        // easing: every target starts at the new picture (relayLoop)

@@ -734,6 +734,26 @@ float motionDelayMs(const Motion& m, int percent) {
 }
 
 // ---------------------------------------------------------------------------
+float boxLevelOffset(int boxSpeedPercent) {
+  const int s = boxSpeedPercent < 10 ? 10 : (boxSpeedPercent > 100 ? 100 : boxSpeedPercent);
+  return s >= 40 ? 26.f + 2.f * (float)(100 - s) / 60.f : 28.f;
+}
+
+void boxLevels(float zones[kZones][3], int mode, int boxSpeedPercent) {
+  if (mode <= 0) return;
+  const float off = boxLevelOffset(boxSpeedPercent);
+  for (int z = 0; z < kZones; z++)
+    for (int c = 0; c < 3; c++) {
+      float v = zones[z][c];
+      if (v > 0.f) {
+        v += off;
+        if (mode == 2) v = (v - 16.f) * (255.f / 219.f);
+      }
+      zones[z][c] = v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+    }
+}
+
+// ---------------------------------------------------------------------------
 uint32_t singleMask(int zoneSet) {
   switch (zoneSet) {
     case 1: return 0x3Fu;                                                  // top row

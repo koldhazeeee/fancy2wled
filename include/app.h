@@ -71,6 +71,7 @@ struct Settings {
   // look (shared by all targets; each target has its own brightness trim)
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
+  int levels = 0;                      // Box levels: 0 as sent, 1 give the box's offset back, 2 that and stretch limited-range video (boxLevels in core.h)
   int boxSpeed = 40;                   // the box's own "Speed of Diffusion" 10..100 % (how far each packet moves towards the new picture): what Reaction boost undoes; 100 = the box does not smooth
   int fadeMs = 0;                      // Fade in / out 0..2000 ms: fade to black before a WLED is handed back (TV off, paused, box silent) and fade in when a stream starts (0 = at once)
   bool snapCuts = false;               // show a scene cut at once (isSceneCut in core.h) instead of smoothing into it, whatever the timing setting
