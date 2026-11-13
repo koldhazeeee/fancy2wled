@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* Fix: switching the dark-scenes stage (Black cut-off, Hold steady, Dither) off now gives its memory back (37 bytes per LED, about 19 KB on four targets); before,
+  it stayed allocated until the next restart.
 * **Blend in linear light** (Lights, Colour; experimental, off by default): mixes neighbouring zones the way light adds up, so the LEDs between two colours
   keep their brightness. Try it with *Preview on the lights*; it doubles that target's colour work (still about 1.5 % of the board).
 * **An optional password for the setup page** (Device tab; off by default): every change then needs it (asked once per browser tab), reading the page does

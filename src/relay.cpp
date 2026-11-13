@@ -199,6 +199,15 @@ static bool ensureBuffers(Rt& r, int n) {
   return true;
 }
 
+static void freeFinish(Rt& r) {                                           // the stage was switched off: its 37 bytes per LED go back to the heap
+  TargetOutState& o = r.o;
+  free(o.held); free(o.resid); free(o.fin); free(o.dark);
+  o.held = o.resid = o.fin = nullptr;
+  o.dark = nullptr;
+  r.finCap = 0;
+  o.finGen = 0xFFFFFFFF;
+}
+
 static bool ensureFinish(Rt& r, int n) {                                  // the finishing stage's memory: only while the stage is on
   TargetOutState& o = r.o;
   if (r.finCap >= n && o.held && o.resid && o.fin && o.dark) return true;
@@ -1283,6 +1292,7 @@ void relayLoop() {
         p.trim = sn[i].trim; p.testing = testing; p.interp = interp; p.motionSettled = motionSettled;
         p.smoothing = gSet.kSmo; p.dtMs = (nowUs - r.smoothUs) / 1000.f; p.refMs = kSmoothRefMs;   // the same feel at any output rate
         p.finish = fin; p.finishBuffers = finishActive(fin) && ensureFinish(r, n);
+        if (!finishActive(fin) && r.finCap) freeFinish(r);   // up to 0.4.12 the buffers stayed allocated after the stage was switched off
         p.whiteMin = sn[i].whiteMin;
         bool reused = false;
         len = targetOutTick(p, r.o, gPayload, &reused);
