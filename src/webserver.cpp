@@ -154,6 +154,10 @@ static esp_err_t h_status(httpd_req_t* req) {
   { Lock l; d["enabled"] = gSet.enabled; }
   d["https"] = webHasHttps();
   d["heap"] = ESP.getFreeHeap();
+  d["heapMin"] = ESP.getMinFreeHeap();               // the lowest free memory since the board started
+  d["heapBig"] = ESP.getMaxAllocHeap();              // the largest block that could be had now (a falling value over days = fragmentation; tools/soak_log.py)
+  { TaskHandle_t lt = xTaskGetHandle("loopTask");   // Arduino's loop task runs the relay: bytes of its stack never used
+    d["stackLoop"] = lt ? (uint32_t)uxTaskGetStackHighWaterMark(lt) * (uint32_t)sizeof(StackType_t) : 0; }
   { const int rr = (int)esp_reset_reason();         // why the board last restarted: a crash, a watchdog or a brownout looks different from a normal restart
     JsonObject rs = d["reset"].to<JsonObject>();
     rs["code"] = rr; rs["reason"] = fwb::resetReasonName(rr); rs["unexpected"] = fwb::resetReasonUnexpected(rr); }

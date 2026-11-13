@@ -145,6 +145,13 @@ priority runs then (the Wi-Fi driver, the network stack, or a flash write stalli
 Reproduce: `pio run -e atoms3-tickstat -t upload`, then `python bench/tick_stats.py --windows 12` alone and again with `python bench/page_load.py fancy2wled.local --editing`
 running beside it.
 
+## Long runs (soak test)
+
+`/api/status` reports the free memory (`heap`), the lowest it has been since the start (`heapMin`), the largest block that could be had (`heapBig`: a value that keeps
+falling over days means the memory is fragmenting) and the relay task's unused stack (`stackLoop`). `python tools/soak_log.py fancy2wled.local --hours 48` reads them once a
+minute into `captures/soak.csv` and then says whether the run passed (no restart, lowest free memory above 100 KB, the largest block not falling by more than 10 %, at
+least 1 KB of stack unused); `--report <csv>` judges a run again. A 48-hour run has not been recorded yet.
+
 ## One observation
 
 The *Smooth beyond the TV* blend (`smoothOut`) adds nothing for layouts built from a position along the TV (linear or loop): the LEDs beyond the TV already show the corner zone
