@@ -25,7 +25,7 @@
 #endif
 
 // ---------------------------------------------------------------- settings
-enum LayoutType { LAYOUT_LINEAR = 0, LAYOUT_LOOP = 1, LAYOUT_TABLE = 2 };
+enum LayoutType { LAYOUT_LINEAR = 0, LAYOUT_LOOP = 1, LAYOUT_TABLE = 2, LAYOUT_SINGLE = 3 };   // single: one colour for the whole light (a lamp, a bulb)
 
 constexpr int kMaxTargets = 4;       // WLED devices (or separate runs on one WLED) the relay can stream to
 constexpr int kMaxTotalLeds = 2000;  // LEDs over all targets together
@@ -56,6 +56,8 @@ struct Target {
   int sides[4] = {0, 0, 0, 0};         // 0 = automatic
   int shift = 0;
   int aw = 16, ah = 9;
+  int single = 0;                      // single-colour layout: fwb::SingleMode (0 average, 1 dominant, 2 ambient, 3 lightest)
+  int singleZones = 0;                 // ... taken from: 0 the whole picture, 1 the top row, 2 the right column, 3 the bottom row, 4 the left column
 };
 
 struct Settings {

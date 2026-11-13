@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import adaptive, cuts, finish, govee, layout, motion, protocol, speed  # noqa: E402
+from reference import adaptive, cuts, finish, govee, layout, motion, protocol, single, speed  # noqa: E402
 
 
 def ent(entries):
@@ -300,6 +300,22 @@ def main():
         real.append([tuple(b[i * 3:i * 3 + 3]) for i in range(24)])
     for a, b in list(zip(real, real[1:]))[:120]:
         cut_line(a, b)
+
+    # --- one colour for a whole light: every mode and zone set on random pictures, the edge cases, and the picture map of each zone set -------------------------
+    srnd2 = random.Random(31)
+    for i in range(60):
+        if i < 50:
+            zs = [tuple(srnd2.randrange(256) for _ in range(3)) for _ in range(24)]
+        elif i < 54:
+            zs = [(0, 0, 0)] * 24                                         # black: every mode gives black
+        else:
+            zs = [(v, v, v) for v in [srnd2.randrange(256) for _ in range(24)]]   # greys: dominant still averages
+        mode, zset = i % 4, (i // 4) % 5
+        c = single.colour(zs, single.mask(zset), mode)
+        lines.append("SINGLE %d %d %s %.4f %.4f %.4f" % (mode, zset, hexz(zs), c[0], c[1], c[2]))
+    for zset in range(5):
+        for n in (1, 42, 266):
+            lines.append("SINGLEU %d %d %s" % (zset, n, " ".join("%.4f" % v for v in single.usage(single.mask(zset), n))))
 
     # --- blur along a strip --------------------------------------------------------------------------------------------------------------------------------------
     for n, first, last, blur in ((30, -1, -1, 5), (30, 5, 24, 5), (30, 0, 29, 1), (30, 10, 12, 8), (12, 2, 9, 20), (50, -1, -1, 3), (40, 3, 200, 6), (25, 7, 3, 4), (2, -1, -1, 10), (64, 8, 55, 12)):

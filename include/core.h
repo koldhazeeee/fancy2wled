@@ -243,6 +243,8 @@ struct TargetOutState {
 struct TargetOutParams {
   const Entry* table = nullptr;          // n entries
   int n = 0;
+  int single = -1;                       // >= 0: a single-colour light (SingleMode): every LED shows singleColour(zones, singleMask, single) instead of the table
+  uint32_t singleMask = 0;
   const float (*zones)[3] = nullptr;     // the picture to show: kZones colours
   uint32_t gen = 0;                      // the settings generation: when it changes, nothing is reused
   SmoothInfo smooth = {0, -1, 0, 0, 0u, 0u};
@@ -326,6 +328,19 @@ void motionPush(Motion& m, uint32_t nowMs, const float zones[kZones][3]);
 bool motionAt(const Motion& m, uint32_t timeMs, float out[kZones][3]);
 // How far behind the newest picture to show: percent (0..100) of one picture interval.
 float motionDelayMs(const Motion& m, int percent);
+
+// ---- one colour for a whole light (a lamp or bulb: the "single colour" layout) ----
+// The zones are not equally big (each is the average over a window of the picture, docs/PROTOCOL.md): an average over the picture weighs each by its window's area,
+// relative to the 60 x 240 px side strips of the middle rows: 1.25 for the 300 x 60 bands of the top and bottom rows, 5 for the 300 x 240 windows inside the middle rows.
+// Modes: average (by area), dominant (by area times saturation squared: the strongest colour wins over a grey background), ambient (by area times darkness squared: the
+// overall tone counts more than a few bright highlights), lightest (the zone with the highest luma). Zone sets: all, the top row, the right column, the bottom row, the
+// left column. Independent version: tools/reference/single.py.
+enum SingleMode { kSingleAverage = 0, kSingleDominant = 1, kSingleAmbient = 2, kSingleLightest = 3 };
+uint32_t singleMask(int zoneSet);                 // 0 all, 1 top, 2 right, 3 bottom, 4 left: bit z = zone z
+float singleWeight(int zone);
+void singleColour(const float zones[kZones][3], uint32_t mask, int mode, float out[3]);
+// The picture map of such a light: its n LEDs shared among the zones of the mask by area (they all follow the same colour).
+void singleUsage(uint32_t mask, int n, float out[kZones]);
 
 // ---- fading in and out when the stream starts and stops (Look > Fade in / out) ----
 // The brightness factor (0..1) of a fade: dir +1 fades in from `from` to 1, dir -1 fades out from `from` to 0, over fadeMs along a smoothstep (no sudden start or end);

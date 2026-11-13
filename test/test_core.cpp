@@ -187,7 +187,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[400000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0, nSingle = 0, singleBad = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -414,6 +414,26 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "SINGLE") {
+      // SINGLE <mode> <zone set> <hex zones> <r> <g> <b>: the colour of a single-colour light
+      int mode = 0, zset = 0; char hex[200] = {0}; float w[3] = {0, 0, 0};
+      if (sscanf(rest, "%d %d %199s %f %f %f", &mode, &zset, hex, &w[0], &w[1], &w[2]) != 6) { CHECK(false, "bad SINGLE line"); continue; }
+      const auto zb = fromHex(hex);
+      float z[kZones][3], got[3];
+      for (int q = 0; q < kZones; q++) for (int c = 0; c < 3; c++) z[q][c] = (float)zb[q * 3 + c];
+      singleColour(z, singleMask(zset), mode, got);
+      for (int c = 0; c < 3; c++) if (fabsf(got[c] - w[c]) > 0.01f) { singleBad++; break; }
+      nSingle++;
+    } else if (k == "SINGLEU") {
+      // SINGLEU <zone set> <leds> <24 floats>: how its LEDs are shared among the zones on the picture map
+      const char* p = rest;
+      int zset = 0, n = 0, adv = 0;
+      if (sscanf(p, "%d %d%n", &zset, &n, &adv) != 2) { CHECK(false, "bad SINGLEU line"); continue; }
+      p += adv;
+      float u[kZones];
+      singleUsage(singleMask(zset), n, u);
+      for (int q = 0; q < kZones; q++) { float w = 0; sscanf(p, " %f%n", &w, &adv); p += adv; if (fabsf(u[q] - w) > 0.01f) { singleBad++; break; } }
+      nSingle++;
     } else if (k == "CUT") {
       // CUT <0|1> <hex zones before> <hex zones after>: is the second packet a scene cut
       int want = 0; char ha[200] = {0}, hb[200] = {0};
@@ -1376,6 +1396,22 @@ int main(int argc, char** argv) {
   }
 
   {  // ---- targetOutTick: the relay's colour block, moved into the core, still gives the same bytes and state as the 0.4.12 relay block
+    {  // a single-colour light: every LED gets singleColour(), with the target's trim
+      const int n = 30;
+      std::vector<Entry> tbl((size_t)n);
+      tableLinear(tbl.data(), n, false, -1, -1, 0);
+      std::vector<float> tgt((size_t)n * 3), cur((size_t)n * 3);
+      std::vector<uint8_t> out((size_t)n * 3);
+      float z[kZones][3];
+      for (int q = 0; q < kZones; q++) { z[q][0] = (float)(q * 10); z[q][1] = 40.f; z[q][2] = (float)(250 - q * 9); }
+      TargetOutState st; st.tgt = tgt.data(); st.cur = cur.data();
+      TargetOutParams p; p.table = tbl.data(); p.n = n; p.zones = z; p.single = kSingleDominant; p.singleMask = singleMask(1); p.trim = 0.5f;
+      targetOutTick(p, st, out.data());
+      float c[3]; singleColour(z, singleMask(1), kSingleDominant, c);
+      bool same = true;
+      for (int i = 0; i < n; i++) for (int k = 0; k < 3; k++) if (out[(size_t)(i * 3 + k)] != (uint8_t)(c[k] * 0.5f + 0.5f)) same = false;
+      CHECK(same, "targetOutTick: a single-colour light shows singleColour on every LED (got %d,%d,%d, want about %.1f,%.1f,%.1f)", out[0], out[1], out[2], c[0] * 0.5f, c[1] * 0.5f, c[2] * 0.5f);
+    }
     const int bad = targetOutVsRelay0412(300);
     CHECK(bad == 0, "targetOutTick matches the 0.4.12 relay block over 300 random sequences of 70 ticks (%d ticks differ)", bad);
     CHECK(blurScratchFloats(10, -1, -1) == 60 && blurScratchFloats(10, 2, 5) == 24 && blurScratchFloats(10, 4, 99) == 36 && blurScratchFloats(10, 6, 2) == 60,
@@ -1386,6 +1422,7 @@ int main(int argc, char** argv) {
         fadeGain(-1, 0, 500, 1.f) == 1.f && fadeGain(-1, 600, 500, 1.f) == 0.f && fabsf(fadeGain(-1, 250, 500, 0.8f) - 0.4f) < 1e-6f &&
         fabsf(fadeGain(1, 250, 500, 0.4f) - 0.7f) < 1e-6f && fadeGain(1, 10, 0, 0.f) == 1.f && fadeGain(-1, 10, 0, 1.f) == 0.f && fadeGain(1, 5, 1000, 0.f) < 0.001f,
         "fadeGain: the ends, half way, a reversed fade continues from where it was, no fade time");
+  CHECK(nSingle >= 75 && singleBad == 0, "single-colour lights: colour and picture map agree with the reference in %d vectors (%d differ)", nSingle, singleBad);
   CHECK(nCut > 100 && cutBad == 0 && cutYes >= 5, "isSceneCut agrees with the reference on %d packet pairs (%d of them cuts; %d disagree)", nCut, cutYes, cutBad);
   printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d, adapt %d, cut %d vectors; %d checks passed, %d failed\n",
          nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, nFinish, nAdapt, nCut, g_pass, g_fail);

@@ -66,6 +66,11 @@ static void loadTarget(Target& t, int i) {
   t.ccw = gB("lCcw", false);
   for (int s = 0; s < 4; s++) t.sides[s] = gI(("lS" + String(s)).c_str(), 0);
   t.shift = gI("lShift", 0);
+  if (t.lType < LAYOUT_LINEAR || t.lType > LAYOUT_SINGLE) t.lType = LAYOUT_LINEAR;
+  t.single = gI("lSgl", 0);
+  if (t.single < 0 || t.single > 3) t.single = 0;
+  t.singleZones = gI("lSgz", 0);
+  if (t.singleZones < 0 || t.singleZones > 4) t.singleZones = 0;
   // the calibrated table, if the phone stored one
   const String tk = K("tbl4", i);
   free(gStored[i]);
@@ -108,11 +113,13 @@ static void saveTarget(const Target& t, int i) {
   prefs.putBool(K("lCcw", i).c_str(), t.ccw);
   for (int s = 0; s < 4; s++) prefs.putInt(K(("lS" + String(s)).c_str(), i).c_str(), t.sides[s]);
   prefs.putInt(K("lShift", i).c_str(), t.shift);
+  prefs.putInt(K("lSgl", i).c_str(), t.single);
+  prefs.putInt(K("lSgz", i).c_str(), t.singleZones);
 }
 
 static void eraseTargetKeys(int i) {
   static const char* keys[] = {"tName", "tKind", "lSharp", "tSat", "lVivid", "tOn", "tTrim", "wHost", "wStart", "wCount", "wOn", "wRestore", "wBri", "whiteMin", "lType", "lRight",
-                               "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "tbl4"};
+                               "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "lSgl", "lSgz", "tbl4"};
   for (const char* k : keys) prefs.remove(K(k, i).c_str());
 }
 
@@ -294,6 +301,8 @@ void tableRebuild() {
 
 // ---------------------------------------------------------------- JSON
 static const char* kEdgeNames[4] = {"top", "right", "bottom", "left"};
+static const char* kSingleModes[4] = {"average", "dominant", "ambient", "lightest"};
+static const char* kSingleZones[5] = {"all", "top", "right", "bottom", "left"};
 
 static void targetToJson(const Target& t, int i, JsonObject o) {
   o["name"] = t.name;
@@ -313,7 +322,9 @@ static void targetToJson(const Target& t, int i, JsonObject o) {
   w["restore"] = t.wRestore;
   w["brightness"] = t.wBri;
   JsonObject l2 = o["layout"].to<JsonObject>();
-  l2["type"] = t.lType == LAYOUT_TABLE ? "table" : (t.lType == LAYOUT_LOOP ? "loop" : "linear");
+  l2["type"] = t.lType == LAYOUT_TABLE ? "table" : (t.lType == LAYOUT_LOOP ? "loop" : (t.lType == LAYOUT_SINGLE ? "single" : "linear"));
+  l2["single"] = kSingleModes[t.single < 0 || t.single > 3 ? 0 : t.single];
+  l2["zones"] = kSingleZones[t.singleZones < 0 || t.singleZones > 4 ? 0 : t.singleZones];
   l2["led0Right"] = t.led0Right;
   l2["edge"] = kEdgeNames[t.linEdge < 0 || t.linEdge > 3 ? 0 : t.linEdge];
   l2["spanFirst"] = t.spanFirst;
@@ -326,7 +337,8 @@ static void targetToJson(const Target& t, int i, JsonObject o) {
   l2["hasTable"] = gStoredN[i] > 0;
   JsonArray ua = o["usage"].to<JsonArray>();                 // how many of its LEDs follow each picture zone (the setup page's picture map)
   float u[fwb::kZones] = {};
-  if (gTable[i] && gTableN[i] > 0) fwb::zoneUsage(gTable[i], gTableN[i], u);
+  if (t.lType == LAYOUT_SINGLE) fwb::singleUsage(fwb::singleMask(t.singleZones), t.wCount, u);   // every LED follows the same mix of zones
+  else if (gTable[i] && gTableN[i] > 0) fwb::zoneUsage(gTable[i], gTableN[i], u);
   for (int z = 0; z < fwb::kZones; z++) ua.add(((int)(u[z] * 10.f + 0.5f)) / 10.f);
 }
 
@@ -431,7 +443,22 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
     if (t == "linear") n.lType = LAYOUT_LINEAR;
     else if (t == "loop") n.lType = LAYOUT_LOOP;
     else if (t == "table") n.lType = LAYOUT_TABLE;
+    else if (t == "single") n.lType = LAYOUT_SINGLE;
     else return "Unknown layout type";
+  }
+  if (!y["single"].isNull()) {
+    const String m = y["single"].as<String>();
+    int v = -1;
+    for (int k = 0; k < 4; k++) if (m == kSingleModes[k]) v = k;
+    if (v < 0) return "single must be average, dominant, ambient or lightest";
+    n.single = v;
+  }
+  if (!y["zones"].isNull()) {
+    const String m = y["zones"].as<String>();
+    int v = -1;
+    for (int k = 0; k < 5; k++) if (m == kSingleZones[k]) v = k;
+    if (v < 0) return "zones must be all, top, right, bottom or left";
+    n.singleZones = v;
   }
   if (!y["led0Right"].isNull()) n.led0Right = y["led0Right"].as<bool>();
   if (!y["edge"].isNull()) {
@@ -607,6 +634,7 @@ String targetUsage(int idx, JsonVariantConst req, float out[fwb::kZones], int* l
     if (!tb) return "Out of memory";
     if (usesStoredTable(t, idx, n)) { buildTable(t, idx, tb, n); built = true; }     // a phone-measured table is shared data: copied under the lock
   }
+  if (t.lType == LAYOUT_SINGLE) { fwb::singleUsage(fwb::singleMask(t.singleZones), n, out); free(tb); return ""; }   // one colour from a mix of zones
   if (!built) buildGenerated(t, tb, n);
   fwb::zoneUsage(tb, n, out);
   free(tb);

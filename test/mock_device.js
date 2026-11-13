@@ -25,6 +25,12 @@ function sharpen(tbl, pct) {
 function usageOf(wled, layout, sharp) {
   const n = wled.count | 0, out = new Array(24).fill(0);
   if (n <= 0 || n > 1000) return out;
+  if (layout.type === 'single') {                // like the board: the LEDs shared among the chosen zones by the size of their windows
+    const zs = { top: [0, 1, 2, 3, 4, 5], bottom: [18, 19, 20, 21, 22, 23], left: [0, 6, 12, 18], right: [5, 11, 17, 23] }[layout.zones] || Array.from({ length: 24 }, (_, z) => z);
+    const w = z => (Math.floor(z / 6) % 3 === 0 ? 1.25 : (z % 6 === 0 || z % 6 === 5 ? 1 : 5)), tot = zs.reduce((a, z) => a + w(z), 0);
+    zs.forEach(z => { out[z] = n * w(z) / tot; });
+    return out.map(v => Math.round(v * 10) / 10);
+  }
   let tbl = null;
   if (layout.type === 'loop') tbl = A.tableLoop(n, layout.corner | 0, !!layout.ccw, (layout.sides && layout.sides[0] > 0) ? layout.sides : null, layout.shift | 0, 16, 9);
   if (!tbl) tbl = A.tableLinear(n, !!layout.led0Right, layout.spanFirst, layout.spanLast, layout.edge || 'top');

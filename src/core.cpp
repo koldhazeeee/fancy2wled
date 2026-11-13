@@ -734,6 +734,57 @@ float motionDelayMs(const Motion& m, int percent) {
 }
 
 // ---------------------------------------------------------------------------
+uint32_t singleMask(int zoneSet) {
+  switch (zoneSet) {
+    case 1: return 0x3Fu;                                                  // top row
+    case 2: return (1u << 5) | (1u << 11) | (1u << 17) | (1u << 23);       // right column
+    case 3: return 0x3Fu << 18;                                            // bottom row
+    case 4: return (1u << 0) | (1u << 6) | (1u << 12) | (1u << 18);        // left column
+    default: return (1u << kZones) - 1u;                                   // all
+  }
+}
+
+float singleWeight(int z) {
+  const int row = z / 6, col = z % 6;
+  if (row == 0 || row == 3) return 1.25f;
+  return (col == 0 || col == 5) ? 1.f : 5.f;
+}
+
+void singleColour(const float zones[kZones][3], uint32_t mask, int mode, float out[3]) {
+  out[0] = out[1] = out[2] = 0.f;
+  if (mode == kSingleLightest) {
+    int best = -1;
+    float bestL = -1.f;
+    for (int z = 0; z < kZones; z++) {
+      if (!(mask & (1u << z))) continue;
+      const float l = 0.2126f * zones[z][0] + 0.7152f * zones[z][1] + 0.0722f * zones[z][2];
+      if (l > bestL) { bestL = l; best = z; }
+    }
+    if (best >= 0) for (int c = 0; c < 3; c++) out[c] = zones[best][c];
+    return;
+  }
+  float tot = 0.f, acc[3] = {0.f, 0.f, 0.f};
+  for (int z = 0; z < kZones; z++) {
+    if (!(mask & (1u << z))) continue;
+    const float* c = zones[z];
+    float w = singleWeight(z);
+    const float mx = maxf(c[0], maxf(c[1], c[2])), mn = c[0] < c[1] ? (c[0] < c[2] ? c[0] : c[2]) : (c[1] < c[2] ? c[1] : c[2]);
+    if (mode == kSingleDominant) { const float ch = (mx - mn) / 255.f; w *= ch * ch + 0.02f; }
+    else if (mode == kSingleAmbient) { const float dk = 1.05f - mx / 255.f; w *= dk * dk; }
+    tot += w;
+    for (int k = 0; k < 3; k++) acc[k] += w * c[k];
+  }
+  if (tot > 0.f) for (int k = 0; k < 3; k++) out[k] = acc[k] / tot;
+}
+
+void singleUsage(uint32_t mask, int n, float out[kZones]) {
+  float tot = 0.f;
+  for (int z = 0; z < kZones; z++) { out[z] = 0.f; if (mask & (1u << z)) tot += singleWeight(z); }
+  if (tot <= 0.f || n <= 0) return;
+  for (int z = 0; z < kZones; z++) if (mask & (1u << z)) out[z] = (float)n * singleWeight(z) / tot;
+}
+
+// ---------------------------------------------------------------------------
 float fadeGain(int dir, uint32_t elapsedMs, int fadeMs, float from) {
   if (dir == 0) return 1.f;
   const float f = clamp01(from);
@@ -1028,10 +1079,18 @@ size_t targetOutTick(const TargetOutParams& p, TargetOutState& s, uint8_t* out, 
   // Sync Box packet), they are not worked out again.
   const bool sameInput = !p.testing && s.tgtValid && s.tgtN == n && s.tgtGen == p.gen && memcmp(s.lastZones, p.zones, sizeof s.lastZones) == 0;
   if (!sameInput) {
-    applyTable(p.table, n, p.zones, s.tgt, p.smooth, p.vivid);
+    if (p.single >= 0) {                                                                       // a lamp or bulb: one colour for every LED
+      float c[3];
+      singleColour(p.zones, p.singleMask, p.single, c);
+      for (int i = 0; i < n; i++) { s.tgt[i * 3] = c[0]; s.tgt[i * 3 + 1] = c[1]; s.tgt[i * 3 + 2] = c[2]; }
+    } else {
+      applyTable(p.table, n, p.zones, s.tgt, p.smooth, p.vivid);
+    }
     if (p.sat != 1.f) saturateColours(s.tgt, n, p.sat);                                        // the target's own saturation, on top of the shared one
-    if (p.blur > 0 && p.blurScratch) blurColours(s.tgt, n, p.spanFirst, p.spanLast, p.blur, p.blurScratch);   // soften the steps between zones
-    if (p.darkOut) darkOutside(s.tgt, n, p.spanFirst, p.spanLast);                               // the part of the strip not along the picture stays dark
+    if (p.single < 0) {
+      if (p.blur > 0 && p.blurScratch) blurColours(s.tgt, n, p.spanFirst, p.spanLast, p.blur, p.blurScratch);   // soften the steps between zones
+      if (p.darkOut) darkOutside(s.tgt, n, p.spanFirst, p.spanLast);                             // the part of the strip not along the picture stays dark
+    }
     memcpy(s.lastZones, p.zones, sizeof s.lastZones);
     s.tgtValid = !p.testing;
     s.tgtN = n;

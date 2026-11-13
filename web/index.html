@@ -115,7 +115,8 @@ input[type=range].wide{width:100%}
     <option value="left">To the left of the TV (a vertical strip)</option>
     <option value="right">To the right of the TV (a vertical strip)</option>
     <option value="loop">All the way around the TV</option>
-    <option value="table">Use what the phone calibration measured</option></select></div>
+    <option value="table">Use what the phone calibration measured</option>
+    <option value="single">One colour for the whole light (a lamp, a bulb)</option></select></div>
   <p class="small mut" id="placeNote"></p>
   <div class="row" id="calRow"><a class="btn" id="calBtn" href="/calibrate">Auto-calibrate with my phone</a></div>
 
@@ -148,6 +149,17 @@ input[type=range].wide{width:100%}
     <div class="row"><label for="lDir">Numbers go</label><select id="lDir" data-live="1"><option value="0">clockwise</option><option value="1">counter-clockwise</option></select></div>
     <div class="row"><label>LEDs per side: top / right / bottom / left (blank = automatic)</label><input id="lS0" type="number" data-live="1"><input id="lS1" type="number" data-live="1"><input id="lS2" type="number" data-live="1"><input id="lS3" type="number" data-live="1"></div>
     <div class="row"><label for="lShift">Shift the start (LEDs)</label><div class="num"><input id="lShift" type="number" value="0" data-live="1"><span class="nudge" data-nudge="lShift"></span></div></div>
+  </div>
+  <div id="lSingle">
+    <h3>3. Which colour?</h3>
+    <div class="row"><label for="lSgMode">The light shows</label><select id="lSgMode" data-live="1">
+      <option value="average">the average colour of the picture</option>
+      <option value="dominant">its strongest colour (dominant)</option>
+      <option value="ambient">its overall tone, not the highlights (ambient)</option>
+      <option value="lightest">its lightest part</option></select></div>
+    <div class="row"><label for="lSgZones">Taken from</label><select id="lSgZones" data-live="1">
+      <option value="all">the whole picture</option><option value="top">the top edge</option><option value="bottom">the bottom edge</option><option value="left">the left edge</option><option value="right">the right edge</option></select></div>
+    <p class="small mut">Average weighs each part of the picture by its size. Dominant lets a strong colour win over a grey or dark background. Ambient follows the overall tone and ignores a few bright spots. Lightest shows the brightest part.</p>
   </div>
   <p class="small mut hidden" id="layNote"></p>
 
@@ -655,7 +667,8 @@ input[type=range].wide{width:100%}
     left:{vertical:true,note:'Colours come from the LEFT edge of the picture (the left column of the colour map).'},
     right:{vertical:true,note:'Colours come from the RIGHT edge of the picture (the right column of the colour map).'},
     loop:{vertical:false,note:'Colours come from whichever edge of the picture each LED is nearest to.'},
-    table:{vertical:false,note:'Each LED uses the position the phone measured for it, so it takes its colour from the nearest edge of the picture.'}
+    table:{vertical:false,note:'Each LED uses the position the phone measured for it, so it takes its colour from the nearest edge of the picture.'},
+    single:{vertical:false,note:'The whole light shows one colour worked out from the picture: right for a lamp, a bulb or a light that is not along the TV.'}
   };
   function place(){return $('lPlace').value;}
   function linear(){var p=place();return p==='top'||p==='bottom'||p==='left'||p==='right';}
@@ -698,7 +711,7 @@ input[type=range].wide{width:100%}
     else{$('tvFirstLbl').textContent=v?'TV top is at '+u:'TV left edge is at '+u;$('tvLastLbl').textContent=v?'TV bottom is at '+u:'TV right edge is at '+u;}
     $('dirLbl').textContent=(isGovee()?'The segment numbers go':'The LED numbers go')+(v?'':' (as you face the TV)');
     var o=$('lSide').options;o[0].textContent=v?'from top to bottom':'from left to right';o[1].textContent=v?'from bottom to top':'from right to left';
-    show('lLinear',linear());show('lLoop',p==='loop');
+    show('lLinear',linear());show('lLoop',p==='loop');show('lSingle',p==='single');
   }
 
   /* TV part: the page uses the strip's own LED numbers, the board stores them relative to the first LED of the run */
@@ -748,7 +761,7 @@ input[type=range].wide{width:100%}
   }
 
   /* ---------------------------------------------------------------- config */
-  function placeFromCfg(L){return L.type==='table'?'table':(L.type==='loop'?'loop':(L.edge||'top'));}
+  function placeFromCfg(L){return L.type==='table'?'table':(L.type==='loop'?'loop':(L.type==='single'?'single':(L.edge||'top')));}
   function setCfg(c){
     cfg=c;
     var list=c.targets||[{name:'WLED',enabled:true,trim:1,wled:c.wled,layout:c.layout}];
@@ -758,7 +771,7 @@ input[type=range].wide{width:100%}
     $('tDel').disabled=list.length<2;$('tAdd').disabled=list.length>=4;
     $('tName').value=T.name;$('tKind').value=T.kind||'wled';$('tOn').checked=T.enabled!==false;$('tTrim').value=T.trim==null?1:T.trim;$('tSharp').value=T.sharp==null?0:T.sharp;$('tSat').value=T.sat==null?1:T.sat;$('tBlur').value=T.blur==null?0:T.blur;$('tVivid').checked=!!T.vivid;$('tDark').checked=!!T.darkOutside;
     $('wHost').value=W.host;$('wStart').value=W.start;$('wCount').value=W.count;$('wOn').checked=W.turnOn;$('wBri').value=W.brightness;$('wRestore').checked=W.restore;
-    var L=T.layout;$('lPlace').value=placeFromCfg(L);$('lSide').value=L.led0Right?1:0;
+    var L=T.layout;$('lPlace').value=placeFromCfg(L);$('lSgMode').value=L.single||'average';$('lSgZones').value=L.zones||'all';$('lSide').value=L.led0Right?1:0;
     $('tvFirst').value=L.spanFirst>=0?L.spanFirst+W.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+W.start:'';
     $('lCorner').value=L.corner;$('lDir').value=L.ccw?1:0;for(var i=0;i<4;i++)$('lS'+i).value=L.sides[i]>0?L.sides[i]:'';$('lShift').value=L.shift;
     var TV=(c.relay&&c.relay.tvOff)||{};$('tvMode').value=TV.mode||'handback';$('tvSecs').value=TV.seconds||15;
@@ -803,9 +816,10 @@ input[type=range].wide{width:100%}
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
   function gather(){
     var p=place(),s=tvSpan(),lay;
-    lay={type:p==='loop'?'loop':(p==='table'?'table':'linear'),led0Right:$('lSide').value==='1',spanFirst:linear()?s.first:-1,spanLast:linear()?s.last:-1,
+    lay={type:p==='loop'?'loop':(p==='table'?'table':(p==='single'?'single':'linear')),led0Right:$('lSide').value==='1',spanFirst:linear()?s.first:-1,spanLast:linear()?s.last:-1,
       corner:num('lCorner',0),ccw:$('lDir').value==='1',sides:[num('lS0',0),num('lS1',0),num('lS2',0),num('lS3',0)],shift:num('lShift',0)};
     if(linear())lay.edge=p;
+    if(p==='single'){lay.single=$('lSgMode').value;lay.zones=$('lSgZones').value;}
     return {target:sel,name:$('tName').value.trim(),kind:$('tKind').value,enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),sharp:num('tSharp',0),sat:parseFloat($('tSat').value),vivid:$('tVivid').checked,darkOutside:$('tDark').checked,blur:num('tBlur',0),wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
       relay:{tvOff:{mode:$('tvMode').value,seconds:num('tvSecs',15)}},

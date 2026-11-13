@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **One colour for a lamp or a bulb** (Lights, Layout: *One colour for the whole light*): every LED or segment of the target shows one colour worked out from the
+  picture: the average (each zone weighed by the size of the window it looks at), the dominant colour, the ambient tone without the highlights, or the lightest part,
+  from the whole picture or one edge. Works for a WLED and for a Govee light. Checked on the board with all three of 210 LEDs showing the same colour in each mode.
 * **Home Assistant**: every Look setting is there now: Box speed, Motion smoothing, Adaptive smoothing, Output rate, Black cut-off, Hold steady and Fade in
   and out as numbers, Dither and Snap on scene cuts as switches (before, only gamma, saturation, smoothing, boost and smooth beyond the TV).
 * Setup page: a field you changed is marked *not saved* beside its name until you save, and screen readers hear each slider's value as the page shows it

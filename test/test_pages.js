@@ -444,6 +444,20 @@ async function cdp(wsUrl) {
       check('unsaved: after Save nothing is marked', (await p.ev("document.querySelectorAll('.row.unsaved').length")) === 0);
       await p.ev("var e=document.getElementById('kGam'); e.value='1'; e.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(600);
     }
+    // a single-colour light (N1)
+    {
+      await p.ev("document.getElementById('tabLights').click(); document.getElementById('subLayout').click(); 1"); await sleep(300);
+      await p.ev("var e=document.getElementById('lPlace'); e.value='single'; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300);
+      const hid = id => p.ev("document.getElementById('" + id + "').classList.contains('hidden')");
+      check('single: choosing one colour shows its choices and hides the TV part', !(await hid('lSingle')) && (await hid('lLinear')) && (await hid('lLoop')));
+      await p.ev("var a=document.getElementById('lSgMode'); a.value='dominant'; a.dispatchEvent(new Event('change',{bubbles:true})); var b=document.getElementById('lSgZones'); b.value='top'; b.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300);
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(800);
+      const lay = dev.state.lastConfigPost && dev.state.lastConfigPost.layout;
+      check('single: Save sends the layout, the mode and the zones', lay && lay.type === 'single' && lay.single === 'dominant' && lay.zones === 'top', JSON.stringify(lay));
+      check('single: after saving it is still shown as one colour, from the top edge', (await p.ev("document.getElementById('lPlace').value")) === 'single' && (await p.ev("document.getElementById('lSgZones').value")) === 'top');
+      await p.ev("var e=document.getElementById('lPlace'); e.value='top'; e.dispatchEvent(new Event('change',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(800);
+    }
     // the network card (L5)
     {
       await p.ev("document.getElementById('tabStatus').click(); document.getElementById('netBox').open=true; 1"); await sleep(3000);
