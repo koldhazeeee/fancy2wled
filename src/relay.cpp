@@ -1179,7 +1179,7 @@ void relayLoop() {
   const uint32_t tickMs = 1000u / (uint32_t)fps;
   const uint32_t since = now - gLastTick;
   bool anyBehind = false;
-  // A target that has to stop (the box went quiet, paused, TV off) or is fading needs a tick too: before 0.4.13 a box that went silent while the picture stood still
+  // A target that has to stop (the box went quiet, paused, TV off) or is fading needs a tick too: up to 0.4.12 a box that went silent while the picture stood still
   // never caused one, so the WLED was kept in realtime mode with the last frame instead of being handed back.
   for (int i = 0; i < nT; i++)
     if (streaming[i] && (!gRt[i].o.converged || !gRt[i].o.curValid || gRt[i].computedGen != gSettingsGen || (!fresh && gRt[i].prepared) || gRt[i].fadeDir != 0))

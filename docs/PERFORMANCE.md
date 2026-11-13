@@ -121,7 +121,7 @@ Found with the linker's list of discarded sections, a search for names that occu
 `tools/make_golden.py`, and a stale sentence in `docs/RESILIENCE.md` that still pointed at `kBoxLead`. Left in on purpose: `vividBlend()` and `motionReset()`, which only the tests
 call (they are the tested form of what the relay does inline). Nothing was found in the page's script or styles.
 
-## An open setup page no longer stalls the lights (0.4.13)
+## An open setup page no longer stalls the lights (after 0.4.12)
 
 The worst single tick used to reach 1 to 4 milliseconds while the setup page was open. The `atoms3-tickstat` build now also reports how long the relay waits for the
 shared lock and which function and task held it (`Lock` in `include/app.h` records its caller in that build only), and `bench/page_load.py` makes the same requests as
@@ -145,7 +145,7 @@ priority runs then (the Wi-Fi driver, the network stack, or a flash write stalli
 Reproduce: `pio run -e atoms3-tickstat -t upload`, then `python bench/tick_stats.py --windows 12` alone and again with `python bench/page_load.py fancy2wled.local --editing`
 running beside it.
 
-## Blend in linear light (0.4.13, experimental)
+## Blend in linear light (after 0.4.12, experimental)
 
 Mixing in linear light decodes the 24 zones (a 256-entry table), mixes and blurs as usual, and encodes every LED back through a 256-entry table indexed by the square
 root of the linear value (`powf` per LED would be far slower on this chip). Measured with `atoms3-tickstat` on the real setup, 8 windows each: with it on for the two WLED

@@ -45,7 +45,7 @@ def collect(windows, timeout):
     rows = []
     t0 = time.time()
     pat = re.compile(r"TICKSTAT n=(\d+) avg_us=([\d.]+) max_us=(\d+) reused=(\d+)")
-    # since 0.4.13 the line also has the relay's waits for the shared lock (see Lock in include/app.h); older firmware does not print them
+    # newer firmware (after 0.4.12) also prints the relay's waits for the shared lock (see Lock in include/app.h); older firmware does not print them
     lock = re.compile(r"lockmax_us=(\d+) locksum_us=(\d+) lockslow=(\d+) lockby=(\S+) lockfor=(\S+) locktask=(\S+) lockheld=(\d+)")
     while len(rows) < windows + 1 and time.time() - t0 < timeout:
         line = ser.readline().decode("utf-8", "replace")

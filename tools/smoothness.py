@@ -158,7 +158,7 @@ class Adaptive(Run):
 
 
 def pchip_at(m, time):
-    """An experiment, not in the relay: Motion smoothing through a monotone cubic (Fritsch-Carlson) instead of straight lines. Measured in 0.4.13 and not adopted: on
+    """An experiment, not in the relay: Motion smoothing through a monotone cubic (Fritsch-Carlson) instead of straight lines. Measured after 0.4.12 and not adopted: on
     the slow pan it is no smoother (the knots' timing jitter dominates, not the corners) and on video 1-3 % (see improvement notes in docs/LATENCY.md)."""
     k = m.k
     if len(k) < 3 or time - k[-1][0] >= 0 or time - k[0][0] <= 0:

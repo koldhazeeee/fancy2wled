@@ -17,7 +17,7 @@ What travels unencrypted:
 | The commands to your **WLED** strips (HTTP and DDP) and **Govee** lights (their LAN API over UDP) | everyone on your network |
 | The **Sync Box's own broadcast**. Its frame format is public (see [docs/PROTOCOL.md](docs/PROTOCOL.md)) and only obfuscated, not encrypted | everyone on your network |
 
-By default there is no login for the setup page, the same as WLED itself. Since 0.4.13 you can set a **setup page password** (Device tab): every change then has to carry
+By default there is no login for the setup page, the same as WLED itself. In versions after 0.4.12 you can set a **setup page password** (Device tab): every change then has to carry
 it (an `X-Fwb-Password` header, or `auth` in the JSON body), compared in constant time, with everything refused for a minute after 5 wrong tries (shared with the update
 password); reading the page and the status stays open, and so does the picture map's recount, which changes nothing. It keeps other people and devices on your network
 from changing the lights. It is **not** protection against someone who can read your network traffic: it travels in plain HTTP. A config file cannot set it, it is never
