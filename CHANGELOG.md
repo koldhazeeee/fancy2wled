@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **Presets and compare** (Look): *Quick*, *Smooth*, *Calm* and *Defaults* fill in the timing and dark-scene settings (Box speed, brightness and colour are left
+  alone), a double-click on a setting's name resets just that one, **Preview on the lights** shows Look changes on the real picture as you make them (before, only
+  during the rainbow test), and **Hold to compare** shows the saved look while held. Unticking or leaving without saving puts the saved look back.
 * **Timing is one choice now** (Look): *How the lights move* picks Follow the box, Motion smoothing or Adaptive, and shows only that one's sliders, instead of
   four sliders that partly cancel each other out. Your settings are unchanged: the page works the choice out from them. The Settings check no longer lists settings
   that the chosen way does not use.

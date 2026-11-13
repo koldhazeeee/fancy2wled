@@ -196,6 +196,13 @@ input[type=range].wide{width:100%}
 </details>
   <div id="advice" class="small" aria-live="polite"></div>
 </div>
+<div class="card" id="presetCard">
+  <h2>Presets</h2>
+  <div class="row"><button class="sec" data-preset="quick">Quick</button><button class="sec" data-preset="smooth">Smooth</button><button class="sec" data-preset="calm">Calm</button><button class="sec" data-preset="defaults">Defaults</button></div>
+  <p class="small mut" id="presetNote">A preset sets the timing and dark-scene settings (never Box speed, which is a fact about your box, and never brightness or colour); nothing is kept until you press Save. Double-click the name of a setting to put just that one back to its default.</p>
+  <div class="row"><label for="kTry">Preview on the lights as you change things</label><input id="kTry" type="checkbox" style="flex:0 0 auto"></div>
+  <div class="row hidden" id="cmpRow"><button id="cmp" class="sec">Hold to compare with the saved look</button><span class="small mut">Leave the page or untick the box without saving and the lights go back to the saved look.</span></div>
+</div>
 <div class="cols">
 <div>
 <h3>Colour</h3>
@@ -803,7 +810,7 @@ input[type=range].wide{width:100%}
     vals();labels();info();setDirty(true);drawMap();advice();scheduleUsage();
     clearTimeout(timer);
     timer=setTimeout(async function(){
-      if(!testing)return;                       // only push changes live while the rainbow test is running
+      if(!testing&&!$('kTry').checked)return;   // changes go to the lights live while the rainbow test runs, or with Preview on the lights ticked
       var pr=problems();if(pr){msg('<span class="err">'+pr+'</span>');return;}
       var b=gather();b.preview=true;
       try{await j('/api/config',b);msg('<span class="mut">Live preview. Press Save to keep these settings.</span>');}
@@ -812,6 +819,47 @@ input[type=range].wide{width:100%}
   }
   document.querySelectorAll('[data-live]').forEach(function(e){e.addEventListener('input',changed);e.addEventListener('change',changed);});
   ['input','change'].forEach(function(ev){document.addEventListener(ev,function(){try{advice();}catch(e){}});});          // the settings check follows every field, not only the live-preview ones
+
+  /* ---------------------------------------------------- presets (L2) and comparing with the saved look (L3) */
+  var LOOK_DEFAULTS={kBri:1,kGam:1,kSat:1,kSmo:0.5,kBoost:0,kMot:0,kAdp:0,kSnap:false,kFps:'30',kOut:100,kBcut:0,kDead:0,kDith:false,kFade:0};
+  /* From the measurements in docs/LATENCY.md (tools/smoothness.py). Box speed is never set by a preset: it has to match the box. */
+  var PRESETS={quick:{kMot:0,kAdp:0,kSmo:0.2,kSnap:true,kFps:'30',kBcut:0,kDead:0,kDith:false},
+    smooth:{kMot:100,kAdp:0,kSmo:0,kBoost:0,kSnap:true,kFps:'60',kBcut:0,kDead:0,kDith:false},
+    calm:{kMot:0,kAdp:75,kSmo:0,kBoost:0,kSnap:true,kFps:'30',kBcut:4,kDead:1.5,kDith:false},
+    defaults:LOOK_DEFAULTS};
+  var PRESET_NOTE={quick:'Quick: the lights follow each picture with a little smoothing (and Reaction boost when the box itself smooths); cuts snap.',
+    smooth:'Smooth: Motion smoothing 100 at 60 frames a second, the smoothest movement, about 35 ms later; cuts snap.',
+    calm:'Calm: Adaptive smoothing 75 with a black cut-off and hold steady, for a dark room: still scenes stay still, cuts and flashes still come through at once.',
+    defaults:'Defaults: the settings a new board starts with (Box speed is left as it is).'};
+  function setField(id,v){var e=$(id);if(e.type==='checkbox')e.checked=!!v;else e.value=String(v);}
+  function applyPreset(name){
+    var p=Object.assign({},PRESETS[name]);
+    if(name==='quick')p.kBoost=parseInt($('kBsp').value,10)<100?60:0;
+    Object.keys(p).forEach(function(id){setField(id,p[id]);});
+    changed();
+    $('presetNote').textContent=PRESET_NOTE[name]+' Press Save to keep it.';
+  }
+  document.querySelectorAll('[data-preset]').forEach(function(b){b.addEventListener('click',function(){applyPreset(b.getAttribute('data-preset'));});});
+  Object.keys(LOOK_DEFAULTS).forEach(function(id){
+    var l=document.querySelector('label[for="'+id+'"]');if(!l)return;
+    l.title='Double-click to put this back to its default';
+    l.addEventListener('dblclick',function(){setField(id,LOOK_DEFAULTS[id]);changed();});
+  });
+  async function previewWith(look){var b=gather();if(look)b.look=Object.assign({},b.look,look);b.preview=true;try{await j('/api/config',b);}catch(e){msg('<span class="err">'+e.message+'</span>');}}
+  async function revertPreview(){try{await j('/api/config',{revert:true});}catch(e){}}
+  $('kTry').addEventListener('change',function(){
+    show('cmpRow',this.checked);
+    if(this.checked){if(dirty)previewWith(null);msg('<span class="mut">Changes on the Look tab now show on the lights at once. Press Save to keep them.</span>');}
+    else if(dirty){revertPreview();msg('<span class="mut">The lights are back to the saved look.</span>');}
+  });
+  var comparing=false;
+  function cmpOn(e){if(e)e.preventDefault();if(comparing||!cfg)return;comparing=true;$('cmp').textContent='Showing the saved look';previewWith(cfg.look);}
+  function cmpOff(){if(!comparing)return;comparing=false;$('cmp').textContent='Hold to compare with the saved look';previewWith(null);}
+  $('cmp').addEventListener('pointerdown',cmpOn);
+  ['pointerup','pointerleave','pointercancel','blur'].forEach(function(ev){$('cmp').addEventListener(ev,cmpOff);});
+  $('cmp').addEventListener('keydown',function(e){if(e.key===' '||e.key==='Enter')cmpOn(e);});
+  $('cmp').addEventListener('keyup',function(e){if(e.key===' '||e.key==='Enter')cmpOff();});
+  window.addEventListener('beforeunload',function(){if($('kTry').checked&&dirty&&navigator.sendBeacon)navigator.sendBeacon('/api/config',new Blob(['{"revert":true}'],{type:'application/json'}));});
 
   /* ------------------------------------ markers: light the LEDs where the run / the TV part starts and ends */
   var markTimer=null, MARK=3, midUntil=0;                                  // midUntil: the green middle LED stays in the markers until then

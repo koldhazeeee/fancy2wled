@@ -433,6 +433,36 @@ async function cdp(wsUrl) {
       await sl('kMot', 0); await sl('kAdp', 0);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // presets (L2) and Preview on the lights / Hold to compare (L3)
+    {
+      const val = id => p.ev("(function(){var e=document.getElementById('" + id + "');return e.type==='checkbox'?e.checked:e.value;})()");
+      const click = async name => { await p.ev("document.querySelector('[data-preset=" + name + "]').click(); 1"); await sleep(200); };
+      await click('smooth');
+      check('preset: Smooth sets Motion smoothing 100, 60 frames a second and snap, and says to save', (await val('kMot')) === '100' && (await val('kFps')) === '60' && (await val('kSnap')) === true && (await val('kMode')) === 'motion' && /Press Save/.test(await p.ev("document.getElementById('presetNote').textContent")));
+      check('preset: it leaves Box speed alone', (await val('kBsp')) === '40');
+      await click('quick');
+      check('preset: Quick follows the box, with a boost while the box smooths (speed 40)', (await val('kMode')) === 'follow' && (await val('kBoost')) === '60' && (await val('kSmo')) === '0.2' && (await val('kMot')) === '0');
+      await click('calm');
+      check('preset: Calm is adaptive 75 with a black cut-off and hold steady', (await val('kAdp')) === '75' && (await val('kBcut')) === '4' && (await val('kDead')) === '1.5' && (await val('kMode')) === 'adaptive');
+      await click('defaults');
+      check('preset: Defaults puts the look back', (await val('kAdp')) === '0' && (await val('kMot')) === '0' && (await val('kSmo')) === '0.5' && (await val('kBoost')) === '0' && (await val('kFps')) === '30' && (await val('kSnap')) === false && (await val('kBcut')) === '0');
+      await p.ev("var e=document.getElementById('kBri'); e.value='0.5'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(150);
+      await p.ev("document.querySelector('label[for=kBri]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); 1"); await sleep(150);
+      check('reset: double-clicking a setting name puts it back to its default', (await val('kBri')) === '1');
+      await p.ev("var e=document.getElementById('kTry'); e.checked=true; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(200);
+      check('preview: ticking it shows the compare button', !(await p.ev("document.getElementById('cmpRow').classList.contains('hidden')")));
+      dev.state.lastConfigPost = null;
+      await p.ev("var e=document.getElementById('kBri'); e.value='0.6'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(700);
+      check('preview: a change goes to the board at once, as a preview', dev.state.lastConfigPost && dev.state.lastConfigPost.preview === true && Math.abs(dev.state.lastConfigPost.look.brightness - 0.6) < 1e-9, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+      await p.ev("document.getElementById('cmp').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})); 1"); await sleep(400);
+      check('compare: holding the button previews the saved look', dev.state.lastConfigPost.preview === true && dev.state.lastConfigPost.look.brightness === 1 && /Showing the saved look/.test(await p.ev("document.getElementById('cmp').textContent")), JSON.stringify(dev.state.lastConfigPost.look));
+      await p.ev("document.getElementById('cmp').dispatchEvent(new PointerEvent('pointerup',{bubbles:true})); 1"); await sleep(400);
+      check('compare: letting go goes back to the edited look', dev.state.lastConfigPost.preview === true && Math.abs(dev.state.lastConfigPost.look.brightness - 0.6) < 1e-9);
+      const before = dev.state.reverts || 0;
+      await p.ev("var e=document.getElementById('kTry'); e.checked=false; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300);
+      check('preview: unticking it with unsaved changes puts the board back to the saved look', (dev.state.reverts || 0) === before + 1);
+      await p.ev("var e=document.getElementById('kBri'); e.value='1'; e.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(600);
+    }
     // the timing mode picker (L4): picking a mode sets the values and shows only that mode's sliders
     {
       const mode = async v => { await p.ev("var e=document.getElementById('kMode'); e.value='" + v + "'; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };

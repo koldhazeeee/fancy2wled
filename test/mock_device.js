@@ -117,6 +117,7 @@ function createDevice(opts) {
         let d = {}; try { d = JSON.parse(body || '{}'); } catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
         calls.push('POST ' + p + (p.startsWith('/api/cal/') ? ' ' + body : ''));
         if (p === '/api/config') {
+          if (d.revert) { state.reverts = (state.reverts || 0) + 1; return json(res, 200, state.cfg); }   // like the board: back to the saved settings
           state.lastConfigPost = d;
           const T = state.cfg.targets[d.target || 0];
           if (!T) return json(res, 400, { error: 'There is no target ' + ((d.target || 0) + 1) });

@@ -286,6 +286,7 @@ static esp_err_t h_config_get(httpd_req_t* req) {
 
 static esp_err_t h_config_post(httpd_req_t* req) {
   NEED_JSON(doc);
+  if (doc["revert"] | false) { settingsRevert(); return h_config_get(req); }   // drop the live preview: back to the saved settings (the page's Preview on the lights)
   const bool preview = doc["preview"] | false;      // live preview from the setup page: apply now, save later
   String err = settingsFromJson(doc.as<JsonVariantConst>(), !preview);
   if (err.length()) return sendError(req, "400 Bad Request", err);
