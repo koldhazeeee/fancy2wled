@@ -433,6 +433,17 @@ async function cdp(wsUrl) {
       await sl('kMot', 0); await sl('kAdp', 0);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // polish (L8): sliders say their value as the label shows it; changed fields are marked until saved
+    {
+      await p.ev("document.getElementById('tabLook').click(); var e=document.getElementById('kBoost'); e.value='60'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(200);
+      check('a11y: a slider tells screen readers its value in words', (await p.ev("document.getElementById('kBoost').getAttribute('aria-valuetext')")) === '60%' && (await p.ev("document.getElementById('kMot').getAttribute('aria-valuetext')")) === 'off');
+      check('unsaved: a changed field is marked', await p.ev("document.getElementById('kBoost').closest('.row').classList.contains('unsaved')") && !(await p.ev("document.getElementById('kBri').closest('.row').classList.contains('unsaved')")));
+      await p.ev("var e=document.getElementById('kBoost'); e.value='0'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(150);
+      check('unsaved: putting it back removes the mark', !(await p.ev("document.getElementById('kBoost').closest('.row').classList.contains('unsaved')")));
+      await p.ev("var e=document.getElementById('kGam'); e.value='1.2'; e.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(800);
+      check('unsaved: after Save nothing is marked', (await p.ev("document.querySelectorAll('.row.unsaved').length")) === 0);
+      await p.ev("var e=document.getElementById('kGam'); e.value='1'; e.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(600);
+    }
     // the network card (L5)
     {
       await p.ev("document.getElementById('tabStatus').click(); document.getElementById('netBox').open=true; 1"); await sleep(3000);

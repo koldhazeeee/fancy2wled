@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* Setup page: a field you changed is marked *not saved* beside its name until you save, and screen readers hear each slider's value as the page shows it
+  ("60%", "0.6 s", "off"). The colours were checked against WCAG AA in both themes (all text at 4.6:1 or better).
 * **Network and Sync Box** (Status, a fold-out under the status): how the box's packets arrived over the last minute (packets a second, how many came in
   bursts, how many were lost, and a bar chart of the gaps), the Wi-Fi signal and channel, and the board's uptime and memory, always counted (before, the gaps were
   only collected with Performance stats on, and only sent to MQTT). `/api/status` has them as `box.net`, `channel`, `heapMin`, `heapBig` and `stackLoop`.
