@@ -34,6 +34,8 @@ static IPAddress gBoxFilter;                   // 0.0.0.0 = accept anyone
 static struct { uint32_t n = 0; uint32_t ms = 0; IPAddress ip; } gIgnored;     // readable frames from an address other than gBoxFilter (under Lock): the box may have a new address
 static uint32_t gFilterGen = 0xFFFFFFFF;
 static float gAdj[kZones][3];                  // the picture's 24 zones with brightness / gamma / saturation applied (shared by all targets)
+static OneEuro gEuro;                          // adaptive smoothing's state (Look > adaptive), stepped once per output tick (relay task only)
+static uint32_t gEuroUs = 0;                   // micros() of its last step
 static Motion gMotion;                         // the latest pictures with their place on a steady clock, for motion smoothing (under Lock)
 
 // ---- what arrives on the Sync Box port, for telling "the box is silent" from "the box changed what it sends"
@@ -1026,7 +1028,7 @@ void relayLoop() {
 
   struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; int blur; };
   TSnap sn[kMaxTargets];
-  int nT, fps, tvMode, motionPct;
+  int nT, fps, tvMode, motionPct, adaptiveCalm;
   bool globalOn, tvOff;
   FinishParams fin;
   {
@@ -1036,6 +1038,7 @@ void relayLoop() {
     globalOn = gSet.enabled;
     tvMode = gSet.tvMode;
     motionPct = gSet.motion;
+    adaptiveCalm = gSet.adaptive;
     fin.deadband = gSet.deadband; fin.blackCut = gSet.blackCut; fin.dither = gSet.dither;
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
@@ -1119,7 +1122,15 @@ void relayLoop() {
   if (motionPct > 0) {
     Lock l;
     if (gMotion.n > 0) { interp = true; motionSettled = motionAt(gMotion, now - (uint32_t)motionDelayMs(gMotion, motionPct), zi); }
+  } else if (adaptiveCalm > 0 && fresh) {                    // adaptive smoothing: one filtered picture for every target, once per output tick (Motion smoothing wins when both are set)
+    Lock l;
+    const uint32_t us = micros();
+    const float dt = gEuro.valid ? (us - gEuroUs) / 1000.f : 0.f;
+    gEuroUs = us;
+    interp = true;
+    motionSettled = oneEuroStep(gEuro, gAdj, dt, adaptiveCalm, zi);
   }
+  if (adaptiveCalm <= 0 || motionPct > 0 || !fresh) gEuro.valid = false;     // off, or the picture stopped: it starts afresh from the next picture
   for (int i = 0; i < nT; i++) {
     if (!streaming[i]) continue;
     Rt& r = gRt[i];

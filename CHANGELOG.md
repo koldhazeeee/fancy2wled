@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **Adaptive smoothing** (Look, Timing; off by default): smooths small changes and lets big ones through, so a calm scene stays calm and a cut or a flash reaches the
+  lights at once. At 50 it is smoother than the default Smoothing over time 0.5 (on recordings of a real box and on a slow pan) with no extra delay on a big change; a
+  small change (20 levels) is half way after about 0.12 s. It is the One Euro filter, tested against an independent Python version.
 * **Output rate** (Look, Timing): 30 (default), 45 or 60 frames a second while the lights move, so Motion smoothing steps more finely. *Smoothing over time* feels the
   same at any rate (it used to be tied to the rate, which was fixed at 30). The Settings check points out a WLED whose own refresh rate is below the chosen rate, and
   that Motion smoothing is smoothest at 100.

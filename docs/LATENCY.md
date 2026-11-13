@@ -124,16 +124,21 @@ picture sampled like the box does, about every 100 ms with jitter). *Half way* i
 recordings' own packet timing (the 30 fps sampling alone accounts for about 17 ms of it; the network and the strip come on top). The box's own smoothing is left out, as at
 Speed of Diffusion 100 %.
 
-| setting | roughness, video | roughness, slow pan | half way after a step |
-|---|---:|---:|---:|
-| hold each picture (no smoothing) | 4.71 | 6.64 | 17 ms |
-| Smoothing over time 0.5 (the default) | 2.18 | 2.84 | 19 ms |
-| Smoothing over time 0.8 | 0.80 | 0.99 | 117 ms |
-| Motion smoothing 50 | 3.19 | 3.36 | 18 ms |
-| **Motion smoothing 100** | **1.55** | **0.28** | 54 ms |
+| setting | roughness, video | roughness, slow pan | half way after a big step | half way after a small step (20 levels) |
+|---|---:|---:|---:|---:|
+| hold each picture (no smoothing) | 4.71 | 6.64 | 17 ms | 17 ms |
+| Smoothing over time 0.5 (the default) | 2.18 | 2.84 | 19 ms | 19 ms |
+| Smoothing over time 0.8 | 0.80 | 0.99 | 117 ms | 117 ms |
+| Motion smoothing 50 | 3.19 | 3.36 | 18 ms | 18 ms |
+| **Motion smoothing 100** | **1.55** | **0.28** | 54 ms | 54 ms |
+| Adaptive smoothing 25 | 2.68 | 2.40 | 17 ms | 51 ms |
+| **Adaptive smoothing 50** | **1.95** | **1.58** | **17 ms** | 117 ms |
+| Adaptive smoothing 75 | 1.33 | 1.13 | 17 ms | 223 ms |
 
 Motion smoothing at 100 is the smoothest on movement (ten times smoother than the default on the slow pan) for about 35 ms more delay; Smoothing over time 0.8 is as
-smooth on the recordings but much later. **Fixed in 0.4.13:** after a lost packet the motion clock used to place the next picture before it had arrived, so the output
+smooth on the recordings but much later. **Adaptive smoothing** (Look, 0-100; the One Euro filter, `oneEuroStep` in `core.h`, independent version
+`tools/reference/adaptive.py`) is smoother than the default at 50 and lets a big change through at once, as if there were no smoothing; what it slows is small changes,
+which is what keeps a still or slowly drifting picture calm. It works once per output tick on the 24 zones and costs a few microseconds. **Fixed in 0.4.13:** after a lost packet the motion clock used to place the next picture before it had arrived, so the output
 jumped to it instead of sliding; on these recordings that made Motion smoothing 100 two and a half times rougher (3.87) and quicker than it is meant to be (20 ms).
 Tried and not adopted: a monotone cubic through the pictures instead of straight lines (`--experiments`): no smoother on the slow pan and 1-3 % on video, because
 the pictures' timing jitter, not the corner at each picture, is what shows.

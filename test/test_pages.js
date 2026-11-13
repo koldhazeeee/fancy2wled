@@ -416,6 +416,23 @@ async function cdp(wsUrl) {
       check('check: ... and at 100 it does not', !/smoothest at 100/.test(await adv()), await adv());
       await sl('kBsp', 40); await sl('kMot', 0); await sl('kSmo', 0.5); await sl('kBoost', 0);          // back to the defaults
     }
+    // adaptive smoothing (F2): off by default, labelled, saved, and the settings check knows what it replaces
+    {
+      const sl = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(120); };
+      const adv = () => p.ev("document.getElementById('advice').textContent");
+      check('adaptive: starts off', (await p.ev("document.getElementById('kAdp').value")) === '0' && /off/.test(await p.ev("document.getElementById('kAdpV').textContent")));
+      await sl('kAdp', 50);
+      check('adaptive: the label says how calm', /50, calm/.test(await p.ev("document.getElementById('kAdpV').textContent")), await p.ev("document.getElementById('kAdpV').textContent"));
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('adaptive: Save sends it', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.adaptive === 50, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+      await sl('kSmo', 0.5); await sl('kMot', 0);
+      check('adaptive: with Smoothing over time set, the check says it is not used', /Adaptive smoothing is on, so Smoothing over time is not used/.test(await adv()), await adv());
+      await sl('kMot', 100);
+      check('adaptive: with Motion smoothing on too, the check says which one is used', /both on; Motion smoothing is used/.test(await adv()), await adv());
+      await sl('kMot', 0); await sl('kAdp', 0);
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
+    }
     // the output rate (P2): 30 by default, saved, and a tip when a WLED refreshes more slowly than it
     {
       const sel = async v => { await p.ev("var e=document.getElementById('kFps'); e.value='" + v + "'; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };

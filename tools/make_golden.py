@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import finish, govee, layout, motion, protocol, speed  # noqa: E402
+from reference import adaptive, finish, govee, layout, motion, protocol, speed  # noqa: E402
 
 
 def ent(entries):
@@ -257,6 +257,30 @@ def main():
         zs, reached = m_tail.at(q)
         out.append("%d %d %s" % (q, 1 if reached else 0, " ".join("%.4f" % v for z in zs for v in z)))
     lines.append(" ".join(out))
+
+    # --- adaptive smoothing (One Euro filter): a sequence of ticks, each with its picture and the time since the previous tick, and the filtered picture after it --
+    arnd = random.Random(1234)
+
+    def adapt_case(calm, ticks):
+        f = adaptive.OneEuro()
+        out = ["ADAPT %d %d" % (len(ticks), calm)]
+        for dt, zs in ticks:
+            got, settled = f.step(zs, dt, calm)
+            out.append("%.3f %s %d %s" % (dt, hexz(zs), 1 if settled else 0, " ".join("%.4f" % v for z in got for v in z)))
+        lines.append(" ".join(out))
+
+    def drift(base, amp):
+        return [tuple(min(255, max(0, b + arnd.randrange(-amp, amp + 1))) for b in base) for _ in range(24)]
+
+    base = [arnd.randrange(40, 200) for _ in range(3)]
+    seq = [(0.0, drift(base, 3))]
+    for i in range(30):
+        dt = [33.0, 33.0, 6.0, 41.5, 0.0, 500.0][i % 6]                 # usual ticks, one right after a packet, no time at all, a long pause (counts as 100 ms)
+        seq.append((dt, drift([255 - b for b in base] if 10 <= i < 20 else base, 3 if i % 7 else 40)))
+    for calm in (1, 50, 100):
+        adapt_case(calm, seq)
+    still = drift(base, 0)
+    adapt_case(75, [(0.0, drift(base, 30))] + [(33.0, still)] * 40)    # a change, then a still picture: it settles
 
     # --- blur along a strip --------------------------------------------------------------------------------------------------------------------------------------
     for n, first, last, blur in ((30, -1, -1, 5), (30, 5, 24, 5), (30, 0, 29, 1), (30, 10, 12, 8), (12, 2, 9, 20), (50, -1, -1, 3), (40, 3, 200, 6), (25, 7, 3, 4), (2, -1, -1, 10), (64, 8, 55, 12)):

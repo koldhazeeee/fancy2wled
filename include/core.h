@@ -327,6 +327,27 @@ bool motionAt(const Motion& m, uint32_t timeMs, float out[kZones][3]);
 // How far behind the newest picture to show: percent (0..100) of one picture interval.
 float motionDelayMs(const Motion& m, int percent);
 
+// ---- adaptive smoothing: the One Euro filter (Casiez, Roussel and Vogel, CHI 2012) -------------------------------------------------------------
+// A low-pass filter on the 24 zone colours whose cutoff rises with the speed of the change: a still or slowly drifting picture is smoothed hard (no shimmer), a fast
+// change passes almost at once (no lag). Run once per output tick with the time since the previous one. The speed is estimated per zone (the fastest of its three
+// channels, low-passed at kEuroDCutoff Hz), so the channels of a zone share one cutoff and its hue does not shift while it changes. A gap longer than kEuroMaxDtMs
+// counts as kEuroMaxDtMs (the relay stops ticking while the picture is still; the new picture only just arrived). Measured with tools/smoothness.py: at calm 50 it is
+// smoother than Smoothing over time 0.5 on video and on a slow pan, with no extra delay on a big change; small changes are slowed (half way after about 120 ms for a
+// change of 20 levels). Independent version: tools/reference/adaptive.py.
+constexpr float kEuroDCutoff = 1.f;
+constexpr float kEuroMaxDtMs = 100.f;
+struct OneEuro {
+  bool valid = false;
+  float x[kZones][3] = {};               // the filtered colours
+  float prev[kZones][3] = {};            // the previous input
+  float speed[kZones] = {};              // the low-passed speed of each zone, levels per second
+};
+// calm 1..100 (0 = off, not passed here): the cutoff at rest (3.8 Hz at 1 .. 0.04 Hz at 100) and how strongly the speed raises it (0.02 .. 0.002 Hz per level/s).
+void oneEuroParams(int calm, float* minCutoff, float* beta);
+void oneEuroReset(OneEuro& f, const float zones[kZones][3]);   // start at this picture (also what the first step does)
+// One tick: out = the filtered picture. True when it is within half a level of the input everywhere (nothing visible left to move: the caller may stop ticking).
+bool oneEuroStep(OneEuro& f, const float zones[kZones][3], float dtMs, int calm, float out[kZones][3]);
+
 // ---- delay tracking --------------------------------------------------------
 // The last kRttSamples round trips to one target (a probe packet there and back, in milliseconds; a probe that got no answer counts as lost).
 // The one-way network delay is taken as half of it. Plain arrays, no allocation.

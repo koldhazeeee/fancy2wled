@@ -187,7 +187,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[400000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -414,6 +414,28 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "ADAPT") {
+      // ADAPT <ticks> <calm> then per tick: <dtMs> <hex zones> <settled> <72 floats: the filtered picture after the tick>
+      const char* p = rest;
+      int nT = 0, calm = 0, adv = 0;
+      if (sscanf(p, "%d %d%n", &nT, &calm, &adv) != 2) { CHECK(false, "bad ADAPT line"); continue; }
+      p += adv;
+      OneEuro f;
+      int bad = 0;
+      float worst = 0.f;
+      for (int i = 0; i < nT; i++) {
+        float dt = 0; char hex[200] = {0}; int settled = 0;
+        sscanf(p, " %f %199s %d%n", &dt, hex, &settled, &adv);
+        p += adv;
+        const auto zb = fromHex(hex);
+        float z[kZones][3], got[kZones][3];
+        for (int q = 0; q < kZones; q++) for (int c = 0; c < 3; c++) z[q][c] = (float)zb[q * 3 + c];
+        const bool s = oneEuroStep(f, z, dt, calm, got);
+        if (s != (settled != 0)) bad++;
+        for (int j = 0; j < kZones * 3; j++) { float w = 0; sscanf(p, " %f%n", &w, &adv); p += adv; const float d = fabsf(got[j / 3][j % 3] - w); if (d > worst) worst = d; }
+      }
+      CHECK(bad == 0 && worst < 0.02f, "adaptive smoothing, calm %d: %d of %d ticks disagree about being settled, worst colour difference %.4f", calm, bad, nT, worst);
+      nAdapt++;
     } else if (k == "FINISH") {
       // FINISH <leds> <frames> <deadband> <blackCut> <dither> <name> then per frame: <fresh> <moving> <leds*3 colours> | <leds*3 whole numbers the stage must give>
       const char* p = rest;
@@ -1350,8 +1372,8 @@ int main(int argc, char** argv) {
           "blurScratchFloats: the whole strip, a part, a part past the end, an empty part");
   }
 
-  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, nFinish, g_pass, g_fail);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d, adapt %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, nFinish, nAdapt, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

@@ -733,6 +733,56 @@ float motionDelayMs(const Motion& m, int percent) {
   return p * (float)pc / 100.f;
 }
 
+// ---------------------------------------------------------------------------
+void oneEuroParams(int calm, float* minCutoff, float* beta) {
+  const float c = (float)(calm < 1 ? 1 : (calm > 100 ? 100 : calm)) / 100.f;
+  *minCutoff = 4.f * powf(0.01f, c);
+  *beta = 0.02f * powf(0.1f, c);
+}
+
+static inline float euroAlpha(float cutoffHz, float dtS) {
+  const float tau = 1.f / (6.28318531f * cutoffHz);
+  return 1.f / (1.f + tau / dtS);
+}
+
+static bool euroSettled(const OneEuro& f, const float zones[kZones][3]) {
+  for (int z = 0; z < kZones; z++)
+    for (int c = 0; c < 3; c++)
+      if (fabsf(f.x[z][c] - zones[z][c]) > 0.5f) return false;
+  return true;
+}
+
+void oneEuroReset(OneEuro& f, const float zones[kZones][3]) {
+  memcpy(f.x, zones, sizeof f.x);
+  memcpy(f.prev, zones, sizeof f.prev);
+  memset(f.speed, 0, sizeof f.speed);
+  f.valid = true;
+}
+
+bool oneEuroStep(OneEuro& f, const float zones[kZones][3], float dtMs, int calm, float out[kZones][3]) {
+  if (!f.valid || !(dtMs > 0.f)) {
+    if (!f.valid) oneEuroReset(f, zones);
+    memcpy(out, f.x, sizeof f.x);
+    return euroSettled(f, zones);
+  }
+  const float dt = (dtMs < kEuroMaxDtMs ? dtMs : kEuroMaxDtMs) / 1000.f;
+  float minCutoff, beta;
+  oneEuroParams(calm, &minCutoff, &beta);
+  const float ad = euroAlpha(kEuroDCutoff, dt);
+  for (int z = 0; z < kZones; z++) {
+    float moved = 0.f;
+    for (int c = 0; c < 3; c++) { const float m = fabsf(zones[z][c] - f.prev[z][c]); if (m > moved) moved = m; }
+    f.speed[z] += ad * (moved / dt - f.speed[z]);
+    const float a = euroAlpha(minCutoff + beta * f.speed[z], dt);
+    for (int c = 0; c < 3; c++) {
+      f.x[z][c] += a * (zones[z][c] - f.x[z][c]);
+      f.prev[z][c] = zones[z][c];
+    }
+  }
+  memcpy(out, f.x, sizeof f.x);
+  return euroSettled(f, zones);
+}
+
 void rttAdd(RttRing& r, float ms) {
   r.ms[r.head] = ms < 0.f ? -1.f : ms;
   r.head = (r.head + 1) % kRttSamples;

@@ -11,7 +11,8 @@ them, so this is what the lights do). Three numbers per setting:
     picture is rough (all of a change in one frame); a slide is smooth. Lower is smoother. Real video is dominated by what the picture does, so differences are small.
   * roughness on a slow pan: the same on a synthetic picture that drifts slowly (a sine per zone, sampled like the box does: about every 100 ms, with jitter). This is
     where steps show most.
-  * delay: the average time from a packet that carries a step (black to full) to the output reaching half way, with the recording's own packet timing. Lower is quicker.
+  * delay: the average time from a packet that carries a step to the output reaching half way, with the recording's own packet timing, for a big step (black to
+    full) and a small one (20 levels). Lower is quicker. Adaptive smoothing treats the two differently on purpose.
 
 The box's own smoothing is not modelled (as at Speed of Diffusion 100 %). LATENCY.md's figures come from this tool.
 """
@@ -55,12 +56,13 @@ def slow_pan(seconds=20, seed=1):
     return out
 
 
-def steps(packets):
-    """The recording's packet times with a synthetic picture: black, then full white for 1.2 s, then black again, and so on. Returns (packets, the step packets' times)."""
-    out, edges, level, last = [], [], 0.0, None
+def steps(packets, lo=0.0, hi=255.0):
+    """The recording's packet times with a synthetic picture that steps between lo and hi every 1.2 s (black and full white by default). Returns (packets, the steps:
+    the time of each step's packet and its new level)."""
+    out, edges, level, last = [], [], lo, None
     for t, _ in packets:
         if last is None or t - last >= 1200:
-            level = 255.0 - level
+            level = hi if level == lo else lo
             edges.append((t, level))
             last = t
         out.append((t, [[level] * 3 for _ in range(24)]))
@@ -218,11 +220,13 @@ def table(recordings, fps, extra=False):
     for name, make in settings(fps, extra):
         rough = sum(roughness(make()(p)) for p in recordings) / len(recordings)
         pan_r = roughness(make()(pan))
-        delays = []
+        delays, small = [], []
         for p in recordings:
             sp, edges = steps(p)
             delays.append(half_way_ms(make()(sp), edges))
-        rows.append((name, rough, pan_r, sum(delays) / len(delays)))
+            sp, edges = steps(p, 100.0, 120.0)
+            small.append(half_way_ms(make()(sp), edges))
+        rows.append((name, rough, pan_r, sum(delays) / len(delays), sum(small) / len(small)))
     return rows
 
 
@@ -236,9 +240,9 @@ def main():
     paths = a.recordings or [os.path.join(here, f) for f in sorted(os.listdir(here)) if f.endswith(".txt")]
     recs = [load(p) for p in paths]
     print("%d recordings (%s), output at %g fps" % (len(recs), ", ".join(os.path.basename(p) for p in paths), a.fps))
-    print("  %-32s %16s %16s %14s" % ("setting", "roughness, video", "roughness, pan", "half way after a step"))
-    for name, r, pr, d in table(recs, a.fps, a.experiments):
-        print("  %-32s %16.3f %16.3f %11.0f ms" % (name, r, pr, d))
+    print("  %-32s %16s %16s %13s %13s" % ("setting", "roughness, video", "roughness, pan", "half way, big", "half way, small"))
+    for name, r, pr, d, ds in table(recs, a.fps, a.experiments):
+        print("  %-32s %16.3f %16.3f %10.0f ms %12.0f ms" % (name, r, pr, d, ds))
 
 
 if __name__ == "__main__":
