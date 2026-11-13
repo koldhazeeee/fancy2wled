@@ -76,6 +76,7 @@ struct Settings {
   int vibrance = 0;                    // vibrance -100 .. 100 %: dull colours made stronger (or weaker) more than strong ones, the brightness kept (toneZones)
   int levels = 0;                      // Box levels: 0 as sent, 1 give the box's offset back, 2 that and stretch limited-range video (boxLevels in core.h)
   int boxSpeed = 40;                   // the box's own "Speed of Diffusion" 10..100 % (how far each packet moves towards the new picture): what Reaction boost undoes; 100 = the box does not smooth
+  int flashLimit = 0;                  // Limit flashes 0 (off) .. 100: how long a change from black to full white must take, in tens of ms (flashLimitStep in core.h)
   int fadeMs = 0;                      // Fade in / out 0..2000 ms: fade to black before a WLED is handed back (TV off, paused, box silent) and fade in when a stream starts (0 = at once)
   bool snapCuts = false;               // show a scene cut at once (isSceneCut in core.h) instead of smoothing into it, whatever the timing setting
   int adaptive = 0;                    // adaptive smoothing 0..100: how calm (0 = off): smooths small changes, lets big ones through (oneEuroStep in core.h); Motion smoothing wins when both are on

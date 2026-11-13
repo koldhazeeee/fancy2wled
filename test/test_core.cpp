@@ -187,7 +187,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[400000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0, nSingle = 0, singleBad = 0, nLevels = 0, levelsBad = 0, nTone = 0, toneBad = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0, nSingle = 0, singleBad = 0, nLevels = 0, levelsBad = 0, nTone = 0, toneBad = 0, nFlash = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -414,6 +414,26 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "FLASH") {
+      // FLASH <setting> <rate> then per tick: <dtMs> <hex zones> <settled> <72 floats shown>
+      const char* p = rest;
+      int setting = 0, adv = 0; float rate = 0;
+      if (sscanf(p, "%d %f%n", &setting, &rate, &adv) != 2) { CHECK(false, "bad FLASH line"); continue; }
+      p += adv;
+      FlashLimit f;
+      int bad = 0; float worst = 0.f;
+      for (int i = 0; i < 40; i++) {
+        float dt = 0; char hex[200] = {0}; int settled = 0;
+        sscanf(p, " %f %199s %d%n", &dt, hex, &settled, &adv);
+        p += adv;
+        const auto zb = fromHex(hex);
+        float z[kZones][3], got[kZones][3];
+        for (int q = 0; q < kZones; q++) for (int c = 0; c < 3; c++) z[q][c] = (float)zb[q * 3 + c];
+        if (flashLimitStep(f, z, dt, flashLimitRate(setting), got) != (settled != 0)) bad++;
+        for (int j = 0; j < kZones * 3; j++) { float w = 0; sscanf(p, " %f%n", &w, &adv); p += adv; const float d = fabsf(got[j / 3][j % 3] - w); if (d > worst) worst = d; }
+      }
+      CHECK(fabsf(flashLimitRate(setting) - rate) < 0.01f && bad == 0 && worst < 0.02f, "limit flashes %d: %d ticks disagree about settling, worst colour difference %.4f", setting, bad, worst);
+      nFlash++;
     } else if (k == "TONE") {
       // TONE <temp> <vibrance %> <3 multipliers> <hex zones> <72 floats>: colour temperature and vibrance
       const char* p = rest;
@@ -1452,6 +1472,7 @@ int main(int argc, char** argv) {
         fadeGain(-1, 0, 500, 1.f) == 1.f && fadeGain(-1, 600, 500, 1.f) == 0.f && fabsf(fadeGain(-1, 250, 500, 0.8f) - 0.4f) < 1e-6f &&
         fabsf(fadeGain(1, 250, 500, 0.4f) - 0.7f) < 1e-6f && fadeGain(1, 10, 0, 0.f) == 1.f && fadeGain(-1, 10, 0, 1.f) == 0.f && fadeGain(1, 5, 1000, 0.f) < 0.001f,
         "fadeGain: the ends, half way, a reversed fade continues from where it was, no fade time");
+  CHECK(nFlash == 3, "limit flashes: %d of 3 sequences", nFlash);
   CHECK(nTone >= 12 && toneBad == 0, "colour temperature and vibrance agree with the reference in %d vectors (%d differ)", nTone, toneBad);
   CHECK(nLevels >= 30 && levelsBad == 0, "box levels agree with the reference in %d vectors (%d differ)", nLevels, levelsBad);
   CHECK(nSingle >= 75 && singleBad == 0, "single-colour lights: colour and picture map agree with the reference in %d vectors (%d differ)", nSingle, singleBad);

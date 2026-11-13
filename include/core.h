@@ -362,6 +362,15 @@ void singleUsage(uint32_t mask, int n, float out[kZones]);
 // dir 0 = no fade (1). A fade that reverses half way passes the factor it had reached as `from`, so the light never jumps.
 float fadeGain(int dir, uint32_t elapsedMs, int fadeMs, float from);
 
+// ---- Limit flashes (comfort, photosensitivity) ----------------------------------
+// Once per output tick each zone's brightness (its brightest channel) may change by at most maxPerSecond * dt (dt counted as at most 100 ms). A zone that would change
+// more is shown at the limited brightness: the new colour scaled down, or (when the new picture is black there) the previous colour dimmed. The setting 1..100 is the
+// time a change from black to full white may take, in tens of ms: flashLimitRate(setting) = 25500 / setting levels a second. Independent version: tools/reference/flash.py.
+struct FlashLimit { bool valid = false; float z[kZones][3] = {}; };
+inline float flashLimitRate(int setting) { return 25500.f / (float)(setting < 1 ? 1 : (setting > 100 ? 100 : setting)); }
+// out = what to show; true when every zone shows its input (nothing left to catch up: the caller may stop ticking).
+bool flashLimitStep(FlashLimit& f, const float in[kZones][3], float dtMs, float maxPerSecond, float out[kZones][3]);
+
 // ---- scene cuts ----------------------------------------------------------------
 // "Snap on scene cuts": a packet in which at least kCutZones of the 24 zones changed by more than kCutLevels (the largest of the three channels) since the previous
 // packet is a cut (half the picture jumping at once), and the relay then shows it at once instead of smoothing into it. On the recordings in tools/reference/data it

@@ -171,6 +171,8 @@ static void loadFromFlash() {
   s.adaptive = gI("kAdp", 0);
   s.snapCuts = gB("kSnap", false);
   s.fadeMs = gI("kFade", 0);
+  s.flashLimit = gI("kFlash", 0);
+  if (s.flashLimit < 0 || s.flashLimit > 100) s.flashLimit = 0;
   if (s.fadeMs < 0 || s.fadeMs > 2000) s.fadeMs = 0;
   if (s.adaptive < 0 || s.adaptive > 100) s.adaptive = 0;
   s.motion = gI("kMot", 0);
@@ -232,6 +234,7 @@ void settingsSave() {
   prefs.putInt("kAdp", s.adaptive);
   prefs.putBool("kSnap", s.snapCuts);
   prefs.putInt("kFade", s.fadeMs);
+  prefs.putInt("kFlash", s.flashLimit);
   prefs.putFloat("kDead", s.deadband);
   prefs.putInt("kBcut", s.blackCut);
   prefs.putBool("kDith", s.dither);
@@ -377,6 +380,7 @@ void settingsToJson(JsonDocument& d) {
   k["adaptive"] = s.adaptive;
   k["snapCuts"] = s.snapCuts;
   k["fadeMs"] = s.fadeMs;
+  k["flashLimit"] = s.flashLimit;
   k["deadband"] = s.deadband;
   k["blackCut"] = s.blackCut;
   k["dither"] = s.dither;
@@ -554,6 +558,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["adaptive"].isNull()) n.adaptive = (int)clampf(k["adaptive"].as<float>(), 0.f, 100.f);
   if (!k["snapCuts"].isNull()) n.snapCuts = k["snapCuts"].as<bool>();
   if (!k["fadeMs"].isNull()) n.fadeMs = (int)clampf(k["fadeMs"].as<float>(), 0.f, 2000.f);
+  if (!k["flashLimit"].isNull()) n.flashLimit = (int)clampf(k["flashLimit"].as<float>(), 0.f, 100.f);
   if (!k["deadband"].isNull()) n.deadband = clampf(k["deadband"].as<float>(), 0.f, 8.f);
   if (!k["blackCut"].isNull()) n.blackCut = (int)clampf(k["blackCut"].as<float>(), 0.f, 10.f);
   if (!k["dither"].isNull()) n.dither = k["dither"].as<bool>();

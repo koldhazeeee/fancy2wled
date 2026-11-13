@@ -560,6 +560,21 @@ async function cdp(wsUrl) {
       await sl('kTmp', 0); await sl('kVib', 0); await sl('tWB', 100);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
     }
+    // limit flashes (F4): off by default, labelled, saved, and the settings check knows what it works against
+    {
+      const sl = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(120); };
+      const adv = () => p.ev("document.getElementById('advice').textContent");
+      check('flash: starts off', /off/.test(await p.ev("document.getElementById('kFlashV').textContent")));
+      await sl('kFlash', 50);
+      check('flash: the label says how long black to white takes', /black to white in 0\.5 s/.test(await p.ev("document.getElementById('kFlashV').textContent")), await p.ev("document.getElementById('kFlashV').textContent"));
+      await sl('kBoost', 60);
+      check('flash: with a reaction boost the check says they work against each other', /Limit flashes works against Reaction boost/.test(await adv()), await adv());
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('flash: Save sends it', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.flashLimit === 50);
+      await sl('kFlash', 0); await sl('kBoost', 0);
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+    }
     // box levels (F6): as sent by default, saved
     {
       check('levels: start as the box sends them', (await p.ev("document.getElementById('kLvl').value")) === 'sent');

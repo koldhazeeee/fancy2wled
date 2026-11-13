@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import adaptive, cuts, finish, govee, layout, levels, motion, protocol, single, speed, tone  # noqa: E402
+from reference import adaptive, cuts, finish, flash, govee, layout, levels, motion, protocol, single, speed, tone  # noqa: E402
 
 
 def ent(entries):
@@ -324,6 +324,27 @@ def main():
         mode, spd = i % 3, [100, 40, 70, 10, 55][i % 5]
         out = levels.apply(zs, mode, spd)
         lines.append("LEVELS %d %d %.4f %s %s" % (mode, spd, levels.offset(spd), hexz(zs), " ".join("%.4f" % v for z in out for v in z)))
+
+    # --- limit flashes: a sequence of ticks with sudden flashes, fades to black and still pictures, and what is shown after each ------------------------------------
+    frnd = random.Random(88)
+    for setting in (10, 50, 100):
+        fl = flash.FlashLimit()
+        out = ["FLASH %d %.4f" % (setting, flash.rate(setting))]
+        pics = []
+        base = [tuple(frnd.randrange(20, 80) for _ in range(3)) for _ in range(24)]
+        for i in range(40):
+            if i % 10 == 3:
+                zs = [(255, 255, 255)] * 24                              # a white flash
+            elif i % 10 == 7:
+                zs = [(0, 0, 0)] * 24                                    # black
+            elif i % 10 == 8:
+                zs = [tuple(frnd.randrange(256) for _ in range(3)) for _ in range(24)]
+            else:
+                zs = base
+            dt = [33.0, 33.0, 6.0, 33.0, 500.0][i % 5]
+            got, settled = fl.step(zs, dt, flash.rate(setting))
+            out.append("%.1f %s %d %s" % (dt, hexz(zs), 1 if settled else 0, " ".join("%.3f" % v for z in got for v in z)))
+        lines.append(" ".join(out))
 
     # --- colour temperature and vibrance on the zones --------------------------------------------------------------------------------------------------------------
     trnd = random.Random(66)

@@ -852,6 +852,35 @@ float fadeGain(int dir, uint32_t elapsedMs, int fadeMs, float from) {
 }
 
 // ---------------------------------------------------------------------------
+bool flashLimitStep(FlashLimit& f, const float in[kZones][3], float dtMs, float maxPerSecond, float out[kZones][3]) {
+  if (!f.valid) {
+    memcpy(f.z, in, sizeof f.z);
+    f.valid = true;
+    memcpy(out, f.z, sizeof f.z);
+    return true;
+  }
+  const float dt = dtMs < 0.f ? 0.f : (dtMs > 100.f ? 100.f : dtMs);
+  const float step = maxPerSecond * dt / 1000.f;
+  bool settled = true;
+  for (int z = 0; z < kZones; z++) {
+    float* prev = f.z[z];
+    const float* now = in[z];
+    const float lp = maxf(prev[0], maxf(prev[1], prev[2])), ln = maxf(now[0], maxf(now[1], now[2]));
+    if (fabsf(ln - lp) <= step) { for (int c = 0; c < 3; c++) prev[c] = now[c]; continue; }
+    settled = false;
+    const float lvl = ln > lp ? lp + step : lp - step;
+    if (ln > 0.f) { const float k = lvl / ln; for (int c = 0; c < 3; c++) prev[c] = now[c] * k; }
+    else { const float k = lvl / lp; for (int c = 0; c < 3; c++) prev[c] *= k; }
+  }
+  memcpy(out, f.z, sizeof f.z);
+  if (settled)
+    for (int z = 0; z < kZones; z++)
+      for (int c = 0; c < 3; c++)
+        if (fabsf(f.z[z][c] - in[z][c]) > 0.5f) return false;
+  return settled;
+}
+
+// ---------------------------------------------------------------------------
 bool isSceneCut(const uint8_t prev[kZones][3], const uint8_t now[kZones][3]) {
   int big = 0;
   for (int z = 0; z < kZones; z++) {

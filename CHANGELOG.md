@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* **Limit flashes** (Look, Timing; off by default): no part of the lights may brighten or darken faster than you set, so explosions and strobes in a film do not
+  flash the room. At 50 a change from black to white takes half a second (0.37 s measured on the board for the box's white, against 0.05 s without).
 * **Colour temperature, vibrance and white balance** (all off by default): a warmer or cooler white for every light (Look, Colour; about 3250 K to 9200 K,
   nothing clips), vibrance that strengthens dull colours more than strong ones without changing the brightness (Look, Colour), and a red / green / blue gain per
   target for a light whose white does not match the others (Lights, Colour). Temperature and vibrance are in Home Assistant too.

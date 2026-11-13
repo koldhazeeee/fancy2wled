@@ -57,6 +57,8 @@ static void netCount(uint32_t now, bool haveGap, uint32_t gapMs) {     // under 
 }
 static uint32_t gCuts = 0;                     // scene cuts seen since the start (isSceneCut; status box.cuts)
 static bool gCutPending = false;               // a cut to snap to: the next output tick shows the new picture without easing (relay task only)
+static FlashLimit gFlash;                      // Limit flashes: what was shown last, per zone (relay task only)
+static uint32_t gFlashUs = 0;
 static Motion gMotion;                         // the latest pictures with their place on a steady clock, for motion smoothing (under Lock)
 
 // ---- what arrives on the Sync Box port, for telling "the box is silent" from "the box changed what it sends"
@@ -1105,7 +1107,7 @@ void relayLoop() {
 
   struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; int blur; int lType, single, singleZones; float white[3]; };
   TSnap sn[kMaxTargets];
-  int nT, fps, tvMode, motionPct, adaptiveCalm, fadeMs;
+  int nT, fps, tvMode, motionPct, adaptiveCalm, fadeMs, flashSet;
   bool globalOn, tvOff;
   FinishParams fin;
   {
@@ -1117,6 +1119,7 @@ void relayLoop() {
     motionPct = gSet.motion;
     adaptiveCalm = gSet.adaptive;
     fadeMs = gSet.fadeMs;
+    flashSet = gSet.flashLimit;
     fin.deadband = gSet.deadband; fin.blackCut = gSet.blackCut; fin.dither = gSet.dither;
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
@@ -1213,6 +1216,20 @@ void relayLoop() {
     motionSettled = oneEuroStep(gEuro, gAdj, dt, adaptiveCalm, zi);
   }
   if (adaptiveCalm <= 0 || motionPct > 0 || !fresh) gEuro.valid = false;     // off, or the picture stopped: it starts afresh from the next picture
+  // Limit flashes: the picture of this tick (slid, filtered or as it is) with each zone's brightness change capped, for every target. Last, so nothing undoes it.
+  float zl[kZones][3];
+  const float(*pic)[3] = nullptr;
+  bool flashSettled = true;
+  if (flashSet > 0 && fresh) {
+    Lock l;
+    const uint32_t us = micros();
+    const float dt = gFlash.valid ? (us - gFlashUs) / 1000.f : 0.f;
+    gFlashUs = us;
+    flashSettled = flashLimitStep(gFlash, interp ? zi : gAdj, dt, flashLimitRate(flashSet), zl);
+    pic = zl;
+  } else {
+    gFlash.valid = false;
+  }
   for (int i = 0; i < nT; i++) {
     if (!streaming[i]) continue;
     Rt& r = gRt[i];
@@ -1254,7 +1271,7 @@ void relayLoop() {
       Lock l;
       if (gTableN[i] == n && n > 0 && ensureBuffers(r, n)) {
         float adjR[kZones][3];
-        const float(*zones)[3] = interp ? zi : gAdj;
+        const float(*zones)[3] = pic ? pic : (interp ? zi : gAdj);
         if (testing) { float raw[kZones][3]; rainbowZones(raw); adjustInto(adjR, raw); zones = adjR; }
         if (r.smoothGen != gSettingsGen) { r.smooth = smoothInfo(gTable[i], n, gSet.smoothOut); r.smoothGen = gSettingsGen; }
         const uint32_t nowUs = micros();
@@ -1270,6 +1287,7 @@ void relayLoop() {
         bool reused = false;
         len = targetOutTick(p, r.o, gPayload, &reused);
         FWB_TICK_STAT_NOTE(reused);
+        if (!flashSettled) r.o.converged = false;            // Limit flashes is still catching up: keep ticking
         if (r.fadeDir != 0) {                                // Fade in / out: the bytes that go out, so the fade is exact whatever the smoothing does
           const float g = fadeGain(r.fadeDir, now - r.fadeT0, fadeMs, r.fadeFrom);
           if (r.fadeDir > 0 && now - r.fadeT0 >= (uint32_t)fadeMs) r.fadeDir = 0;   // faded in: done
