@@ -15,6 +15,8 @@ input[type=range].wide{width:100%}
 .chip{display:inline-flex;align-items:center;gap:6px}
 .sw{width:14px;height:14px;border-radius:4px;display:inline-block;flex:0 0 auto}
 .ledrow{display:flex;flex-direction:column;gap:2px;margin:6px 0}
+.guide{padding-left:1.4rem}.guide li{margin:8px 0}.guide li.done{color:var(--mut)}.guide li.done::before{content:"\2713  ";color:var(--ok)}
+.guide li button{margin-left:8px;padding:2px 10px;min-height:30px;font-size:.85rem}
 .row.unsaved>label::after{content:" \2022 not saved";color:var(--warn);font-size:.8rem}
 .ledstrip{width:100%;max-width:560px;height:14px;border-radius:4px;background:var(--line);display:block}
 </style></head><body class="app" data-tab="status">
@@ -48,6 +50,12 @@ input[type=range].wide{width:100%}
 <div class="cols hero">
 <div class="pic" id="picNow"><svg id="bigMark" class="bigmark" viewBox="0 0 71 39" role="img" aria-label="The picture the Sync Box is sending now, as 24 coloured blocks"></svg><p class="small mut" id="picNote">What the Sync Box is sending now</p></div>
 <div>
+<div class="card hidden" id="guide">
+  <h2>Getting started</h2>
+  <p class="small mut">Five steps to lights that follow the picture. Each one is ticked by itself once it is done.</p>
+  <ol id="guideList" class="guide small"></ol>
+  <div class="row"><button id="guideHide" class="sec">Hide this</button></div>
+</div>
 <div class="card" id="stat">
   <div class="row"><span id="pWifi" class="pill">Wi-Fi</span><span id="pBox" class="pill">Sync Box</span><span id="wPills"></span><span id="pState" class="pill"></span><button id="syncBtn" class="sec hidden">Pause sync</button></div>
   <div id="statTxt" class="small mut"></div>
@@ -608,9 +616,34 @@ input[type=range].wide{width:100%}
       var tx=svgEl('text',{x:x+13,y:66,'text-anchor':'middle','font-size':9,fill:'var(--mut)'},svg);tx.textContent=NET_BINS[k];});
   }
   function fmtUp(sec){var d=Math.floor(sec/86400),h=Math.floor(sec%86400/3600),m=Math.floor(sec%3600/60);return d?d+' d '+h+' h':(h?h+' h '+m+' min':m+' min');}
+  /* The first-run guide (L7): until every step is done (or it is hidden), the Status tab lists them, ticked from the settings and the status. */
+  var guideHidden=false;try{guideHidden=localStorage.getItem('fwbGuide')==='hidden';}catch(e){}
+  function guide(s){
+    var card=$('guide');if(!card)return;
+    if(guideHidden||!cfg||!cfg.targets||s.mode==='ap'){show('guide',false);return;}
+    var ts=cfg.targets,anyHost=ts.some(function(t){return t.wled&&t.wled.host;}),anyRun=ts.some(function(t){return t.wled&&t.wled.host&&t.wled.count>0;});
+    var anyTv=ts.some(function(t){var l=t.layout||{};return t.wled&&t.wled.host&&(l.type!=='linear'||(l.spanFirst>=0&&l.spanLast>=0));});
+    var rainbow=false;try{rainbow=localStorage.getItem('fwbRainbow')==='1';}catch(e){}
+    var steps=[
+      {done:anyHost,text:'Find your WLED (or Govee light) and check it.',go:['lights','conn'],btn:'Lights, Connection'},
+      {done:anyRun,text:'Say where the LEDs are and how long the run is.',go:['lights','layout'],btn:'Lights, Layout'},
+      {done:anyTv,text:'Mark the part of the run that covers the TV (Find my LEDs helps).',go:['lights','layout'],btn:'Lights, Layout'},
+      {done:rainbow,text:'Run the rainbow test: red at the left edge of the TV to violet at the right.',go:['lights','layout'],btn:'Lights, Layout'},
+      {done:!!(s.box&&s.box.host),text:'Lock the relay to your Sync Box (Only accept this box, below).',go:null,btn:''}];
+    var all=steps.every(function(x){return x.done;});
+    show('guide',!all);if(all)return;
+    var ol=$('guideList');ol.textContent='';
+    steps.forEach(function(x){
+      var li=document.createElement('li');li.className=x.done?'done':'';li.appendChild(document.createTextNode(x.text));
+      if(!x.done&&x.go){var b=document.createElement('button');b.className='sec';b.textContent=x.btn;b.onclick=function(){setView(x.go[0],x.go[1]);};li.appendChild(b);}
+      ol.appendChild(li);
+    });
+  }
+  $('guideHide').onclick=function(){guideHidden=true;try{localStorage.setItem('fwbGuide','hidden');}catch(e){}show('guide',false);};
   async function status(){
     try{
       var s=await j('/api/status');
+      try{guide(s);}catch(e){}
       try{netCard(s);}catch(e){}
       var sp=(s.box&&s.box.speed)||null;
       if(JSON.stringify(sp)!==JSON.stringify(seenSpeed)){seenSpeed=sp;speedNote();try{advice();}catch(e){}}
@@ -1058,7 +1091,7 @@ input[type=range].wide{width:100%}
       await finderStop();
       var b=gather();b.preview=true;await j('/api/config',b);
       await j('/api/test',{pattern:'rainbow',seconds:3600,target:sel});
-      testing=true;$('test').textContent='Stop rainbow test';
+      testing=true;$('test').textContent='Stop rainbow test';try{localStorage.setItem('fwbRainbow','1');}catch(e){}
       msg('Rainbow running: red at the TV\'s left edge to violet at its right edge. Change any setting and it updates live. Press Save to keep it.');
     }catch(e){msg('<span class="err">'+e.message+'</span>');}
   };

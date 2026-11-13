@@ -458,6 +458,20 @@ async function cdp(wsUrl) {
       check('single: after saving it is still shown as one colour, from the top edge', (await p.ev("document.getElementById('lPlace').value")) === 'single' && (await p.ev("document.getElementById('lSgZones').value")) === 'top');
       await p.ev("var e=document.getElementById('lPlace'); e.value='top'; e.dispatchEvent(new Event('change',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(800);
     }
+    // the first-run guide (L7)
+    {
+      const g = () => p.ev("document.getElementById('guide').classList.contains('hidden')");
+      const items = () => p.ev("Array.from(document.querySelectorAll('#guideList li')).map(function(l){return (l.className==='done'?'+':'-')+l.textContent.slice(0,12);}).join('|')");
+      await p.ev("localStorage.removeItem('fwbGuide'); localStorage.removeItem('fwbRainbow'); document.getElementById('tabStatus').click(); 1"); await sleep(3000);
+      const shown = !(await g()), list = await items();
+      check('guide: a board that is not set up yet shows the five steps, with what is done ticked', shown && (list.match(/\|/g) || []).length === 4 && /^\+Find your WL/.test(list) && /-Run the rain/.test(list) && /-Lock the rel/.test(list), list);
+      await p.ev("document.querySelector('#guideList li:not(.done) button').click(); 1"); await sleep(300);
+      check('guide: a step button opens the right view', (await p.ev("location.hash")) !== '#status', await p.ev("location.hash"));
+      await p.ev("document.getElementById('tabStatus').click(); document.getElementById('guideHide').click(); 1"); await sleep(200);
+      check('guide: Hide this hides it', await g());
+      await sleep(2800);
+      check('guide: and it stays hidden', await g());
+    }
     // the network card (L5)
     {
       await p.ev("document.getElementById('tabStatus').click(); document.getElementById('netBox').open=true; 1"); await sleep(3000);

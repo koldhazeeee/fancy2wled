@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* **Getting started** (Status): until a board is set up, a short checklist (find the WLED, where the LEDs are, the TV part, the rainbow test, lock to the box),
+  ticked by itself as each step is done, with a button to the right place. *Hide this* puts it away for good.
 * **Ambient colour for Home Assistant** (Home Assistant tab, off by default): a sensor with the picture's colour (average, dominant, ambient tone or lightest
   part), updated at most twice a second when it changes, so an automation can colour any light with the picture, even one this board cannot drive.
 * **One colour for a lamp or a bulb** (Lights, Layout: *One colour for the whole light*): every LED or segment of the target shows one colour worked out from the
