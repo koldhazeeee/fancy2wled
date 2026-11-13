@@ -259,6 +259,7 @@ python test/run_core_tests.py     # C++ core vs golden vectors from the Python r
 node test/test_analysis.js        # calibration maths + a simulated phone camera (needs Node 18+)
 node test/test_pages.js           # loads the real web pages in headless Edge/Chrome against test/mock_device.js
 python test/test_capture_tools.py  # the capture / firmware-change tools
+python test/test_smoothness.py    # how smooth and quick the timing settings are on recordings of a real box (tools/smoothness.py; the table in docs/LATENCY.md)
 python test/test_soak_log.py      # the soak test's report (tools/soak_log.py; the soak itself runs against a real board)
 python test/test_check_size.py    # the firmware size check (CI fails an image above 90 % of its update slot: python tools/check_size.py <.bin files>)
 python test/test_sync_probe.py    # the Sync Box probe's analysis against a simulated box (and the page in a headless browser if Edge or Chrome is installed)

@@ -35,6 +35,8 @@ jobs:
         run: python test/test_check_size.py
       - name: The soak test's report
         run: python test/test_soak_log.py
+      - name: How smooth and how quick the timing settings are (the figures in docs/LATENCY.md)
+        run: python test/test_smoothness.py
       - name: The Sync Box probe analysis (against a simulated box)
         run: python test/test_sync_probe.py
         env:

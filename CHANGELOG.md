@@ -6,6 +6,11 @@ repository's releases page.
 
 ## Unreleased
 
+* **Fix: Motion smoothing jumped after a lost packet instead of sliding.** After a gap in the Sync Box's packets (Wi-Fi drops some) the next picture was placed on
+  the motion clock before it had arrived, so the lights jumped to it. On recordings of a real box Motion smoothing 100 is now **2.5 times smoother**, and nearly twice
+  on a slow pan. **After updating:** with Motion smoothing on, movement is smoother and on average a little later (half way about 54 ms after a picture arrives
+  instead of 20; that is the delay it was always meant to have). Figures for every timing setting: `python tools/smoothness.py`, table in
+  [docs/LATENCY.md](docs/LATENCY.md).
 * **An open setup page no longer makes the lights stutter.** While the page was open (and more while editing a layout) the web server could stop the relay for up to about
   3 milliseconds in the middle of an output tick. The relay now runs above the web server, and the picture map's recount no longer holds the relay up: with a page open and
   being edited, the worst tick on the board went from 3.3 ms to 0.7 ms, the same as with no page open ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).

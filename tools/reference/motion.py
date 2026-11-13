@@ -38,6 +38,8 @@ class Motion:
             if rel < 1.0:
                 rel = 1.0
             t = prev_t + _round(rel)
+            if t < now:                                  # a picture is never placed earlier than it arrived (else it would be jumped to, not slid into)
+                t = now
         if len(self.k) == KNOTS:
             self.k.pop(0)
         self.k.append((t, zones))

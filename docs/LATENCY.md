@@ -102,13 +102,10 @@ each new picture moves in steps, and with *Zone edges* at 100 whole blocks of LE
 * **Motion smoothing** (Look, 0-100): instead of jumping to each picture the lights slide from the previous picture to the newest one, shown that share of one
   picture interval behind the newest (at 100: one interval, about 100 ms). Each picture is placed on a slowly adjusting clock, so bursts and gaps do not make
   the motion lurch; two pictures within 25 ms of each other count as one. While it is on it replaces *Smoothing over time* and *Reaction boost* (both would
-  fight it). On the recordings of real box output in `decoded/` it is about **2.7 times smoother** than the default pipeline and about 6 times smoother than
-  holding each picture (average change of speed between 30 fps output frames: 0.20 against 0.54 and 1.20).
-  **It costs delay.** Against the default smoothing (0.5, no boost) sliding over about 100 ms is comparable (about 50 ms behind on average, against about
-  48 ms). Against a setup that uses *Reaction boost* it is later: a step in the picture reaches half way in about 83 ms and 90 % in about 130 ms on a WLED
-  strip, against about 20-30 ms for half way with boost 0.6, so roughly **60 ms later**. Lower the setting to trade smoothness for delay (at 50 the lights are
-  half an interval, about 50 ms, behind the newest picture instead of 100). `core.h`: `Motion`, `motionPush`, `motionAt` (the independent version is
-  `tools/reference/motion.py`).
+  fight it). **It costs delay.** Against a setup that uses *Reaction boost* it is later: a step in the picture reaches half way in about 83 ms and 90 % in about
+  130 ms on a WLED strip, against about 20-30 ms for half way with boost 0.6, so roughly **60 ms later**. Lower the setting to trade smoothness for delay (at 50
+  the lights are half an interval, about 50 ms, behind the newest picture instead of 100), but below 100 it jumps part of the way to each new picture (see the table).
+  `core.h`: `Motion`, `motionPush`, `motionAt` (the independent version is `tools/reference/motion.py`).
 * **Blur along the strip** (per target, 0-20 LEDs): each LED along the picture part of the strip is averaged with its neighbours, so the block of one zone
   becomes a soft blob. Three box averages in a row (close to a Gaussian, much cheaper): about 0.3 ms for 266 LEDs per output frame on the AtomS3, plus a
   scratch buffer. `core.h`: `blurColours`.
@@ -118,6 +115,28 @@ lights with 42 and 50 segments; about 33 output frames a second): the busy core 
 costs more) and 16 % with blur on every target. A still picture costs about 10 % either way, because the output idles at about 13 frames a second and
 sends nothing. The longest pass of the main loop stays under 8 ms and the free memory above 170 KB. What they cannot do: the box describes each edge of the picture with 4 or 6 colours, so a moving object stays a blob,
 and a Govee segment (3 to 6 LEDs) still changes as one.
+
+### How smooth and how quick each setting is
+
+`python tools/smoothness.py` replays the three recordings of a real box in `tools/reference/data` through the Python reference and samples the output at 30 frames a
+second. *Roughness* is the average change of speed between output frames (levels; lower is smoother), on the recordings and on a synthetic slow pan (a slowly drifting
+picture sampled like the box does, about every 100 ms with jitter). *Half way* is the time from the packet that carries a step to the output reaching half of it, with the
+recordings' own packet timing (the 30 fps sampling alone accounts for about 17 ms of it; the network and the strip come on top). The box's own smoothing is left out, as at
+Speed of Diffusion 100 %.
+
+| setting | roughness, video | roughness, slow pan | half way after a step |
+|---|---:|---:|---:|
+| hold each picture (no smoothing) | 4.71 | 6.64 | 17 ms |
+| Smoothing over time 0.5 (the default) | 2.18 | 2.84 | 19 ms |
+| Smoothing over time 0.8 | 0.80 | 0.99 | 117 ms |
+| Motion smoothing 50 | 3.19 | 3.36 | 18 ms |
+| **Motion smoothing 100** | **1.55** | **0.28** | 54 ms |
+
+Motion smoothing at 100 is the smoothest on movement (ten times smoother than the default on the slow pan) for about 35 ms more delay; Smoothing over time 0.8 is as
+smooth on the recordings but much later. **Fixed in 0.4.13:** after a lost packet the motion clock used to place the next picture before it had arrived, so the output
+jumped to it instead of sliding; on these recordings that made Motion smoothing 100 two and a half times rougher (3.87) and quicker than it is meant to be (20 ms).
+Tried and not adopted: a monotone cubic through the pictures instead of straight lines (`--experiments`): no smoother on the slow pan and 1-3 % on video, because
+the pictures' timing jitter, not the corner at each picture, is what shows.
 
 ## What the relay does to stay fast
 

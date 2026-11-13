@@ -22,7 +22,7 @@ python test/run_core_tests.py     # the C++ core against golden vectors from an 
 node test/test_pages.js           # the real setup page in headless Edge/Chrome against test/mock_device.js
 node test/test_analysis.js        # calibration maths on simulated camera frames
 node test/test_lint.js            # sources are plain ASCII with LF line endings, and hold no real device addresses
-python test/test_check_size.py && python test/test_gzip_web.py && python test/test_capture_tools.py && python test/test_soak_log.py
+python test/test_check_size.py && python test/test_gzip_web.py && python test/test_capture_tools.py && python test/test_soak_log.py && python test/test_smoothness.py
 pio run -e atoms3 && pio run -e atoms3-phonecal
 ```
 

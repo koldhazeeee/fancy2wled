@@ -685,6 +685,10 @@ void motionPush(Motion& m, uint32_t nowMs, const float zones[kZones][3]) {
     float rel = m.periodMs + 0.15f * (rawRel - m.periodMs);        // the clock says one period later; it is pulled gently toward the real arrival
     if (rel < 1.f) rel = 1.f;
     t = prevT + (uint32_t)floorf(rel + 0.5f);
+    // Never earlier than it really arrived. After a lost packet (a gap of about 200 ms) the clock only moves the new picture about 135 ms on, so without this it would
+    // be placed in the past, behind the moment being shown, and the output would jump to it instead of sliding. Measured with tools/smoothness.py on three recordings of
+    // a real box: 2.5 times smoother at Motion smoothing 100 (and nearly twice on a slow pan), for the delay it is meant to have (half way about 54 ms after the packet).
+    if ((int32_t)(t - nowMs) < 0) t = nowMs;
   }
   if (m.n == kMotionKnots) {
     for (int i = 1; i < kMotionKnots; i++) m.k[i - 1] = m.k[i];
