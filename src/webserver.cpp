@@ -174,6 +174,7 @@ static esp_err_t h_status(httpd_req_t* req) {
   JsonObject bs = b["speed"].to<JsonObject>();     // the box's Speed of Diffusion as the relay measures it from the picture changes (advice only)
   bs["pct"] = s.boxSpeedPct; bs["n"] = s.boxSpeedN; bs["mixed"] = s.boxSpeedMixed; bs["agree"] = s.boxSpeedAgree; bs["changes"] = s.boxSpeedChanges; bs["need"] = fwb::kSpeedMinEvents;
   b["problem"] = s.boxProblem;                      // frames arrive but none can be read
+  b["cuts"] = s.boxCuts;                            // scene cuts seen since the start (half the picture jumping at once)
   b["tvOff"] = s.tvOff;                             // the picture has been completely black for the configured time: the TV is off
   b["blackS"] = s.tvBlackS;                         // seconds it has been black so far (0 = not black)
   JsonObject bf = b["frames"].to<JsonObject>();

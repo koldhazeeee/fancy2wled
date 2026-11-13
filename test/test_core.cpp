@@ -187,7 +187,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[400000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -414,6 +414,16 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "CUT") {
+      // CUT <0|1> <hex zones before> <hex zones after>: is the second packet a scene cut
+      int want = 0; char ha[200] = {0}, hb[200] = {0};
+      if (sscanf(rest, "%d %199s %199s", &want, ha, hb) != 3) { CHECK(false, "bad CUT line"); continue; }
+      const auto a = fromHex(ha), b = fromHex(hb);
+      uint8_t za[kZones][3], zb[kZones][3];
+      memcpy(za, a.data(), sizeof za); memcpy(zb, b.data(), sizeof zb);
+      if (isSceneCut(za, zb) != (want != 0)) cutBad++;
+      if (want) cutYes++;
+      nCut++;
     } else if (k == "ADAPT") {
       // ADAPT <ticks> <calm> then per tick: <dtMs> <hex zones> <settled> <72 floats: the filtered picture after the tick>
       const char* p = rest;
@@ -1372,8 +1382,9 @@ int main(int argc, char** argv) {
           "blurScratchFloats: the whole strip, a part, a part past the end, an empty part");
   }
 
-  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d, adapt %d vectors; %d checks passed, %d failed\n",
-         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, nFinish, nAdapt, g_pass, g_fail);
+  CHECK(nCut > 100 && cutBad == 0 && cutYes >= 5, "isSceneCut agrees with the reference on %d packet pairs (%d of them cuts; %d disagree)", nCut, cutYes, cutBad);
+  printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d, adapt %d, cut %d vectors; %d checks passed, %d failed\n",
+         nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, nFinish, nAdapt, nCut, g_pass, g_fail);
   printf(g_fail ? "SOME FAILED\n" : "ALL PASSED\n");
   return g_fail ? 1 : 0;
 }

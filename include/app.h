@@ -70,6 +70,7 @@ struct Settings {
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
   int boxSpeed = 40;                   // the box's own "Speed of Diffusion" 10..100 % (how far each packet moves towards the new picture): what Reaction boost undoes; 100 = the box does not smooth
+  bool snapCuts = false;               // show a scene cut at once (isSceneCut in core.h) instead of smoothing into it, whatever the timing setting
   int adaptive = 0;                    // adaptive smoothing 0..100: how calm (0 = off): smooths small changes, lets big ones through (oneEuroStep in core.h); Motion smoothing wins when both are on
   int motion = 0;                      // motion smoothing 0..100 %: slide between the Sync Box's pictures instead of jumping, shown that share of one picture interval late (0 = off; while on it replaces smoothing over time and the reaction boost)
   // the finishing stage, after every temporal stage and just before the colours are rounded (all off by default; see finishColours in core.h)
@@ -206,6 +207,7 @@ struct RelayStatus {
   bool boxSpeedMixed = false;               // enough measurements, but no value clearly wins the vote
   int boxSpeedAgree = 0;                    // how many of those measurements voted for the winning value
   uint32_t boxSpeedChanges = 0;             // sudden changes seen since the board started
+  uint32_t boxCuts = 0;                     // scene cuts seen since the board started (isSceneCut)
   const char* state = "starting";
   bool wledOk = false;                      // every enabled target's WLED answered
   int wledLeds = 0;                         // LEDs over all targets

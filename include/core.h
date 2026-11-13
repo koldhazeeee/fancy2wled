@@ -327,6 +327,13 @@ bool motionAt(const Motion& m, uint32_t timeMs, float out[kZones][3]);
 // How far behind the newest picture to show: percent (0..100) of one picture interval.
 float motionDelayMs(const Motion& m, int percent);
 
+// ---- scene cuts ----------------------------------------------------------------
+// "Snap on scene cuts": a packet in which at least kCutZones of the 24 zones changed by more than kCutLevels (the largest of the three channels) since the previous
+// packet is a cut (half the picture jumping at once), and the relay then shows it at once instead of smoothing into it. On the recordings in tools/reference/data it
+// finds the test patterns' changes (16-17 in about 40 s) and 9 in 28 s of a TV programme. Independent version: tools/reference/cuts.py.
+constexpr int kCutZones = 12, kCutLevels = 60;
+bool isSceneCut(const uint8_t prev[kZones][3], const uint8_t now[kZones][3]);
+
 // ---- adaptive smoothing: the One Euro filter (Casiez, Roussel and Vogel, CHI 2012) -------------------------------------------------------------
 // A low-pass filter on the 24 zone colours whose cutoff rises with the speed of the change: a still or slowly drifting picture is smoothed hard (no shimmer), a fast
 // change passes almost at once (no lag). Run once per output tick with the time since the previous one. The speed is estimated per zone (the fastest of its three

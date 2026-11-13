@@ -36,6 +36,8 @@ static uint32_t gFilterGen = 0xFFFFFFFF;
 static float gAdj[kZones][3];                  // the picture's 24 zones with brightness / gamma / saturation applied (shared by all targets)
 static OneEuro gEuro;                          // adaptive smoothing's state (Look > adaptive), stepped once per output tick (relay task only)
 static uint32_t gEuroUs = 0;                   // micros() of its last step
+static uint32_t gCuts = 0;                     // scene cuts seen since the start (isSceneCut; status box.cuts)
+static bool gCutPending = false;               // a cut to snap to: the next output tick shows the new picture without easing (relay task only)
 static Motion gMotion;                         // the latest pictures with their place on a steady clock, for motion smoothing (under Lock)
 
 // ---- what arrives on the Sync Box port, for telling "the box is silent" from "the box changed what it sends"
@@ -820,7 +822,8 @@ static bool pollBox() {
   bool got = false;
   float boost;
   int motionPct, boxSpeed;
-  { Lock l; boost = gSet.kBoost; motionPct = gSet.motion; boxSpeed = gSet.boxSpeed; }
+  bool snap;
+  { Lock l; boost = gSet.kBoost; motionPct = gSet.motion; boxSpeed = gSet.boxSpeed; snap = gSet.snapCuts; }
   uint8_t buf[300];                                       // longer than any frame seen (86-93 bytes) so a bigger one is not cut short
   for (int guard = 0; guard < 16; guard++) {
     sockaddr_in sa;
@@ -845,6 +848,8 @@ static bool pollBox() {
       if (now - gGoodSampleMs >= 2000 || !gGoodLen) { gGoodLen = (uint8_t)(r < (int)sizeof gGoodSample ? r : sizeof gGoodSample); memcpy(gGoodSample, buf, gGoodLen); gGoodSampleMs = now; }
       if (now - gLastFrame > 1500) { gPrevValid = false; blackReset(gBlack); }   // the box was silent: do not extrapolate across the gap, and forget "black since"
       blackFrame(gBlack, z, now);                                  // TV off detection: black for long enough = the TV is off
+      const bool cut = gHave && now - gLastFrame <= 1500 && isSceneCut(gRaw, z);   // half the picture jumped at once (counted always; acted on with Snap on scene cuts)
+      if (cut) gCuts++;
       memcpy(gRaw, z, sizeof gRaw);                                // the raw box output (calibration and /api/zones use this)
       gSender = from;
       const int steps = boxStepsForGap(now - gLastFrame);          // the box's smoothing steps since the previous packet (more than one if packets were lost)
@@ -866,6 +871,11 @@ static bool pollBox() {
       }
       gPrevValid = true;
       adjustInto(gAdj, f);
+      if (cut && snap) {                                           // a scene cut: show it at once instead of smoothing into it
+        gCutPending = true;                                        // easing: every target starts at the new picture (relayLoop)
+        motionReset(gMotion);                                      // Motion smoothing: the new picture becomes the only one, shown at once
+        if (gEuro.valid) oneEuroReset(gEuro, gAdj);                // adaptive smoothing: starts at the new picture
+      }
       if (motionPct > 0) motionPush(gMotion, now, gAdj);
       got = true;
     }
@@ -955,6 +965,7 @@ void relayStatus(RelayStatus& s, bool detail) {
   s.boxIgnoredIp = (detail && gIgnored.n) ? gIgnored.ip.toString() : String("");
   s.boxIgnoredAgoMs = gIgnored.n ? (int)(now - gIgnored.ms) : -1;
   { const SpeedResult sr = speedResult(gSpeed); s.boxSpeedPct = gSpeed.shown; s.boxSpeedN = sr.estimates; s.boxSpeedMixed = gSpeed.shown < 0 && sr.estimates >= kSpeedMinEvents; s.boxSpeedAgree = sr.peak; s.boxSpeedChanges = gSpeed.events; }
+  s.boxCuts = gCuts;
   s.framesOk = gStat.ok;
   s.framesNewLayout = gStat.newLayout;
   s.framesUnreadable = gStat.unreadable;
@@ -1022,6 +1033,7 @@ static float* blurScratch(int n, int first, int last) {
 void relayLoop() {
   const bool gotNew = pollBox();
   if (gotNew) { gNewPending = true; for (int i = 0; i < kMaxTargets; i++) gRt[i].o.converged = false; }
+  if (gCutPending) { gCutPending = false; for (int i = 0; i < kMaxTargets; i++) gRt[i].o.curValid = false; }   // Snap on scene cuts: no easing into the new picture
   const uint32_t now = millis();
   gWaitHintMs = 10;
   if (!gGoveeBootDone && WiFi.status() == WL_CONNECTED) { int n0; { Lock l; n0 = gSet.nTargets; } goveeBootHandBack(n0); }   // once, before any stream is prepared

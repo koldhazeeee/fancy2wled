@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **Snap on scene cuts** (Look, Timing; off by default): when half the picture or more jumps at once, the lights show it straight away instead of smoothing into
+  it, whatever the timing setting, so cuts look like cuts while movement stays smooth. With Motion smoothing 100 a cut arrives in about 17 ms instead of 54. The status
+  counts the cuts the relay sees (`box.cuts`).
 * **Adaptive smoothing** (Look, Timing; off by default): smooths small changes and lets big ones through, so a calm scene stays calm and a cut or a flash reaches the
   lights at once. At 50 it is smoother than the default Smoothing over time 0.5 (on recordings of a real box and on a slow pan) with no extra delay on a big change; a
   small change (20 levels) is half way after about 0.12 s. It is the One Euro filter, tested against an independent Python version.

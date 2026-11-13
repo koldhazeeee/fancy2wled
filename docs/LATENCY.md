@@ -134,11 +134,12 @@ Speed of Diffusion 100 %.
 | Adaptive smoothing 25 | 2.68 | 2.40 | 17 ms | 51 ms |
 | **Adaptive smoothing 50** | **1.95** | **1.58** | **17 ms** | 117 ms |
 | Adaptive smoothing 75 | 1.33 | 1.13 | 17 ms | 223 ms |
+| Motion smoothing 100 + *Snap on scene cuts* | 2.68 | 0.28 | **17 ms** | 54 ms |
 
 Motion smoothing at 100 is the smoothest on movement (ten times smoother than the default on the slow pan) for about 35 ms more delay; Smoothing over time 0.8 is as
 smooth on the recordings but much later. **Adaptive smoothing** (Look, 0-100; the One Euro filter, `oneEuroStep` in `core.h`, independent version
 `tools/reference/adaptive.py`) is smoother than the default at 50 and lets a big change through at once, as if there were no smoothing; what it slows is small changes,
-which is what keeps a still or slowly drifting picture calm. It works once per output tick on the 24 zones and costs a few microseconds. **Fixed in 0.4.13:** after a lost packet the motion clock used to place the next picture before it had arrived, so the output
+which is what keeps a still or slowly drifting picture calm. It works once per output tick on the 24 zones and costs a few microseconds. **Snap on scene cuts** (`isSceneCut` in `core.h`: half the zones or more jump by more than 60 levels in one packet) shows such a change at once with any timing setting: with Motion smoothing 100 a cut arrives in 17 ms instead of 54, the slow pan is untouched (no false cuts), and the video figure rises because the recordings' cuts now show as cuts. The relay counts cuts in the status (`box.cuts`) even when it does not snap. **Fixed in 0.4.13:** after a lost packet the motion clock used to place the next picture before it had arrived, so the output
 jumped to it instead of sliding; on these recordings that made Motion smoothing 100 two and a half times rougher (3.87) and quicker than it is meant to be (20 ms).
 Tried and not adopted: a monotone cubic through the pictures instead of straight lines (`--experiments`): no smoother on the slow pan and 1-3 % on video, because
 the pictures' timing jitter, not the corner at each picture, is what shows.

@@ -87,7 +87,7 @@ def run(relay):
     tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     ip = socket.gethostbyname(relay)
     result = {"version": None, "runs": {}}
-    base = {"brightness": 1.0, "gamma": 1.0, "saturation": 1.0, "smoothing": 0.0, "boost": 0.0, "motion": 0, "adaptive": 0, "boxSpeed": 100, "smoothOut": 100,
+    base = {"brightness": 1.0, "gamma": 1.0, "saturation": 1.0, "smoothing": 0.0, "boost": 0.0, "motion": 0, "adaptive": 0, "snapCuts": False, "boxSpeed": 100, "smoothOut": 100,
             "blackCut": 0, "deadband": 0.0, "dither": False, "fps": 30}
     try:
         result["version"] = api(relay, "/api/status")["ver"]

@@ -734,6 +734,17 @@ float motionDelayMs(const Motion& m, int percent) {
 }
 
 // ---------------------------------------------------------------------------
+bool isSceneCut(const uint8_t prev[kZones][3], const uint8_t now[kZones][3]) {
+  int big = 0;
+  for (int z = 0; z < kZones; z++) {
+    int moved = 0;
+    for (int c = 0; c < 3; c++) { const int d = abs((int)now[z][c] - (int)prev[z][c]); if (d > moved) moved = d; }
+    if (moved > kCutLevels) big++;
+  }
+  return big >= kCutZones;
+}
+
+// ---------------------------------------------------------------------------
 void oneEuroParams(int calm, float* minCutoff, float* beta) {
   const float c = (float)(calm < 1 ? 1 : (calm > 100 ? 100 : calm)) / 100.f;
   *minCutoff = 4.f * powf(0.01f, c);

@@ -433,6 +433,20 @@ async function cdp(wsUrl) {
       await sl('kMot', 0); await sl('kAdp', 0);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // snap on scene cuts (F3): off by default, saved, and a tip when the box spreads cuts over several packets
+    {
+      const tick = async v => { await p.ev("var e=document.getElementById('kSnap'); e.checked=" + v + "; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };
+      const adv = () => p.ev("document.getElementById('advice').textContent");
+      check('snap: starts off', (await p.ev("document.getElementById('kSnap').checked")) === false);
+      await tick(true);
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('snap: Save sends it', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.snapCuts === true, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+      check('snap: with the box at 40 and no boost the check says it helps little', /Snap on scene cuts helps little while the box smooths \(speed 40%\)/.test(await adv()), await adv());
+      await tick(false);
+      check('snap: the tip goes with it', !/Snap on scene cuts/.test(await adv()), await adv());
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
+    }
     // the output rate (P2): 30 by default, saved, and a tip when a WLED refreshes more slowly than it
     {
       const sel = async v => { await p.ev("var e=document.getElementById('kFps'); e.value='" + v + "'; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };

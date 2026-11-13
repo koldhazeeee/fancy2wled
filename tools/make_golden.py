@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import adaptive, finish, govee, layout, motion, protocol, speed  # noqa: E402
+from reference import adaptive, cuts, finish, govee, layout, motion, protocol, speed  # noqa: E402
 
 
 def ent(entries):
@@ -281,6 +281,25 @@ def main():
         adapt_case(calm, seq)
     still = drift(base, 0)
     adapt_case(75, [(0.0, drift(base, 30))] + [(33.0, still)] * 40)    # a change, then a still picture: it settles
+
+    # --- scene cuts: pairs of packets and whether the second is a cut (the edges of the rule, then real packets of a box at 75 % showing a TV programme) ----------
+    crnd = random.Random(77)
+
+    def cut_line(a, b):
+        lines.append("CUT %d %s %s" % (1 if cuts.is_scene_cut(a, b) else 0, hexz(a), hexz(b)))
+
+    base = [tuple(crnd.randrange(70, 180) for _ in range(3)) for _ in range(24)]
+    for moved, zones_moved, sign in ((61, 12, 1), (61, 11, 1), (60, 12, 1), (61, 12, -1), (200, 24, 1), (61, 24, -1), (0, 0, 1)):
+        nb = [tuple(min(255, max(0, v + (sign * moved if c == q % 3 else 0))) for c, v in enumerate(z)) if q < zones_moved else z for q, z in enumerate(base)]
+        cut_line(base, nb)
+    real = []
+    for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference", "data", "real_box_speed75_video.txt")):
+        if line.startswith("#") or not line.strip():
+            continue
+        b = bytes.fromhex(line.split()[1])
+        real.append([tuple(b[i * 3:i * 3 + 3]) for i in range(24)])
+    for a, b in list(zip(real, real[1:]))[:120]:
+        cut_line(a, b)
 
     # --- blur along a strip --------------------------------------------------------------------------------------------------------------------------------------
     for n, first, last, blur in ((30, -1, -1, 5), (30, 5, 24, 5), (30, 0, 29, 1), (30, 10, 12, 8), (12, 2, 9, 20), (50, -1, -1, 3), (40, 3, 200, 6), (25, 7, 3, 4), (2, -1, -1, 10), (64, 8, 55, 12)):

@@ -38,6 +38,8 @@ if "adaptive 50" in rows:
           "adaptive 50 is smoother than smoothing over time 0.5 on video and on the pan, and as quick on a big change: %r against %r" % (a50, ease))
     check(100 < a50[3] < 140, "adaptive 50 slows a small change on purpose (half way after about 120 ms): %r" % (a50,))
     check(rows["adaptive 75"][0] < a50[0] < rows["adaptive 25"][0], "adaptive: higher is calmer")
+ms = rows["motion 100 + snap on cuts"]
+check(ms[2] < 25 and abs(ms[1] - m100[1]) < 0.01 and ms[3] == m100[3], "snap on cuts: a cut arrives at once with motion 100, the slow pan and small changes are untouched: %r" % (ms,))
 pan = smoothness.slow_pan()
 check(abs(smoothness.roughness(smoothness.Motion(30, 100, True)(pan)) - m100[1]) < 0.05, "the cubic experiment is no smoother on the slow pan (why it was not adopted)")
 

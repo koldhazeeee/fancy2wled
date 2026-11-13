@@ -24,7 +24,7 @@ import random
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from reference import motion  # noqa: E402
+from reference import cuts, motion  # noqa: E402
 try:
     from reference import adaptive  # noqa: E402
 except ImportError:                                    # adaptive smoothing is not in every version
@@ -70,9 +70,12 @@ def steps(packets, lo=0.0, hi=255.0):
 
 
 class Run:
-    """Replays packets and samples the output at `fps`: a subclass says what is shown at each frame."""
-    def __init__(self, fps):
-        self.fps = fps
+    """Replays packets and samples the output at `fps`: a subclass says what is shown at each frame. snap: Snap on scene cuts (a packet that is a cut calls cut())."""
+    def __init__(self, fps, snap=False):
+        self.fps, self.snap, self.prev = fps, snap, None
+
+    def cut(self, zones):
+        pass
 
     def frames(self, packets):
         t, end = float(packets[0][0]), packets[-1][0]
@@ -87,6 +90,9 @@ class Run:
             while j < len(packets) and packets[j][0] <= t:
                 arrived.append(packets[j])
                 newest = packets[j][1]
+                if self.snap and self.prev is not None and cuts.is_scene_cut([[int(round(v)) for v in z] for z in self.prev], [[int(round(v)) for v in z] for z in newest]):
+                    self.cut(newest)
+                self.prev = newest
                 j += 1
             out.append((t, self.show(t, arrived, newest)))
         return out
@@ -98,9 +104,12 @@ class Hold(Run):
 
 
 class Ease(Run):
-    def __init__(self, fps, s):
-        super().__init__(fps)
+    def __init__(self, fps, s, snap=False):
+        super().__init__(fps, snap)
         self.s, self.cur, self.last = s, None, None
+
+    def cut(self, zones):
+        self.cur = None                                    # the next frame shows the new picture
 
     def show(self, t, arrived, newest):
         tgt = [v for z in newest for v in z]
@@ -114,12 +123,18 @@ class Ease(Run):
 
 
 class Motion(Run):
-    def __init__(self, fps, pct, curve=False):
-        super().__init__(fps)
-        self.m, self.pct, self.curve = motion.Motion(), pct, curve
+    def __init__(self, fps, pct, curve=False, snap=False):
+        super().__init__(fps, snap)
+        self.m, self.pct, self.curve, self.cut_at = motion.Motion(), pct, curve, None
+
+    def cut(self, zones):
+        self.cut_at = zones                                # the clock starts over at the cut (pushed in show, at its time)
 
     def show(self, t, arrived, newest):
         for pt, z in arrived:
+            if self.cut_at is z:
+                self.m = motion.Motion()
+                self.cut_at = None
             self.m.push(pt, z)
         q = int(t) - int(self.m.delay(self.pct))
         zs = pchip_at(self.m, q) if self.curve else self.m.at(q)[0]
@@ -127,9 +142,13 @@ class Motion(Run):
 
 
 class Adaptive(Run):
-    def __init__(self, fps, calm):
-        super().__init__(fps)
+    def __init__(self, fps, calm, snap=False):
+        super().__init__(fps, snap)
         self.f, self.calm, self.last = adaptive.OneEuro(), calm, None
+
+    def cut(self, zones):
+        if self.f.valid:
+            self.f.reset(zones)
 
     def show(self, t, arrived, newest):
         dt = 0.0 if self.last is None else t - self.last
@@ -208,10 +227,11 @@ def settings(fps, extra=False):
         yield "motion %d" % pct, (lambda pct: lambda: Motion(fps, pct))(pct)
     if extra:
         yield "motion 100, cubic (experiment)", lambda: Motion(fps, 100, True)
-    if adaptive is None:
-        return
-    for calm in (25, 50, 75):
-        yield "adaptive %d" % calm, (lambda calm: lambda: Adaptive(fps, calm))(calm)
+    if adaptive is not None:
+        for calm in (25, 50, 75):
+            yield "adaptive %d" % calm, (lambda calm: lambda: Adaptive(fps, calm))(calm)
+    yield "smoothing 0.5 + snap on cuts", lambda: Ease(fps, 0.5, snap=True)
+    yield "motion 100 + snap on cuts", lambda: Motion(fps, 100, snap=True)
 
 
 def table(recordings, fps, extra=False):
