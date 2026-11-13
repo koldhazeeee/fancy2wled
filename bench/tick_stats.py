@@ -24,7 +24,8 @@ RELAY = "fancy2wled.local"
 
 def api(path, body=None):
     req = urllib.request.Request("http://%s%s" % (RELAY, path), data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"} if body is not None else {})
+                                 headers=dict({"Content-Type": "application/json"}, **({"X-Fwb-Password": os.environ["FANCY2WLED_PAGE_PASSWORD"]}
+                                                                                  if os.environ.get("FANCY2WLED_PAGE_PASSWORD") else {})) if body is not None else {})   # the setup page password, if set
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read().decode())
 

@@ -54,7 +54,7 @@ function createDevice(opts) {
     cfg: { targets: [newTarget(0)],
       look: { brightness: 1, gamma: 1, saturation: 1, smoothing: 0.5, boost: 0, boxSpeed: 40, motion: 0, adaptive: 0, snapCuts: false, fadeMs: 0, levels: 'sent', temperature: 0, vibrance: 0, flashLimit: 0, deadband: 0, blackCut: 0, dither: false, smoothOut: 100, fps: 30 }, box: { host: '' },
       ota: { enabled: false, passSet: false },
-      relay: { enabled: true, tvOff: { mode: 'handback', seconds: 15 } }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
+      relay: { enabled: true, tvOff: { mode: 'handback', seconds: 15 } }, security: { pagePass: false }, mqtt: { enabled: false, host: '', port: 1883, user: '', passSet: false, base: '', discovery: 'homeassistant', perf: false } },
     screen: 'idle', calActive: false, maps: {}, test: null, total: opts.total || 600
   };
   // like the firmware, the first target is also available under its old names (wled / layout)
@@ -123,6 +123,16 @@ function createDevice(opts) {
       req.on('end', () => {
         let d = {}; try { d = JSON.parse(body || '{}'); } catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
         calls.push('POST ' + p + (p.startsWith('/api/cal/') ? ' ' + body : ''));
+        if (p === '/api/pagepass') {                         // like the board: changing it needs the current one
+          if (state.pagePass && d.current !== state.pagePass) return json(res, 403, { error: 'The current page password is wrong.' });
+          if (d.password && (d.password.length < 8 || d.password.length > 64)) return json(res, 403, { error: 'The page password must be 8 to 64 characters.' });
+          state.pagePass = d.password || ''; state.cfg.security = { pagePass: !!state.pagePass };
+          return json(res, 200, { ok: true });
+        }
+        if (state.pagePass && !['/api/usage', '/api/wifi', '/api/ota'].includes(p) && (req.headers['x-fwb-password'] || d.auth) !== state.pagePass) {
+          state.authRefused = (state.authRefused || 0) + 1;
+          return json(res, 401, { error: 'This setup page has a password. Type it to make changes.', auth: true });
+        }
         if (p === '/api/config') {
           if (d.revert) { state.reverts = (state.reverts || 0) + 1; return json(res, 200, state.cfg); }   // like the board: back to the saved settings
           state.lastConfigPost = d;

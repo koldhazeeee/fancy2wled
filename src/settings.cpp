@@ -195,6 +195,7 @@ static void loadFromFlash() {
   if (s.haAmbient < 0 || s.haAmbient > 4) s.haAmbient = 0;
   s.otaOn = gB("otaOn", false);
   s.otaPass = gS("otaPass", "");
+  s.pagePass = gS("pgPass", "");
   if (s.otaPass.length() == 0) s.otaOn = false;                   // never on without a password
   s.smoothOut = gI("kOut", 100);
   s.fps = gI("fps", 30);
@@ -256,6 +257,7 @@ void settingsSave() {
   prefs.putInt("mqAmb", s.haAmbient);
   prefs.putBool("otaOn", s.otaOn);
   prefs.putString("otaPass", s.otaPass);
+  prefs.putString("pgPass", s.pagePass);
   prefs.putInt("kOut", s.smoothOut);
   prefs.putInt("fps", s.fps);
   prefs.putString("boxHost", s.boxHost);
@@ -406,6 +408,7 @@ void settingsToJson(JsonDocument& d) {
   { static const char* kAmb[5] = {"off", "average", "dominant", "ambient", "lightest"}; mq["ambient"] = kAmb[s.haAmbient < 0 || s.haAmbient > 4 ? 0 : s.haAmbient]; }
   d["ota"]["enabled"] = s.otaOn;
   d["ota"]["passSet"] = s.otaPass.length() > 0;                    // the password itself is never sent back
+  d["security"]["pagePass"] = s.pagePass.length() > 0;              // the setup page asks for a password before a change (never the password itself)
 }
 
 // Applies the "name / enabled / trim", "wled" and "layout" parts of a request to one target. x is the object holding name / enabled /
@@ -518,6 +521,18 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
   }
   if (n.lType == LAYOUT_TABLE && (gStoredN[idx] == 0)) return "There is no calibrated layout yet. Run the phone calibration first.";
   if (n.lType == LAYOUT_TABLE && gStoredN[idx] != n.wCount) return "The calibrated layout is for " + String(gStoredN[idx]) + " LEDs. Change the count back or calibrate again.";
+  return "";
+}
+
+String pagePassSet(const String& current, const String& pass) {
+  Lock l;
+  if (gSet.pagePass.length() > 0) {
+    bool locked = false;
+    if (!otaPasswordOk(current, gSet.pagePass, &locked)) return locked ? "Too many wrong passwords. Wait a minute and try again." : "The current page password is wrong.";
+  }
+  if (pass.length() > 0 && !fwb::validUpdatePassword(pass.c_str())) return "The page password must be 8 to 64 characters (letters, digits, symbols or spaces).";
+  gSet.pagePass = pass;
+  settingsSave();
   return "";
 }
 

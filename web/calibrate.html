@@ -58,9 +58,12 @@ ol{padding-left:1.2rem}li{margin:.3rem 0}
   }
   $('rng').onchange=function(){$('rngBox').classList.toggle('hidden',$('rng').value!=='manual');};
 
-  async function j(path,body){
-    var opt=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  async function j(path,body,again){
+    var pw='';try{pw=sessionStorage.getItem('fwbPw')||'';}catch(e){}
+    var h={'Content-Type':'application/json'};if(pw)h['X-Fwb-Password']=pw;   /* the setup page's password, when the board has one */
+    var opt=body===undefined?{}:{method:'POST',headers:h,body:JSON.stringify(body)};
     var r=await fetch(path,opt),t=await r.text(),d={};try{d=JSON.parse(t);}catch(e){}
+    if(r.status===401&&d.auth&&!again){var v=window.prompt(d.error||'The setup page has a password.')||'';if(v){try{sessionStorage.setItem('fwbPw',v);}catch(e){}return j(path,body,true);}}
     if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;
   }
   var api={

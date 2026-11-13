@@ -458,6 +458,25 @@ async function cdp(wsUrl) {
       check('single: after saving it is still shown as one colour, from the top edge', (await p.ev("document.getElementById('lPlace').value")) === 'single' && (await p.ev("document.getElementById('lSgZones').value")) === 'top');
       await p.ev("var e=document.getElementById('lPlace'); e.value='top'; e.dispatchEvent(new Event('change',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(800);
     }
+    // the setup page password (N4)
+    {
+      await p.ev("document.getElementById('tabDevice').click(); 1"); await sleep(200);
+      check('password: none by default, and the page says anyone can change things', /No password/.test(await p.ev("document.getElementById('pwState').textContent")));
+      await p.ev("document.getElementById('pwNew').value='short'; document.getElementById('pwSet').click(); 1"); await sleep(200);
+      check('password: a short one is refused on the page', /8 to 64/.test(await p.ev("document.getElementById('pwMsg').textContent")) && !dev.state.pagePass);
+      await p.ev("sessionStorage.removeItem('fwbPw'); document.getElementById('pwNew').value='correct horse'; document.getElementById('pwSet').click(); 1"); await sleep(900);
+      check('password: set, and the page says changes need it', dev.state.pagePass === 'correct horse' && /need the password/.test(await p.ev("document.getElementById('pwState').textContent")) && !(await p.ev("document.getElementById('pwCurRow').classList.contains('hidden')")));
+      check('password: this tab already knows it, so a change goes through with it', await p.ev("sessionStorage.getItem('fwbPw')") === 'correct horse');
+      await p.ev("sessionStorage.removeItem('fwbPw'); document.getElementById('tabLook').click(); var e=document.getElementById('kGam'); e.value='1.1'; e.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(700);
+      check('password: a change without it makes the page ask for it', await p.ev("document.getElementById('pwDlg').open") === true && (dev.state.authRefused || 0) >= 1);
+      await p.ev("document.getElementById('pwIn').value='correct horse'; document.querySelector('#pwDlg button[value=ok]').click(); 1"); await sleep(900);
+      check('password: with it typed, the change is saved', dev.state.cfg.look.gamma === 1.1 && await p.ev("document.getElementById('pwDlg').open") === false, JSON.stringify(dev.state.cfg.look.gamma));
+      await p.ev("document.getElementById('tabDevice').click(); document.getElementById('pwCur').value='wrong one'; document.getElementById('pwDel').click(); 1"); await sleep(600);
+      check('password: removing it needs the current one', dev.state.pagePass === 'correct horse' && /wrong/.test(await p.ev("document.getElementById('pwMsg').textContent")));
+      await p.ev("document.getElementById('pwCur').value='correct horse'; document.getElementById('pwDel').click(); 1"); await sleep(900);
+      check('password: removed with the right one', dev.state.pagePass === '' && /No password/.test(await p.ev("document.getElementById('pwState').textContent")));
+      await p.ev("document.getElementById('tabLook').click(); var e=document.getElementById('kGam'); e.value='1'; e.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(600);
+    }
     // the first-run guide (L7)
     {
       const g = () => p.ev("document.getElementById('guide').classList.contains('hidden')");

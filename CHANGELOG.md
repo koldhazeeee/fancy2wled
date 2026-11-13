@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **An optional password for the setup page** (Device tab; off by default): every change then needs it (asked once per browser tab), reading the page does
+  not. It keeps other people and devices on your network from changing the lights; it travels in plain text, so it is no protection against someone reading the
+  network. Five wrong tries lock everything for a minute; a factory reset clears it. See [SECURITY.md](SECURITY.md).
 * **Limit flashes** (Look, Timing; off by default): no part of the lights may brighten or darken faster than you set, so explosions and strobes in a film do not
   flash the room. At 50 a change from black to white takes half a second (0.37 s measured on the board for the box's white, against 0.05 s without).
 * **Colour temperature, vibrance and white balance** (all off by default): a warmer or cooler white for every light (Look, Colour; about 3250 K to 9200 K,

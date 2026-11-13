@@ -2,8 +2,8 @@
 
 ## Read this first: never expose the relay to the internet
 
-Fancy2WLED is built for **a trusted home network**. **Everything it does on the network is in plain text, and the setup page has no password.** Do not
-port-forward it, put it in a router's DMZ, publish it through UPnP, a cloud tunnel or a public reverse proxy, or give it a public address. Anyone who can reach it
+Fancy2WLED is built for **a trusted home network**. **Everything it does on the network is in plain text, and the setup page has no password unless you set one** (and even then
+it crosses the network in plain text). Do not port-forward it, put it in a router's DMZ, publish it through UPnP, a cloud tunnel or a public reverse proxy, or give it a public address. Anyone who can reach it
 can change its settings, and anyone who can watch the traffic can read it.
 
 What travels unencrypted:
@@ -17,12 +17,17 @@ What travels unencrypted:
 | The commands to your **WLED** strips (HTTP and DDP) and **Govee** lights (their LAN API over UDP) | everyone on your network |
 | The **Sync Box's own broadcast**. Its frame format is public (see [docs/PROTOCOL.md](docs/PROTOCOL.md)) and only obfuscated, not encrypted | everyone on your network |
 
-There is no login for the setup page, the same as WLED itself. Over-the-air updates are off until you set an update password, and a firmware image has to be a valid
-image for this chip that carries this project's marker, but that is a safety check against mistakes, not strong authentication on a plain-text link.
+By default there is no login for the setup page, the same as WLED itself. Since 0.4.13 you can set a **setup page password** (Device tab): every change then has to carry
+it (an `X-Fwb-Password` header, or `auth` in the JSON body), compared in constant time, with everything refused for a minute after 5 wrong tries (shared with the update
+password); reading the page and the status stays open, and so does the picture map's recount, which changes nothing. It keeps other people and devices on your network
+from changing the lights. It is **not** protection against someone who can read your network traffic: it travels in plain HTTP. A config file cannot set it, it is never
+sent back or exported, and a factory reset (the button, 8 seconds) clears it. Over-the-air updates are off until you set an update password, and a firmware image has to
+be a valid image for this chip that carries this project's marker, but that is a safety check against mistakes, not strong authentication on a plain-text link.
 
 ## What to do about it
 
 * **Keep it on a network you trust**, ideally a separate IoT network or VLAN that guests and your less trusted devices cannot reach.
+* **Set a setup page password** (Device tab) if other people or devices share your network, and use one you use nowhere else.
 * **Lock it to your Sync Box**: on the setup page press **Only accept this box**. Otherwise any device on the network can send the relay colours. (If your router gives the
   box a new address, give the box a fixed one in the router.)
 * **Do the first Wi-Fi setup yourself and quickly**: the setup Wi-Fi is open until the board has joined your network, then it disappears.

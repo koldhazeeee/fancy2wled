@@ -98,6 +98,8 @@ struct Settings {
   // Firmware updates over Wi-Fi (the setup page's upload and PlatformIO's espota). Off until an update password exists; never exported.
   bool otaOn = false;
   String otaPass;
+  // An optional password for the setup page: when set, every request that changes something must carry it (webserver.cpp). Never sent back or exported.
+  String pagePass;
   // network
   String boxHost;                      // only accept the broadcast from this IP ("" = anyone)
   String ssid, pass;
@@ -150,6 +152,8 @@ String settingsImport(JsonVariantConst doc);
 // persist=false is a live preview: used immediately but not written to flash (settingsRevert() drops it).
 // imported=true (a config file): the firmware-update settings in it are ignored, so a file cannot set the update password.
 String settingsFromJson(JsonVariantConst d, bool persist = true, bool imported = false);
+// Set (8-64 printable characters) or remove ("") the setup page's password; when one is set, `current` must be it. "" or an error message.
+String pagePassSet(const String& current, const String& pass);
 void settingsRevert();
 // Store a calibrated table for a target (hex: 8 chars per LED = a, b, f, d). Switches that target's layout to "table".
 String tableStoreHex(int target, int start, int count, const char* hex, size_t hexLen);

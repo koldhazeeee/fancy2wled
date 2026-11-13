@@ -333,6 +333,16 @@ input[type=range].wide{width:100%}
 </div></div>
 <div class="pane" id="pane-device" data-pane="device" role="tabpanel" aria-labelledby="tabDevice"><div class="cols">
 <div>
+<div class="card" id="pwCard">
+  <h2>Setup page password</h2>
+  <p class="small" id="pwState"></p>
+<details class="help"><summary>What it protects, and what it does not</summary>
+  <p class="small mut">With a password, every change on this page (settings, import, tests, restart, factory reset) asks for it once per browser tab; looking at the page does not. It keeps other people and devices on your network from changing the lights. It travels in plain HTTP like everything else here, so someone who can read your network traffic could see it: never expose the board to the internet (see SECURITY.md). Forgot it? Hold the board's button for 8 seconds (a factory reset clears it, with every other setting).</p>
+</details>
+  <div class="row hidden" id="pwCurRow"><label for="pwCur">Current password</label><input id="pwCur" type="password" autocomplete="current-password"></div>
+  <div class="row"><label for="pwNew">New password (8 to 64 characters)</label><input id="pwNew" type="password" autocomplete="new-password"></div>
+  <div class="row"><button id="pwSet">Set the password</button><button id="pwDel" class="bad hidden">Remove the password</button><span id="pwMsg" class="small"></span></div>
+</div>
 <div class="card" id="otaCard">
   <h2>Firmware updates</h2>
   <p class="small mut" id="otaVer"></p>
@@ -392,9 +402,20 @@ input[type=range].wide{width:100%}
 <script>
 (function(){
   var $=function(i){return document.getElementById(i);}, cfg=null, sel=0, testing=false, finder=false, timer=null, totalLeds=0, dirty=false, finderBeat=null;
-  async function j(path,body){
-    var opt=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  /* The optional page password (N4): kept for this browser tab only, sent with every change, asked for when the board says one is needed. */
+  function pw(){try{return sessionStorage.getItem('fwbPw')||'';}catch(e){return '';}}
+  function askPw(text){
+    return new Promise(function(res){
+      var dl=$('pwDlg');$('pwTxt').textContent=text;$('pwIn').value='';
+      dl.onclose=function(){var v=dl.returnValue==='ok'?$('pwIn').value:'';if(v){try{sessionStorage.setItem('fwbPw',v);}catch(e){}}res(v);};
+      if(dl.showModal)dl.showModal();else{var v=window.prompt(text)||'';if(v){try{sessionStorage.setItem('fwbPw',v);}catch(e){}}res(v);}
+    });
+  }
+  async function j(path,body,again){
+    var h={'Content-Type':'application/json'};if(pw())h['X-Fwb-Password']=pw();
+    var opt=body===undefined?{}:{method:'POST',headers:h,body:JSON.stringify(body)};
     var r=await fetch(path,opt),t=await r.text(),d={};try{d=JSON.parse(t);}catch(e){}
+    if(r.status===401&&d.auth&&!again){try{sessionStorage.removeItem('fwbPw');}catch(e){}if(await askPw(d.error||'This setup page has a password.'))return j(path,body,true);}
     if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;
   }
   function pill(id,cls,txt){var e=$(id);e.className='pill '+cls;e.textContent=txt;}
@@ -834,7 +855,7 @@ input[type=range].wide{width:100%}
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
     $('mqPass').placeholder=M.passSet?'(unchanged)':'';$('mqBase').value=M.base||'';$('mqDisc').value=M.discovery||'homeassistant';$('mqPerf').checked=!!M.perf;$('mqAmb').value=M.ambient||'off';
     usage=list.map(function(t){return t.usage||[];});
-    applyKind();vals();labels();info();setDirty(false);drawMap();advice();snapshotSaved();
+    applyKind();vals();labels();info();setDirty(false);drawMap();advice();snapshotSaved();pwCard(c);
   }
   function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';var sh=parseInt($('tSharp').value,10);$('tSharpV').textContent='('+(sh<=0?'smooth':(sh>=100?'sharp':sh+'%'))+')';$('tSatV').textContent='('+Math.round(100*parseFloat($('tSat').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kMotV').textContent='('+(parseInt($('kMot').value,10)<=0?'off':parseInt($('kMot').value,10)+'%')+')';$('kBcutV').textContent='('+(parseInt($('kBcut').value,10)<=0?'off':parseInt($('kBcut').value,10)+' levels')+')';$('kDeadV').textContent='('+(parseFloat($('kDead').value)<=0?'off':parseFloat($('kDead').value)+' levels')+')';$('kBspV').textContent='('+parseInt($('kBsp').value,10)+'%'+(parseInt($('kBsp').value,10)>=100?', the box does not smooth':'')+')';$('tBlurV').textContent='('+(parseInt($('tBlur').value,10)<=0?'off':parseInt($('tBlur').value,10)+(isGovee()?' segments':' LEDs'))+')';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';showMode();ariaValues();var fl=parseInt($('kFlash').value,10);$('kFlashV').textContent='('+(fl<=0?'off':'black to white in '+(fl/100).toFixed(2).replace(/0$/,'')+' s')+')';var tp=parseInt($('kTmp').value,10),vb=parseInt($('kVib').value,10);$('kTmpV').textContent='('+(tp===0?'neutral':(tp<0?'warmer':'cooler')+', '+Math.round(6500*Math.pow(2,tp/100)/50)*50+' K')+')';$('kVibV').textContent='('+(vb===0?'off':(vb>0?'+':'')+vb+'%')+')';['R','G','B'].forEach(function(c){var e=$('tW'+c);if(e)$('tW'+c+'V').textContent='('+e.value+'%)';});var fm=parseInt($('kFade').value,10);$('kFadeV').textContent='('+(fm<=0?'off':(fm/1000).toFixed(1)+' s')+')';var ad=parseInt($('kAdp').value,10);$('kAdpV').textContent='('+(ad<=0?'off':ad<35?ad+', quick':(ad<70?ad+', calm':ad+', very calm'))+')';}
   /* Timing mode (L4): one picker instead of four sliders that interact. The mode is worked out from the values (Motion smoothing above 0 wins, then Adaptive), so the
@@ -879,6 +900,24 @@ input[type=range].wide{width:100%}
       look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,motion:parseInt($('kMot').value,10),boxSpeed:parseInt($('kBsp').value,10),blackCut:parseInt($('kBcut').value,10),deadband:parseFloat($('kDead').value),dither:$('kDith').checked,smoothOut:parseInt($('kOut').value,10),fps:parseInt($('kFps').value,10),adaptive:parseInt($('kAdp').value,10),snapCuts:$('kSnap').checked,fadeMs:parseInt($('kFade').value,10),levels:$('kLvl').value,temperature:parseInt($('kTmp').value,10),vibrance:parseInt($('kVib').value,10),flashLimit:parseInt($('kFlash').value,10)}};
   }
   async function load(){try{setCfg(await j('/api/config'));}catch(e){}refreshOta();}
+
+  /* ---------------------------------------------------- the setup page password (N4) */
+  function pwCard(c){
+    var on=!!(c.security&&c.security.pagePass);
+    $('pwState').textContent=on?'Changes on this page need the password.':'No password: anyone on your network can change the settings here.';
+    show('pwCurRow',on);show('pwDel',on);$('pwSet').textContent=on?'Change the password':'Set the password';
+  }
+  async function pwSend(next){
+    var r=await fetch('/api/pagepass',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current:$('pwCur').value,password:next})}),d={};
+    try{d=JSON.parse(await r.text());}catch(e){}
+    if(!r.ok){$('pwMsg').innerHTML='<span class="err">'+esc(d.error||('HTTP '+r.status))+'</span>';return;}
+    try{if(next)sessionStorage.setItem('fwbPw',next);else sessionStorage.removeItem('fwbPw');}catch(e){}
+    $('pwCur').value='';$('pwNew').value='';
+    $('pwMsg').innerHTML='<span class="ok">'+(next?'Saved. This tab knows it already.':'Removed.')+'</span>';
+    load();
+  }
+  $('pwSet').onclick=function(){var v=$('pwNew').value;if(v.length<8||v.length>64){$('pwMsg').innerHTML='<span class="err">Use 8 to 64 characters.</span>';return;}pwSend(v);};
+  $('pwDel').onclick=function(){pwSend('');};
 
   /* ---------------------------------------------------- firmware updates */
   function otaMsg(h){$('otaMsg').innerHTML=h;}
@@ -989,7 +1028,7 @@ input[type=range].wide{width:100%}
   ['pointerup','pointerleave','pointercancel','blur'].forEach(function(ev){$('cmp').addEventListener(ev,cmpOff);});
   $('cmp').addEventListener('keydown',function(e){if(e.key===' '||e.key==='Enter')cmpOn(e);});
   $('cmp').addEventListener('keyup',function(e){if(e.key===' '||e.key==='Enter')cmpOff();});
-  window.addEventListener('beforeunload',function(){if($('kTry').checked&&dirty&&navigator.sendBeacon)navigator.sendBeacon('/api/config',new Blob(['{"revert":true}'],{type:'application/json'}));});
+  window.addEventListener('beforeunload',function(){if($('kTry').checked&&dirty&&navigator.sendBeacon)navigator.sendBeacon('/api/config',new Blob([JSON.stringify({revert:true,auth:pw()})],{type:'application/json'}));});
 
   /* ------------------------------------ markers: light the LEDs where the run / the TV part starts and ends */
   var markTimer=null, MARK=3, midUntil=0;                                  // midUntil: the green middle LED stays in the markers until then
@@ -1093,7 +1132,7 @@ input[type=range].wide{width:100%}
   };
   $('fTvFirst').onclick=function(){setNum('tvFirst',num('fPos',0));};
   $('fTvLast').onclick=function(){setNum('tvLast',num('fPos',0)+Math.max(1,num('fSize',10))-1);};
-  window.addEventListener('beforeunload',function(){if(finder&&navigator.sendBeacon)navigator.sendBeacon('/api/cal/end',new Blob(['{}'],{type:'application/json'}));});
+  window.addEventListener('beforeunload',function(){if(finder&&navigator.sendBeacon)navigator.sendBeacon('/api/cal/end',new Blob([JSON.stringify({auth:pw()})],{type:'application/json'}));});
 
   /* ---------------------------------------------------------------- buttons */
   $('save').onclick=async function(){
@@ -1282,4 +1321,9 @@ input[type=range].wide{width:100%}
     await load();setInterval(status,2500);liveTick();
   })();
 })();
-</script></main></body></html>
+</script><dialog id="pwDlg"><form method="dialog">
+  <p id="pwTxt" class="small"></p>
+  <div class="row"><label for="pwIn">Page password</label><input id="pwIn" type="password" autocomplete="current-password"></div>
+  <div class="row"><button value="ok">OK</button><button value="cancel" class="sec">Cancel</button></div>
+</form></dialog>
+</main></body></html>

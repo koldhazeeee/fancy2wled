@@ -80,7 +80,38 @@ static bool readJson(httpd_req_t* req, JsonDocument& doc, String& err) {
   return true;
 }
 
+// The setup page's optional password (Device > Setup page password). When one is set, a request that changes something has to carry it, in the X-Fwb-Password header or
+// (for the page's beacons, which cannot set headers) as "auth" in its JSON. Constant-time compare and the same lockout as the update password (otaPasswordOk). It stops
+// other devices and browsers on the network from changing the settings; it travels in plain HTTP, so it does not stop someone who can read the network (SECURITY.md).
+static bool authOk(httpd_req_t* req, const JsonDocument& doc, bool* locked) {
+  *locked = false;
+  String stored;
+  { Lock l; stored = gSet.pagePass; }
+  if (stored.length() == 0) return true;
+  char hdr[72] = {0};
+  String given;
+  if (httpd_req_get_hdr_value_str(req, "X-Fwb-Password", hdr, sizeof hdr) == ESP_OK) given = hdr;
+  else given = doc["auth"] | "";
+  return otaPasswordOk(given, stored, locked);
+}
+static esp_err_t sendAuthNeeded(httpd_req_t* req, bool locked) {
+  JsonDocument d;
+  d["error"] = locked ? "Too many wrong passwords. Wait a minute and try again." : "This setup page has a password. Type it to make changes.";
+  d["auth"] = true;
+  return sendDoc(req, d, "401 Unauthorized");
+}
+
+// A JSON request that changes something: the body must be JSON (blocks cross-site form posts), and the page password must be right when one is set.
 #define NEED_JSON(doc)                                       \
+  JsonDocument doc;                                          \
+  {                                                          \
+    String _e;                                               \
+    if (!readJson(req, doc, _e)) return sendError(req, "400 Bad Request", _e); \
+    bool _locked;                                            \
+    if (!authOk(req, doc, &_locked)) return sendAuthNeeded(req, _locked); \
+  }
+// The same without the password: only for requests that change nothing (the picture map's recount) or exist only in the setup access point (Wi-Fi details).
+#define NEED_JSON_OPEN(doc)                                  \
   JsonDocument doc;                                          \
   {                                                          \
     String _e;                                               \
@@ -333,7 +364,7 @@ static esp_err_t h_targets(httpd_req_t* req) {
 
 // The picture map for settings that are being edited but not saved: nothing is stored.
 static esp_err_t h_usage(httpd_req_t* req) {
-  NEED_JSON(doc);
+  NEED_JSON_OPEN(doc);
   float u[fwb::kZones];
   int leds = 0;
   String err = targetUsage(doc["target"] | 0, doc.as<JsonVariantConst>(), u, &leds);
@@ -530,9 +561,17 @@ static esp_err_t h_wifi_scan(httpd_req_t* req) { return sendJson(req, wifiScanJs
 
 static esp_err_t h_wifi_post(httpd_req_t* req) {
   if (!wifiIsAp()) return sendError(req, "403 Forbidden", "Wi-Fi can only be changed from the setup access point. Hold the button for 8 seconds to reset.");
-  NEED_JSON(doc);
+  NEED_JSON_OPEN(doc);
   String ssid = doc["ssid"] | "", pass = doc["pass"] | "";
   if (!wifiSave(ssid, pass)) return sendError(req, "400 Bad Request", "Enter the network name (and a password of at most 63 characters).");
+  return sendOk(req);
+}
+
+// POST /api/pagepass {current, password}: set or (empty) remove the setup page's password. Changing it needs the current one, not the header.
+static esp_err_t h_pagepass(httpd_req_t* req) {
+  NEED_JSON_OPEN(doc);
+  const String e = pagePassSet(doc["current"] | "", doc["password"] | "");
+  if (e.length()) return sendError(req, "403 Forbidden", e);
   return sendOk(req);
 }
 
@@ -661,6 +700,7 @@ static const Route kRoutes[] = {
     {"/api/ota", HTTP_GET, h_ota_get},
     {"/api/ota", HTTP_POST, h_ota_post},
     {"/api/reboot", HTTP_POST, h_reboot},
+    {"/api/pagepass", HTTP_POST, h_pagepass},
     {"/api/reset", HTTP_POST, h_reset},
 };
 

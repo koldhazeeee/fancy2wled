@@ -11,7 +11,7 @@ your lights and no PC has to stay on.
 
 > ### Never expose this to the internet
 > Everything the relay does on the network is **in plain text** (the setup page is plain HTTP, the Wi-Fi password you type at first setup, the update password, the MQTT
-> login, the commands to your WLEDs and Govee lights) and **the setup page has no password**. Keep it on a network you trust: **no port forwarding, no DMZ, no UPnP, no
+> login, the commands to your WLEDs and Govee lights) and **the setup page has no password unless you set one** (Device tab; it is plain text too). Keep it on a network you trust: **no port forwarding, no DMZ, no UPnP, no
 > public tunnel or reverse proxy.** Press **Only accept this box** on the setup page so no other device on your network can send it colours. Details and how to reach it
 > from outside safely (a VPN): [SECURITY.md](SECURITY.md).
 
@@ -251,12 +251,13 @@ join `Fancy2WLED-Setup` again.
 
 ## Security
 
-**Never expose the relay to the internet.** It is built for a trusted home network: **all its traffic is in plain text and the setup page has no password**, the same as WLED
+**Never expose the relay to the internet.** It is built for a trusted home network: **all its traffic is in plain text and the setup page has no password unless you set one** (Device tab), the same as WLED
 itself. In plain text are the setup page (HTTP), the Wi-Fi password typed during first setup (the board's own setup Wi-Fi is open while it waits), the firmware update
 password and file, the MQTT login (plain MQTT), the commands to WLED and Govee, and the Sync Box's own broadcast (public format, obfuscated, not encrypted). Do not forward a
 port to it, put it in a DMZ, or publish it with UPnP, a cloud tunnel or a public proxy. For access from outside the house use a VPN into your home network.
 
 * **Lock it to your Sync Box** (*Only accept this box* on the setup page): otherwise any device on the network can send it colours.
+* **Set a setup page password** (Device tab) if others share your network: every change then asks for it once per browser tab. It crosses the network in plain text, so it keeps people on your network from changing things, not from listening. Tools that change settings (`tools/output_fingerprint.py`, `tools/latency_test.py`, `bench/tick_stats.py`) send it from the environment variable `FANCY2WLED_PAGE_PASSWORD`.
 * **Keep over-the-air updates off** unless you are updating (they are off until you set an update password), and use a password you use nowhere else.
 * The setup access point is open while it is waiting for Wi-Fi details (it disappears once configured), so do the first setup yourself and quickly.
 * POST requests must be `application/json`, which stops other websites from changing settings through your browser.
