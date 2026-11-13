@@ -69,6 +69,53 @@ so switch it off when you are done. Measuring only happens while the board is co
 * Dim the ambient light in the evening: `light.turn_on` on *Fancy2WLED Sync* with `brightness_pct: 60` after sunset.
 * Start a movie scene: `light.turn_on` on *Fancy2WLED Sync* (add `brightness_pct: 100` if you want).
 
+Night-time dimming, without a schedule on the board (it has no clock; Home Assistant has one). Check the entity id in Home Assistant, it follows your device name:
+
+```yaml
+automation:
+  - alias: "Dim the TV lights at night"
+    trigger:
+      - platform: time
+        at: "22:30:00"
+    action:
+      - service: light.turn_on
+        target: { entity_id: light.fancy2wled_sync }
+        data: { brightness_pct: 40 }
+  - alias: "TV lights back to full in the morning"
+    trigger:
+      - platform: time
+        at: "07:00:00"
+    action:
+      - service: light.turn_on
+        target: { entity_id: light.fancy2wled_sync }
+        data: { brightness_pct: 100 }
+```
+
+Any light following the picture, with *Ambient colour for automations* switched on (Home Assistant tab of the setup page). The sensor changes at most twice a
+second; many bulbs (Zigbee, Hue through its bridge) cannot follow faster than about once a second, so a transition smooths it:
+
+```yaml
+automation:
+  - alias: "Floor lamp follows the TV picture"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: sensor.fancy2wled_ambient_colour
+    condition:
+      - condition: state
+        entity_id: light.fancy2wled_sync
+        state: "on"
+    action:
+      - service: light.turn_on
+        target: { entity_id: light.floor_lamp }
+        data:
+          rgb_color:
+            - "{{ state_attr('sensor.fancy2wled_ambient_colour', 'r') }}"
+            - "{{ state_attr('sensor.fancy2wled_ambient_colour', 'g') }}"
+            - "{{ state_attr('sensor.fancy2wled_ambient_colour', 'b') }}"
+          transition: 1
+```
+
 ## Topics (for other tools)
 
 All under `<prefix>` (default `fancy2wled/<last 4 digits of the board id>`, changeable on the setup page):
