@@ -946,6 +946,29 @@ void relayBegin() {
   }
 }
 
+int relayLeds(int target, uint8_t* rgb, int maxSamples, int* leds) {
+  Lock l;
+  *leds = 0;
+  if (target < 0 || target >= gSet.nTargets || maxSamples < 1) return 0;
+  const Rt& r = gRt[target];
+  const int per = r.lastRgbw ? 4 : 3;
+  const int n = (r.prepared && r.last) ? (int)(r.lastLen / per) : 0;
+  *leds = n;
+  if (n <= 0) return 0;
+  const int m = n < maxSamples ? n : maxSamples;
+  for (int k = 0; k < m; k++) {                               // each sample is the average of its share of the LEDs
+    const int a = (int)((long)k * n / m), b = (int)((long)(k + 1) * n / m);
+    int sum[3] = {0, 0, 0};
+    for (int q = a; q < b; q++) {
+      const uint8_t* px = r.last + (size_t)q * per;
+      const int w = per == 4 ? px[3] : 0;                    // RGBW: the white LED adds to all three
+      for (int c = 0; c < 3; c++) sum[c] += px[c] + w > 255 ? 255 : px[c] + w;
+    }
+    for (int c = 0; c < 3; c++) rgb[k * 3 + c] = (uint8_t)(sum[c] / (b - a));
+  }
+  return m;
+}
+
 bool relayZones(uint8_t zones[kZones][3], uint32_t* ageMs) {
   Lock l;
   if (!gHave) { *ageMs = UINT32_MAX; return false; }
@@ -1237,6 +1260,7 @@ void relayLoop() {
       }
       sentAny = true;
       if (r.lastCap >= (int)len && r.last) {
+        Lock l;                                                          // the setup page reads it (relayLeds)
         memcpy(r.last, gPayload, len);
         r.lastLen = len; r.lastStart = sn[i].start; r.lastRgbw = sn[i].whiteMin; r.lastSendMs = now;
       }

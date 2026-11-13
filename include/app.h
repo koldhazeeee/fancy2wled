@@ -228,6 +228,9 @@ void relayLoop();
 void relayDiagnostics(JsonObject d);                       // counters and a few raw frames, for a bug report (GET /api/diag)
 void relayStatus(RelayStatus& s, bool detail = false);    // detail: also names, hosts and the sender (allocates Strings; the web page wants them, the LED and MQTT do not)
 bool relayZones(uint8_t zones[fwb::kZones][3], uint32_t* ageMs);   // latest decoded frame
+// What a target shows now: the last frame sent to it, averaged down to at most maxSamples colours (rgb: 3 bytes each). Returns the number of samples (0 = it is not
+// being streamed to); leds = the LEDs (or Govee segments) in that frame. The setup page draws it under the picture map.
+int relayLeds(int target, uint8_t* rgb, int maxSamples, int* leds);
 // WLED queries used by the web UI
 struct WledInfo { bool ok = false; String name, ver, error; int leds = 0; bool rgbw = false, on = false; int bri = 0; int fps = 0; };   // fps: the refresh rate WLED reports
 WledInfo wledQuery(const String& host);

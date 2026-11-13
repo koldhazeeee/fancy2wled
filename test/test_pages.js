@@ -433,6 +433,19 @@ async function cdp(wsUrl) {
       await sl('kMot', 0); await sl('kAdp', 0);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // what the lights show now (L1): one strip per target under the picture map, from GET /api/leds
+    {
+      dev.state.leds = [{ leds: 266, rgb: 'ff0000' + '00ff00' + '0000ff' }];
+      await p.ev("document.getElementById('tabLights').click(); document.getElementById('subLayout').click(); var c=document.getElementById('mapLiveOn'); c.checked=true; c.dispatchEvent(new Event('change',{bubbles:true})); document.getElementById('mapCard').scrollIntoView(); 1"); await sleep(1600);
+      const rects = await p.ev("document.querySelectorAll('#ledsNow svg rect').length");
+      const fill = await p.ev("(document.querySelector('#ledsNow svg rect')||{}).getAttribute ? document.querySelector('#ledsNow svg rect').getAttribute('fill') : ''");
+      check('leds now: a strip of the colours the target shows, drawn under the map', rects === 3 && fill === '#ff0000', rects + ' ' + fill);
+      dev.state.leds = [{ leds: 0, rgb: '' }];
+      await sleep(1300);
+      check('leds now: a target that is not streamed to says so', /not streaming/.test(await p.ev("document.getElementById('ledsNow').textContent")), await p.ev("document.getElementById('ledsNow').textContent"));
+      dev.state.leds = null;
+      await p.ev("document.getElementById('tabLook').click(); 1"); await sleep(300);
+    }
     // presets (L2) and Preview on the lights / Hold to compare (L3)
     {
       const val = id => p.ev("(function(){var e=document.getElementById('" + id + "');return e.type==='checkbox'?e.checked:e.value;})()");

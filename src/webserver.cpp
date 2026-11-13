@@ -388,6 +388,27 @@ static esp_err_t h_zonemark(httpd_req_t* req) {
   return sendDoc(req, d);
 }
 
+// GET /api/leds: what every target shows now (the last frame sent to it, averaged down to at most 120 colours), for the page's live view of the lights.
+static esp_err_t h_leds(httpd_req_t* req) {
+  static const int kSamples = 120;
+  static uint8_t rgb[kSamples * 3];
+  static char hex[kSamples * 6 + 1];
+  int nT;
+  { Lock l; nT = gSet.nTargets; }
+  JsonDocument d;
+  JsonArray a = d["targets"].to<JsonArray>();
+  for (int i = 0; i < nT; i++) {
+    int leds = 0;
+    const int m = relayLeds(i, rgb, kSamples, &leds);
+    for (int k = 0; k < m * 3; k++) snprintf(hex + k * 2, 3, "%02x", rgb[k]);
+    hex[m * 6] = 0;
+    JsonObject o = a.add<JsonObject>();
+    o["leds"] = leds;
+    o["rgb"] = (const char*)hex;                    // copied into the document
+  }
+  return sendDoc(req, d);
+}
+
 static esp_err_t h_zones(httpd_req_t* req) {
   uint8_t z[fwb::kZones][3];
   uint32_t age;
@@ -614,6 +635,7 @@ static const Route kRoutes[] = {
     {"/api/import", HTTP_POST, h_import},
     {"/api/test", HTTP_POST, h_test},
     {"/api/zones", HTTP_GET, h_zones},
+    {"/api/leds", HTTP_GET, h_leds},
     {"/api/mark", HTTP_POST, h_mark},
     {"/api/zonemark", HTTP_POST, h_zonemark},
 #if FWB_PHONE_CAL

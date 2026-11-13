@@ -14,6 +14,8 @@ input[type=range].wide{width:100%}
 .legend{display:flex;gap:6px 18px;flex-wrap:wrap;margin:14px 0 6px}
 .chip{display:inline-flex;align-items:center;gap:6px}
 .sw{width:14px;height:14px;border-radius:4px;display:inline-block;flex:0 0 auto}
+.ledrow{display:flex;flex-direction:column;gap:2px;margin:6px 0}
+.ledstrip{width:100%;max-width:560px;height:14px;border-radius:4px;background:var(--line);display:block}
 </style></head><body class="app" data-tab="status">
 <header class="top"><div class="in">
   <div class="brand"><svg id="mark" class="mark" viewBox="0 0 71 39" role="img" aria-label="The picture the Sync Box is sending now, as 24 coloured blocks"></svg><h1>Fancy2WLED</h1><span id="hdrState" class="pill"></span></div>
@@ -168,6 +170,8 @@ input[type=range].wide{width:100%}
   <p class="small" id="mapMarkNote" aria-live="polite"></p>
   <div id="mapLegend" class="legend small"></div>
   <svg id="mapSvg" viewBox="0 0 500 312" role="img" aria-label="Which zones of the picture each target follows" style="width:100%;max-width:560px;display:block;margin:8px auto"></svg>
+  <h3>What the lights show now</h3>
+  <div id="ledsNow" class="small" aria-live="off"></div>
 </div>
 </div>
 </div></div>
@@ -434,10 +438,27 @@ input[type=range].wide{width:100%}
     var note=$('mapLiveNote');
     if(note)note.textContent=!liveOn?'':(live?'Each zone shows the colour the Sync Box is sending now, before the Look settings. Zones no target follows are faded; the bar under a zone is the target that follows it.':'Waiting for a picture from the Sync Box...');
   }
+  /* What each target shows now (GET /api/leds: the last frame sent to it, at most 120 colours), drawn as a strip under the map while the map is on screen. */
+  function paintLeds(d){
+    var box=$('ledsNow');if(!box)return;
+    var ts=(d&&d.targets)||[];box.textContent='';
+    if(!ts.length){box.textContent='No targets yet.';return;}
+    ts.forEach(function(t,i){
+      var row=document.createElement('div');row.className='ledrow';
+      var name=document.createElement('span');name.className='mut';name.textContent=((cfg&&cfg.targets&&cfg.targets[i]&&cfg.targets[i].name)||('Target '+(i+1)))+(t.rgb?'':': not streaming');
+      row.appendChild(name);
+      if(t.rgb){
+        var m=t.rgb.length/6,svg=svgEl('svg',{viewBox:'0 0 '+m+' 1',preserveAspectRatio:'none',class:'ledstrip',role:'img','aria-label':'The '+t.leds+' '+(cfg&&cfg.targets&&cfg.targets[i]&&cfg.targets[i].kind==='govee'?'segments':'LEDs')+' of this target as they are now'},row);
+        for(var k=0;k<m;k++){var c=t.rgb.substr(k*6,6);svgEl('rect',{x:k,y:0,width:1.02,height:1,fill:'#'+c},svg);}
+      }
+      box.appendChild(row);
+    });
+  }
   async function liveTick(){
     if(liveOn&&!document.hidden){
       try{var zz=await j('/api/zones');live=(zz&&zz.zones&&zz.age!=null&&zz.age<3000)?zz.zones:null;}catch(e){live=null;}
       paintLive();
+      if(mapVisible&&curTab==='lights'){try{paintLeds(await j('/api/leds'));}catch(e){}}
     }
     paintMark();
     setTimeout(liveTick,mapVisible?500:1000);

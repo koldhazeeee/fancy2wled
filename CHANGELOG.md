@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* **What the lights show now** (Lights, Layout): under the picture map, a strip per target with the colours it is showing at this moment, after every setting, so
+  blur, zone edges and the dark-scenes stage can be tuned from the sofa. `GET /api/leds` gives the same (up to 120 colours per target).
 * **Presets and compare** (Look): *Quick*, *Smooth*, *Calm* and *Defaults* fill in the timing and dark-scene settings (Box speed, brightness and colour are left
   alone), a double-click on a setting's name resets just that one, **Preview on the lights** shows Look changes on the real picture as you make them (before, only
   during the rainbow test), and **Hold to compare** shows the saved look while held. Unticking or leaving without saving puts the saved look back.
