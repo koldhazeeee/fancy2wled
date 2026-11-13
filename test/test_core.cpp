@@ -187,7 +187,8 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[400000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0, nSingle = 0, singleBad = 0, nLevels = 0, levelsBad = 0, nTone = 0, toneBad = 0, nFlash = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0, nSingle = 0, singleBad = 0, nLevels = 0, levelsBad = 0, nTone = 0, toneBad = 0, nFlash = 0, nLinMix = 0, linBad = 0;
+  float linWorst = 0.f;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -414,6 +415,26 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "LINMIX") {
+      // LINMIX <leds> <tv first> <tv last> <72 zone floats> | <leds*3 floats>: a straight run mixed in linear light (targetOutTick with linearLight)
+      int n = 0, sf = 0, sl = 0, adv = 0;
+      const char* p = rest;
+      if (sscanf(p, "%d %d %d%n", &n, &sf, &sl, &adv) != 3) { CHECK(false, "bad LINMIX line"); continue; }
+      p += adv;
+      float z[kZones][3];
+      for (int j = 0; j < kZones * 3; j++) { float v = 0; sscanf(p, j ? ",%f%n" : " %f%n", &v, &adv); p += adv; z[j / 3][j % 3] = v; }
+      p = strchr(p, '|') + 1;
+      std::vector<Entry> tbl((size_t)n);
+      tableLinear(tbl.data(), n, false, sf, sl, 0);
+      std::vector<float> tgt((size_t)n * 3), cur((size_t)n * 3);
+      std::vector<uint8_t> out((size_t)n * 3);
+      TargetOutState st; st.tgt = tgt.data(); st.cur = cur.data();
+      TargetOutParams prm; prm.table = tbl.data(); prm.n = n; prm.zones = z; prm.smooth = smoothInfo(tbl.data(), n, 100); prm.linearLight = true;
+      targetOutTick(prm, st, out.data());
+      bool ok = true;
+      for (int j = 0; j < n * 3; j++) { float w = 0; sscanf(p, " %f%n", &w, &adv); p += adv; const float d = fabsf(tgt[(size_t)j] - w); if (d > linWorst) linWorst = d; if (d > 1.0f) ok = false; }
+      if (!ok) linBad++;
+      nLinMix++;
     } else if (k == "FLASH") {
       // FLASH <setting> <rate> then per tick: <dtMs> <hex zones> <settled> <72 floats shown>
       const char* p = rest;
@@ -1472,6 +1493,9 @@ int main(int argc, char** argv) {
         fadeGain(-1, 0, 500, 1.f) == 1.f && fadeGain(-1, 600, 500, 1.f) == 0.f && fabsf(fadeGain(-1, 250, 500, 0.8f) - 0.4f) < 1e-6f &&
         fabsf(fadeGain(1, 250, 500, 0.4f) - 0.7f) < 1e-6f && fadeGain(1, 10, 0, 0.f) == 1.f && fadeGain(-1, 10, 0, 1.f) == 0.f && fadeGain(1, 5, 1000, 0.f) < 0.001f,
         "fadeGain: the ends, half way, a reversed fade continues from where it was, no fade time");
+  CHECK(nLinMix == 6 && linBad == 0, "blending in linear light: %d runs agree with the exact powers (worst %.3f levels; %d off by more than 1)", nLinMix, linWorst, linBad);
+  CHECK(fabsf(linearEncode(linearDecode(128.f)) - 128.f) < 0.5f && linearDecode(0.f) == 0.f && fabsf(linearEncode(255.f) - 255.f) < 1e-3f && fabsf(linearEncode(1.f) - 20.31f) < 0.6f,
+        "linear light: decode then encode gives the value back, black stays black, white stays white, near black is fine");
   CHECK(nFlash == 3, "limit flashes: %d of 3 sequences", nFlash);
   CHECK(nTone >= 12 && toneBad == 0, "colour temperature and vibrance agree with the reference in %d vectors (%d differ)", nTone, toneBad);
   CHECK(nLevels >= 30 && levelsBad == 0, "box levels agree with the reference in %d vectors (%d differ)", nLevels, levelsBad);

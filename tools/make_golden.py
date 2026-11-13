@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import adaptive, cuts, finish, flash, govee, layout, levels, motion, protocol, single, speed, tone  # noqa: E402
+from reference import adaptive, cuts, finish, flash, govee, layout, levels, linear, motion, protocol, single, speed, tone  # noqa: E402
 
 
 def ent(entries):
@@ -324,6 +324,17 @@ def main():
         mode, spd = i % 3, [100, 40, 70, 10, 55][i % 5]
         out = levels.apply(zs, mode, spd)
         lines.append("LEVELS %d %d %.4f %s %s" % (mode, spd, levels.offset(spd), hexz(zs), " ".join("%.4f" % v for z in out for v in z)))
+
+    # --- blending in linear light: a straight run mixed from zones decoded to linear light, then encoded back (exact powers here, tables in the C++) ---------------
+    nrnd = random.Random(99)
+    for case in range(6):
+        zones = [[float(nrnd.randrange(256)) for _ in range(3)] for _ in range(24)]
+        if case == 0:
+            zones = [[255.0, 0.0, 0.0] if z % 2 == 0 else [0.0, 255.0, 0.0] for z in range(24)]   # red and green side by side
+        tbl = layout.table_linear(60, "left", (5, 54))
+        info = layout.smooth_info(tbl, 100)
+        cols = layout.apply_table(tbl, [[linear.decode(v) for v in z] for z in zones], info)
+        lines.append("LINMIX 60 5 54 %s | %s" % (",".join("%.3f" % v for z in zones for v in z), " ".join("%.3f" % linear.encode(v) for c in cols for v in c)))
 
     # --- limit flashes: a sequence of ticks with sudden flashes, fades to black and still pictures, and what is shown after each ------------------------------------
     frnd = random.Random(88)

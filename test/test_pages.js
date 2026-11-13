@@ -576,6 +576,11 @@ async function cdp(wsUrl) {
       const c = dev.state.lastConfigPost || {};
       check('tone: Save sends temperature, vibrance and the target white balance', c.look && c.look.temperature === -50 && c.look.vibrance === 30 && JSON.stringify(c.white) === '[1,1,0.85]', JSON.stringify([c.look && c.look.temperature, c.look && c.look.vibrance, c.white]));
       check('tone: the white balance comes back from the board', (await p.ev("document.getElementById('tWB').value")) === '85' && /85%/.test(await txt('tWBV')));
+      await p.ev("var e=document.getElementById('tLin'); e.checked=true; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150);
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(700);
+      check('linear: the per-target linear light switch is saved and comes back', dev.state.lastConfigPost && dev.state.lastConfigPost.linear === true && (await p.ev("document.getElementById('tLin').checked")) === true);
+      await p.ev("var e=document.getElementById('tLin'); e.checked=false; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150);
       await sl('kTmp', 0); await sl('kVib', 0); await sl('tWB', 100);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
     }

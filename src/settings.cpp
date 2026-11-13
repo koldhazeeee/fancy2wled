@@ -67,6 +67,7 @@ static void loadTarget(Target& t, int i) {
   for (int s = 0; s < 4; s++) t.sides[s] = gI(("lS" + String(s)).c_str(), 0);
   t.shift = gI("lShift", 0);
   if (t.lType < LAYOUT_LINEAR || t.lType > LAYOUT_SINGLE) t.lType = LAYOUT_LINEAR;
+  t.linearLight = gB("tLin", false);
   t.white[0] = gF("tWr", 1.f); t.white[1] = gF("tWg", 1.f); t.white[2] = gF("tWb", 1.f);
   for (int c = 0; c < 3; c++) if (!(t.white[c] >= 0.5f && t.white[c] <= 1.5f)) t.white[c] = 1.f;
   t.single = gI("lSgl", 0);
@@ -115,6 +116,7 @@ static void saveTarget(const Target& t, int i) {
   prefs.putBool(K("lCcw", i).c_str(), t.ccw);
   for (int s = 0; s < 4; s++) prefs.putInt(K(("lS" + String(s)).c_str(), i).c_str(), t.sides[s]);
   prefs.putInt(K("lShift", i).c_str(), t.shift);
+  prefs.putBool(K("tLin", i).c_str(), t.linearLight);
   prefs.putFloat(K("tWr", i).c_str(), t.white[0]);
   prefs.putFloat(K("tWg", i).c_str(), t.white[1]);
   prefs.putFloat(K("tWb", i).c_str(), t.white[2]);
@@ -124,7 +126,7 @@ static void saveTarget(const Target& t, int i) {
 
 static void eraseTargetKeys(int i) {
   static const char* keys[] = {"tName", "tKind", "lSharp", "tSat", "lVivid", "tOn", "tTrim", "wHost", "wStart", "wCount", "wOn", "wRestore", "wBri", "whiteMin", "lType", "lRight",
-                               "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "lSgl", "lSgz", "tWr", "tWg", "tWb", "tbl4"};
+                               "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "lSgl", "lSgz", "tWr", "tWg", "tWb", "tLin", "tbl4"};
   for (const char* k : keys) prefs.remove(K(k, i).c_str());
 }
 
@@ -334,6 +336,7 @@ static void targetToJson(const Target& t, int i, JsonObject o) {
   o["vivid"] = t.vivid;
   o["darkOutside"] = t.darkOutside;
   o["blur"] = t.blur;
+  o["linear"] = t.linearLight;
   { JsonArray wa = o["white"].to<JsonArray>(); for (int c = 0; c < 3; c++) wa.add(((int)(t.white[c] * 100.f + 0.5f)) / 100.f); }
   o["enabled"] = t.enabled;
   o["trim"] = t.trim;
@@ -475,6 +478,7 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
     else if (t == "single") n.lType = LAYOUT_SINGLE;
     else return "Unknown layout type";
   }
+  if (!x["linear"].isNull()) n.linearLight = x["linear"].as<bool>();
   if (x["white"].is<JsonArrayConst>()) {
     JsonArrayConst wa = x["white"];
     if (wa.size() != 3) return "white must be three numbers (red, green, blue gains, 0.5 to 1.5)";
@@ -554,7 +558,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
       if (e.length()) return e;
     }
   } else if (!d["wled"].isNull() || !d["layout"].isNull() || !d["name"].isNull() || !d["trim"].isNull() || !d["enabled"].isNull() || !d["kind"].isNull() ||
-             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull() || !d["darkOutside"].isNull() || !d["blur"].isNull() || !d["white"].isNull()) {
+             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull() || !d["darkOutside"].isNull() || !d["blur"].isNull() || !d["white"].isNull() || !d["linear"].isNull()) {
     const int ti = d["target"] | 0;                   // which target the top-level wled / layout / name / trim apply to
     if (ti < 0 || ti >= n.nTargets) return "There is no target " + String(ti + 1);
     String e = applyTargetJson(n.t[ti], ti, d, d["wled"], d["layout"]);

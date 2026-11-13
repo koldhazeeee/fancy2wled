@@ -56,6 +56,7 @@ struct Target {
   int sides[4] = {0, 0, 0, 0};         // 0 = automatic
   int shift = 0;
   int aw = 16, ah = 9;
+  bool linearLight = false;            // mix and blur this target's LEDs in linear light (experimental, off by default; not with vivid blending)
   float white[3] = {1.f, 1.f, 1.f};    // this target's white balance: a gain per channel 0.5..1.5 (a light that is bluer or redder than the others)
   int single = 0;                      // single-colour layout: fwb::SingleMode (0 average, 1 dominant, 2 ambient, 3 lightest)
   int singleZones = 0;                 // ... taken from: 0 the whole picture, 1 the top row, 2 the right column, 3 the bottom row, 4 the left column

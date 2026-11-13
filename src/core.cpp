@@ -1154,6 +1154,36 @@ void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* 
 }
 
 // ---------------------------------------------------------------------------
+namespace {
+float gLinDec[257], gLinEnc[257];
+bool gLinReady = false;
+void linearTables() {                               // built the first time it is used (only by targets with linear light on)
+  for (int i = 0; i <= 256; i++) {
+    const float x = (float)i / 256.f;
+    gLinDec[i] = 255.f * powf(x, 2.2f);             // decode: index = value / 255 * 256
+    gLinEnc[i] = 255.f * powf(x * x, 1.f / 2.2f);  // encode: index = sqrt(linear / 255) * 256
+  }
+  gLinReady = true;
+}
+inline float lutAt(const float* t, float x) {       // x in 0..256
+  if (x <= 0.f) return t[0];
+  if (x >= 256.f) return t[256];
+  const int i = (int)x;
+  return t[i] + (t[i + 1] - t[i]) * (x - (float)i);
+}
+}  // namespace
+
+float linearDecode(float v) {
+  if (!gLinReady) linearTables();
+  return lutAt(gLinDec, v * (256.f / 255.f));
+}
+
+float linearEncode(float v) {
+  if (!gLinReady) linearTables();
+  const float u = v < 0.f ? 0.f : (v > 255.f ? 255.f : v);
+  return lutAt(gLinEnc, sqrtf(u * (1.f / 255.f)) * 256.f);
+}
+
 int blurScratchFloats(int n, int first, int last) {
   const int m = (first >= 0 && last >= first) ? ((last < n ? last : n - 1) - first + 1) : n;
   return 2 * (m > 0 ? m : n) * 3;
@@ -1169,14 +1199,21 @@ size_t targetOutTick(const TargetOutParams& p, TargetOutState& s, uint8_t* out, 
       float c[3];
       singleColour(p.zones, p.singleMask, p.single, c);
       for (int i = 0; i < n; i++) { s.tgt[i * 3] = c[0]; s.tgt[i * 3 + 1] = c[1]; s.tgt[i * 3 + 2] = c[2]; }
+    } else if (p.linearLight && !p.vivid) {                                                  // mix and blur in linear light, then back to the usual encoding
+      float zl[kZones][3];
+      for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) zl[z][c] = linearDecode(p.zones[z][c]);
+      applyTable(p.table, n, zl, s.tgt, p.smooth, false);
+      if (p.blur > 0 && p.blurScratch) blurColours(s.tgt, n, p.spanFirst, p.spanLast, p.blur, p.blurScratch);
+      for (int i = 0; i < n * 3; i++) s.tgt[i] = linearEncode(s.tgt[i]);
     } else {
       applyTable(p.table, n, p.zones, s.tgt, p.smooth, p.vivid);
     }
+    const bool blurred = p.single < 0 && p.linearLight && !p.vivid;
     if (p.sat != 1.f) saturateColours(s.tgt, n, p.sat);                                        // the target's own saturation, on top of the shared one
     if (p.white[0] != 1.f || p.white[1] != 1.f || p.white[2] != 1.f)                           // the target's own white balance (a strip that is bluer than the others)
       for (int i = 0; i < n; i++) for (int k = 0; k < 3; k++) s.tgt[i * 3 + k] *= p.white[k];
     if (p.single < 0) {
-      if (p.blur > 0 && p.blurScratch) blurColours(s.tgt, n, p.spanFirst, p.spanLast, p.blur, p.blurScratch);   // soften the steps between zones
+      if (p.blur > 0 && p.blurScratch && !blurred) blurColours(s.tgt, n, p.spanFirst, p.spanLast, p.blur, p.blurScratch);   // soften the steps between zones
       if (p.darkOut) darkOutside(s.tgt, n, p.spanFirst, p.spanLast);                             // the part of the strip not along the picture stays dark
     }
     memcpy(s.lastZones, p.zones, sizeof s.lastZones);

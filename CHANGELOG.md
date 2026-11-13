@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* **Blend in linear light** (Lights, Colour; experimental, off by default): mixes neighbouring zones the way light adds up, so the LEDs between two colours
+  keep their brightness. Try it with *Preview on the lights*; it doubles that target's colour work (still about 1.5 % of the board).
 * **An optional password for the setup page** (Device tab; off by default): every change then needs it (asked once per browser tab), reading the page does
   not. It keeps other people and devices on your network from changing the lights; it travels in plain text, so it is no protection against someone reading the
   network. Five wrong tries lock everything for a minute; a factory reset clears it. See [SECURITY.md](SECURITY.md).

@@ -265,6 +265,7 @@ struct TargetOutParams {
   bool vivid = false;
   float sat = 1.f;                       // the target's own saturation (1 = untouched)
   float white[3] = {1.f, 1.f, 1.f};      // the target's own white balance: a gain per channel (1 = untouched)
+  bool linearLight = false;              // mix (and blur) the LEDs in linear light (gamma 2.2), then encode back before saturation (experimental; ignored with vivid blending)
   int blur = 0;                          // blur along the picture part, in LEDs (0 = off)
   float* blurScratch = nullptr;          // blurScratchFloats(n, spanFirst, spanLast) floats; no blur when null
   bool darkOut = false;
@@ -278,6 +279,10 @@ struct TargetOutParams {
   bool finishBuffers = false;            // the state's finishing buffers are allocated for n LEDs (the stage runs only then)
   bool whiteMin = false;                 // RGBW output
 };
+// Linear light (gamma 2.2) for "Blend in linear light": decoding through a 256-entry table (interpolated), encoding through a 256-entry table indexed by the square root of
+// the linear value (fine near black, where the curve is steepest). Within about half a level of the exact powers (tools/reference/linear.py).
+float linearDecode(float v);
+float linearEncode(float v);
 // Runs the chain and writes the bytes (n * 3, or n * 4 for RGBW) to out; returns how many. reused (may be null): the wanted colours were kept from the previous tick.
 size_t targetOutTick(const TargetOutParams& p, TargetOutState& s, uint8_t* out, bool* reused = nullptr);
 // The scratch blurColours needs for the picture part first..last of n LEDs (first < 0 = the whole strip), in floats.

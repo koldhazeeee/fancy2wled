@@ -145,6 +145,13 @@ priority runs then (the Wi-Fi driver, the network stack, or a flash write stalli
 Reproduce: `pio run -e atoms3-tickstat -t upload`, then `python bench/tick_stats.py --windows 12` alone and again with `python bench/page_load.py fancy2wled.local --editing`
 running beside it.
 
+## Blend in linear light (0.4.13, experimental)
+
+Mixing in linear light decodes the 24 zones (a 256-entry table), mixes and blurs as usual, and encodes every LED back through a 256-entry table indexed by the square
+root of the linear value (`powf` per LED would be far slower on this chip). Measured with `atoms3-tickstat` on the real setup, 8 windows each: with it on for the two WLED
+strips (210 and 266 LEDs) the average colour work per tick went from 241 to 483 microseconds, still about 1.5 % of a core at 30 output frames a second. It is off by
+default.
+
 ## Long runs (soak test)
 
 `/api/status` reports the free memory (`heap`), the lowest it has been since the start (`heapMin`), the largest block that could be had (`heapBig`: a value that keeps

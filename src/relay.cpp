@@ -1105,7 +1105,7 @@ void relayLoop() {
   gWaitHintMs = 10;
   if (!gGoveeBootDone && WiFi.status() == WL_CONNECTED) { int n0; { Lock l; n0 = gSet.nTargets; } goveeBootHandBack(n0); }   // once, before any stream is prepared
 
-  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; int blur; int lType, single, singleZones; float white[3]; };
+  struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; int blur; int lType, single, singleZones; float white[3]; bool linearLight; };
   TSnap sn[kMaxTargets];
   int nT, fps, tvMode, motionPct, adaptiveCalm, fadeMs, flashSet;
   bool globalOn, tvOff;
@@ -1124,7 +1124,7 @@ void relayLoop() {
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
       const Target& t = gSet.t[i];
-      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind, t.sat, t.vivid, t.darkOutside, t.spanFirst, t.spanLast, t.blur, t.lType, t.single, t.singleZones, {t.white[0], t.white[1], t.white[2]}};
+      sn[i] = TSnap{t.enabled && t.wHost.length() > 0 && t.wCount > 0, t.whiteMin, t.wTurnOn, t.wRestore, t.wHost != gRt[i].hostCache || t.kind != gRt[i].kindCache, t.wStart, t.wCount, t.wBri, t.trim, t.kind, t.sat, t.vivid, t.darkOutside, t.spanFirst, t.spanLast, t.blur, t.lType, t.single, t.singleZones, {t.white[0], t.white[1], t.white[2]}, t.linearLight};
     }
   }
   for (int i = nT; i < kMaxTargets; i++) {                  // targets that no longer exist: hand their WLED back and free their memory
@@ -1278,7 +1278,7 @@ void relayLoop() {
         TargetOutParams p;                                   // the colour work itself is in the core (targetOutTick), so it is tested on a PC
         p.table = gTable[i]; p.n = n; p.zones = zones; p.gen = gSettingsGen; p.smooth = r.smooth;
         if (sn[i].lType == LAYOUT_SINGLE) { p.single = sn[i].single; p.singleMask = singleMask(sn[i].singleZones); }   // a lamp or bulb: one colour
-        p.vivid = sn[i].vivid; p.sat = sn[i].sat; p.white[0] = sn[i].white[0]; p.white[1] = sn[i].white[1]; p.white[2] = sn[i].white[2]; p.blur = sn[i].blur; p.darkOut = sn[i].darkOut; p.spanFirst = sn[i].spanFirst; p.spanLast = sn[i].spanLast;
+        p.vivid = sn[i].vivid; p.sat = sn[i].sat; p.white[0] = sn[i].white[0]; p.white[1] = sn[i].white[1]; p.white[2] = sn[i].white[2]; p.linearLight = sn[i].linearLight; p.blur = sn[i].blur; p.darkOut = sn[i].darkOut; p.spanFirst = sn[i].spanFirst; p.spanLast = sn[i].spanLast;
         if (p.blur > 0) p.blurScratch = blurScratch(n, p.spanFirst, p.spanLast);
         p.trim = sn[i].trim; p.testing = testing; p.interp = interp; p.motionSettled = motionSettled;
         p.smoothing = gSet.kSmo; p.dtMs = (nowUs - r.smoothUs) / 1000.f; p.refMs = kSmoothRefMs;   // the same feel at any output rate

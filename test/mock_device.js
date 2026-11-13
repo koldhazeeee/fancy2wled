@@ -40,7 +40,7 @@ function usageOf(wled, layout, sharp) {
 }
 
 function newTarget(i) {
-  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1, sharp: 0, sat: 1, white: [1, 1, 1], vivid: false, darkOutside: false, blur: 0,
+  const t = { name: 'Target ' + (i + 1), kind: 'wled', enabled: true, trim: 1, sharp: 0, sat: 1, white: [1, 1, 1], linear: false, vivid: false, darkOutside: false, blur: 0,
     wled: { host: '', start: 0, count: 0, turnOn: true, restore: true, brightness: -1 },
     layout: { type: 'linear', edge: 'top', led0Right: false, spanFirst: -1, spanLast: -1, corner: 0, ccw: false, sides: [0, 0, 0, 0], shift: 0, hasTable: false } };
   Object.defineProperty(t, 'usage', { enumerable: true, get() { return usageOf(this.wled, this.layout, this.sharp); } });   // like the firmware, derived from the settings
@@ -152,6 +152,7 @@ function createDevice(opts) {
           }
           if (d.sharp !== undefined) T.sharp = Math.min(100, Math.max(0, d.sharp | 0));
           if (d.sat !== undefined) T.sat = Math.min(3, Math.max(0, +d.sat));
+          if (d.linear !== undefined) T.linear = !!d.linear;
           if (Array.isArray(d.white) && d.white.length === 3) T.white = d.white.map(v => Math.min(1.5, Math.max(0.5, +v)));
           if (d.vivid !== undefined) T.vivid = !!d.vivid;
           if (d.darkOutside !== undefined) T.darkOutside = !!d.darkOutside;
