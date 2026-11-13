@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **Network and Sync Box** (Status, a fold-out under the status): how the box's packets arrived over the last minute (packets a second, how many came in
+  bursts, how many were lost, and a bar chart of the gaps), the Wi-Fi signal and channel, and the board's uptime and memory, always counted (before, the gaps were
+  only collected with Performance stats on, and only sent to MQTT). `/api/status` has them as `box.net`, `channel`, `heapMin`, `heapBig` and `stackLoop`.
 * **What the lights show now** (Lights, Layout): under the picture map, a strip per target with the colours it is showing at this moment, after every setting, so
   blur, zone edges and the dark-scenes stage can be tuned from the sofa. `GET /api/leds` gives the same (up to 120 colours per target).
 * **Presets and compare** (Look): *Quick*, *Smooth*, *Calm* and *Defaults* fill in the timing and dark-scene settings (Box speed, brightness and colour are left

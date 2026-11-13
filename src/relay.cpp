@@ -36,6 +36,25 @@ static uint32_t gFilterGen = 0xFFFFFFFF;
 static float gAdj[kZones][3];                  // the picture's 24 zones with brightness / gamma / saturation applied (shared by all targets)
 static OneEuro gEuro;                          // adaptive smoothing's state (Look > adaptive), stepped once per output tick (relay task only)
 static uint32_t gEuroUs = 0;                   // micros() of its last step
+// How the Sync Box's packets arrive over the last minute, always counted (a few increments per packet): twelve windows of 5 s, each with its packets, those that came
+// in a burst (under 5 ms after the one before), the packets the gaps say were lost (boxStepsForGap above 1) and the gaps in the same bins as the performance statistics.
+struct NetWin { uint32_t startMs; uint16_t packets, bursts, lost; uint16_t hist[11]; };
+static const int kNetWins = 12;
+static NetWin gNet[kNetWins];
+static int gNetHead = -1;
+static const uint32_t kGapEdgesMs[10] = {5, 20, 40, 60, 80, 100, 120, 160, 200, 300};
+static void netCount(uint32_t now, bool haveGap, uint32_t gapMs) {     // under Lock
+  if (gNetHead < 0 || now - gNet[gNetHead].startMs >= 5000) { gNetHead = (gNetHead + 1) % kNetWins; memset(&gNet[gNetHead], 0, sizeof gNet[0]); gNet[gNetHead].startMs = now; }
+  NetWin& w = gNet[gNetHead];
+  w.packets++;
+  if (!haveGap) return;
+  int bin = 10;
+  for (int b = 0; b < 10; b++) if (gapMs < kGapEdgesMs[b]) { bin = b; break; }
+  w.hist[bin]++;
+  if (gapMs < 5) w.bursts++;
+  const int steps = boxStepsForGap(gapMs);
+  if (steps > 1) w.lost += (uint16_t)(steps - 1);
+}
 static uint32_t gCuts = 0;                     // scene cuts seen since the start (isSceneCut; status box.cuts)
 static bool gCutPending = false;               // a cut to snap to: the next output tick shows the new picture without easing (relay task only)
 static Motion gMotion;                         // the latest pictures with their place on a steady clock, for motion smoothing (under Lock)
@@ -851,6 +870,7 @@ static bool pollBox() {
       if (now - gGoodSampleMs >= 2000 || !gGoodLen) { gGoodLen = (uint8_t)(r < (int)sizeof gGoodSample ? r : sizeof gGoodSample); memcpy(gGoodSample, buf, gGoodLen); gGoodSampleMs = now; }
       if (now - gLastFrame > 1500) { gPrevValid = false; blackReset(gBlack); }   // the box was silent: do not extrapolate across the gap, and forget "black since"
       blackFrame(gBlack, z, now);                                  // TV off detection: black for long enough = the TV is off
+      netCount(now, gHave && now - gLastFrame <= 1500, now - gLastFrame);
       const bool cut = gHave && now - gLastFrame <= 1500 && isSceneCut(gRaw, z);   // half the picture jumped at once (counted always; acted on with Snap on scene cuts)
       if (cut) gCuts++;
       memcpy(gRaw, z, sizeof gRaw);                                // the raw box output (calibration and /api/zones use this)
@@ -992,6 +1012,16 @@ void relayStatus(RelayStatus& s, bool detail) {
   s.boxIgnoredAgoMs = gIgnored.n ? (int)(now - gIgnored.ms) : -1;
   { const SpeedResult sr = speedResult(gSpeed); s.boxSpeedPct = gSpeed.shown; s.boxSpeedN = sr.estimates; s.boxSpeedMixed = gSpeed.shown < 0 && sr.estimates >= kSpeedMinEvents; s.boxSpeedAgree = sr.peak; s.boxSpeedChanges = gSpeed.events; }
   s.boxCuts = gCuts;
+  s.netSeconds = 0; s.netPackets = s.netBursts = s.netLost = 0;
+  for (int b = 0; b < 11; b++) s.netHist[b] = 0;
+  for (int k = 0; k < kNetWins && gNetHead >= 0; k++) {          // the windows of the last minute (a silent box leaves old ones behind: they are left out)
+    const NetWin& w = gNet[k];
+    if (!w.packets || now - w.startMs >= (uint32_t)kNetWins * 5000u) continue;
+    s.netPackets += w.packets; s.netBursts += w.bursts; s.netLost += w.lost;
+    for (int b = 0; b < 11; b++) s.netHist[b] += w.hist[b];
+    const uint32_t span = (k == gNetHead) ? now - w.startMs : 5000u;
+    s.netSeconds += span / 1000.f;
+  }
   s.framesOk = gStat.ok;
   s.framesNewLayout = gStat.newLayout;
   s.framesUnreadable = gStat.unreadable;

@@ -156,6 +156,10 @@ the pictures' timing jitter, not the corner at each picture, is what shows.
 
 ## The network: bursts instead of a steady stream
 
+The Status tab's **Network and Sync Box** fold-out shows this for your network over the last minute (always counted, `box.net` in `/api/status`): packets a
+second, the share that came in bursts, the packets the gaps say were lost, and a bar chart of the gaps. Measured on the author's network: 14.9 packets a second, 28 %
+in bursts, 2 % lost, nearly everything else 80-120 ms apart.
+
 The box sends about 14 frames a second, evenly. With *Performance stats (debug)* on (see [HOME_ASSISTANT.md](HOME_ASSISTANT.md))
 the relay's `gap_hist` shows how they actually arrive. On the measured network almost nothing arrived 20-80 ms apart:
 about a third of the frames came back-to-back (under 5 ms) and most of the rest 80-120 ms apart, which is the access point's

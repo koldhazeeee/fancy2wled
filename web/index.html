@@ -53,6 +53,11 @@ input[type=range].wide{width:100%}
   <div id="boxLock" class="small"><span id="boxLockTxt" class="mut"></span> <button id="boxLockOn" class="sec hidden">Only accept this box</button><button id="boxLockOff" class="sec hidden">Accept any box</button></div>
   <div id="boxMoved" class="small hidden"><span id="boxMovedTxt" class="warn"></span> <button id="boxMovedUse" class="sec"></button></div>
   <div id="boxLockMsg" class="small mut" aria-live="polite"></div>
+  <details id="netBox" class="small"><summary>Network and Sync Box</summary>
+    <div id="netTxt" class="mut"></div>
+    <svg id="netHist" viewBox="0 0 330 70" role="img" aria-label="How far apart the Sync Box packets arrived over the last minute" style="width:100%;max-width:420px;display:block;margin:6px 0"></svg>
+    <p class="small mut">The Sync Box sends about 14 packets a second, evenly. Many Wi-Fi access points hold broadcasts back and release them together at each beacon (about every 100 ms), which shows as many packets under 5 ms apart and the rest about 100 ms apart. A lost packet shows as a gap of 150 ms or more. What helps: docs/LATENCY.md, "The network".</p>
+  </details>
   <details id="latBox" class="small"><summary>Delay to the lights</summary>
     <div id="latList" class="mut"></div>
     <p class="small mut">Counted from the moment a Sync Box frame reaches the board. Not included: the box's own smoothing and the Wi-Fi hop from the box to the board (see docs/LATENCY.md). The board's share is measured; the network share is half of a probe's round trip and the strip refresh is an estimate, so this is not a measurement of the light itself. A Govee light takes at most about 12 frames a second, so a new frame can wait up to 80 ms for its turn.</p>
@@ -568,9 +573,30 @@ input[type=range].wide{width:100%}
     else if(d.mixed)el.textContent='Measuring the Sync Box\'s speed: no value stands out yet among '+d.n+' sudden changes (moving pictures muddy the result; scene cuts and flashes help). It keeps trying.';
     else el.textContent=d.changes>0?'Measuring the Sync Box\'s speed: '+d.n+' of '+d.need+' sudden changes seen so far. A scene cut or a flash gives one.':'Measuring the Sync Box\'s speed: waiting for a sudden change in the picture (a scene cut or a flash).';
   }
+  /* The network card (L5): how the box's packets arrived over the last minute (box.net), the Wi-Fi signal, and the board's memory. */
+  var NET_BINS=['<5','<20','<40','<60','<80','<100','<120','<160','<200','<300','300+'];
+  function netCard(s){
+    var t=$('netTxt');if(!t)return;
+    var n=(s.box&&s.box.net)||null,lines=[];
+    if(n&&n.packets>0&&n.seconds>0){
+      var gaps=n.hist.reduce(function(a,b){return a+b;},0)||1;
+      lines.push('Sync Box: '+(n.packets/n.seconds).toFixed(1)+' packets a second over the last '+Math.round(n.seconds)+' s; '+Math.round(100*n.bursts/gaps)+'% came in bursts (under 5 ms after the one before); about '+Math.round(100*n.lost/(n.packets+n.lost))+'% were lost on the way.');
+    }else lines.push('Sync Box: no packets in the last minute.');
+    var r=s.rssi|0;lines.push('Wi-Fi signal: '+r+' dBm ('+(r>=-60?'good':(r>=-70?'fair':'weak'))+')'+(s.channel?', channel '+s.channel:'')+'.');
+    if(s.heap)lines.push('Board: up '+fmtUp(s.uptime|0)+', '+Math.round(s.heap/1024)+' KB free'+(s.heapMin?' (lowest '+Math.round(s.heapMin/1024)+' KB)':'')+'.');
+    t.textContent=lines.join(' ');
+    var svg=$('netHist');while(svg.firstChild)svg.removeChild(svg.firstChild);
+    if(!n||!n.packets)return;
+    var mx=Math.max.apply(null,n.hist.concat([1]));
+    n.hist.forEach(function(v,k){var h=Math.round(50*v/mx),x=k*30+2;
+      svgEl('rect',{x:x,y:52-h,width:26,height:Math.max(h,1),rx:2,fill:k===0?'var(--warn)':(k>=8?'var(--bad)':'var(--acc)')},svg);
+      var tx=svgEl('text',{x:x+13,y:66,'text-anchor':'middle','font-size':9,fill:'var(--mut)'},svg);tx.textContent=NET_BINS[k];});
+  }
+  function fmtUp(sec){var d=Math.floor(sec/86400),h=Math.floor(sec%86400/3600),m=Math.floor(sec%3600/60);return d?d+' d '+h+' h':(h?h+' h '+m+' min':m+' min');}
   async function status(){
     try{
       var s=await j('/api/status');
+      try{netCard(s);}catch(e){}
       var sp=(s.box&&s.box.speed)||null;
       if(JSON.stringify(sp)!==JSON.stringify(seenSpeed)){seenSpeed=sp;speedNote();try{advice();}catch(e){}}
       var fr=(s.targets||[]).map(function(t){return (t.lat&&t.lat.fps)|0;});if(JSON.stringify(fr)!==JSON.stringify(seenFps)){seenFps=fr;try{advice();}catch(e){}}

@@ -149,6 +149,7 @@ static esp_err_t h_status(httpd_req_t* req) {
   d["hostname"] = FWB_HOSTNAME;
   d["id"] = deviceId();
   d["rssi"] = WiFi.RSSI();
+  d["channel"] = WiFi.channel();
   d["uptime"] = (uint32_t)(millis() / 1000);
   d["state"] = s.state;
   { Lock l; d["enabled"] = gSet.enabled; }
@@ -174,7 +175,11 @@ static esp_err_t h_status(httpd_req_t* req) {
   JsonObject bs = b["speed"].to<JsonObject>();     // the box's Speed of Diffusion as the relay measures it from the picture changes (advice only)
   bs["pct"] = s.boxSpeedPct; bs["n"] = s.boxSpeedN; bs["mixed"] = s.boxSpeedMixed; bs["agree"] = s.boxSpeedAgree; bs["changes"] = s.boxSpeedChanges; bs["need"] = fwb::kSpeedMinEvents;
   b["problem"] = s.boxProblem;                      // frames arrive but none can be read
-  b["cuts"] = s.boxCuts;                            // scene cuts seen since the start (half the picture jumping at once)
+  b["cuts"] = s.boxCuts;
+  JsonObject bn = b["net"].to<JsonObject>();         // how the packets arrived over about the last minute (the Status tab's network card)
+  bn["seconds"] = ((int)(s.netSeconds * 10.f + 0.5f)) / 10.f; bn["packets"] = s.netPackets; bn["bursts"] = s.netBursts; bn["lost"] = s.netLost;
+  JsonArray bh = bn["hist"].to<JsonArray>();
+  for (int k = 0; k < 11; k++) bh.add(s.netHist[k]);                            // scene cuts seen since the start (half the picture jumping at once)
   b["tvOff"] = s.tvOff;                             // the picture has been completely black for the configured time: the TV is off
   b["blackS"] = s.tvBlackS;                         // seconds it has been black so far (0 = not black)
   JsonObject bf = b["frames"].to<JsonObject>();

@@ -209,6 +209,11 @@ struct RelayStatus {
   int boxSpeedAgree = 0;                    // how many of those measurements voted for the winning value
   uint32_t boxSpeedChanges = 0;             // sudden changes seen since the board started
   uint32_t boxCuts = 0;                     // scene cuts seen since the board started (isSceneCut)
+  // how the box's packets arrived over about the last minute (always counted): packets, those in a burst (< 5 ms after the one before), packets the gaps say were lost,
+  // and the gaps in the bins <5, <20, <40, <60, <80, <100, <120, <160, <200, <300, >=300 ms
+  float netSeconds = 0;
+  uint32_t netPackets = 0, netBursts = 0, netLost = 0;
+  uint32_t netHist[11] = {0};
   const char* state = "starting";
   bool wledOk = false;                      // every enabled target's WLED answered
   int wledLeds = 0;                         // LEDs over all targets

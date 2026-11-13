@@ -433,6 +433,18 @@ async function cdp(wsUrl) {
       await sl('kMot', 0); await sl('kAdp', 0);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // the network card (L5)
+    {
+      await p.ev("document.getElementById('tabStatus').click(); document.getElementById('netBox').open=true; 1"); await sleep(3000);
+      const txt = await p.ev("document.getElementById('netTxt').textContent");
+      check('network: packets a second, bursts and lost packets over the last minute', /13\.7 packets a second over the last 60 s; 32% came in bursts.*about 1% were lost/.test(txt), txt);
+      check('network: the Wi-Fi signal in words, the channel, and the board memory', /Wi-Fi signal: -50 dBm \(good\), channel 6\./.test(txt) && /98 KB free \(lowest 88 KB\)/.test(txt), txt);
+      check('network: a bar for each gap range', (await p.ev("document.querySelectorAll('#netHist rect').length")) === 11);
+      dev.state.net = { seconds: 0, packets: 0, bursts: 0, lost: 0, hist: [0,0,0,0,0,0,0,0,0,0,0] };
+      await sleep(3000);
+      check('network: a quiet box says so', /no packets in the last minute/.test(await p.ev("document.getElementById('netTxt').textContent")));
+      dev.state.net = null;
+    }
     // what the lights show now (L1): one strip per target under the picture map, from GET /api/leds
     {
       dev.state.leds = [{ leds: 266, rgb: 'ff0000' + '00ff00' + '0000ff' }];
