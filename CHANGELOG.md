@@ -6,6 +6,8 @@ repository's releases page.
 
 ## Unreleased
 
+* **Ambient colour for Home Assistant** (Home Assistant tab, off by default): a sensor with the picture's colour (average, dominant, ambient tone or lightest
+  part), updated at most twice a second when it changes, so an automation can colour any light with the picture, even one this board cannot drive.
 * **One colour for a lamp or a bulb** (Lights, Layout: *One colour for the whole light*): every LED or segment of the target shows one colour worked out from the
   picture: the average (each zone weighed by the size of the window it looks at), the dominant colour, the ambient tone without the highlights, or the lightest part,
   from the whole picture or one edge. Works for a WLED and for a Govee light. Checked on the board with all three of 210 LEDs showing the same colour in each mode.

@@ -367,6 +367,21 @@ static void publishDiscovery() {
   button("rainbow", "Rainbow test", "mdi:looks", nullptr, false);
   button("stop_test", "Stop test", "mdi:stop", nullptr, false);
   button("restart", "Restart", "mdi:restart", "restart", true);
+  {                                                       // the picture's colour, for automations that colour any light (only while switched on in the setup page)
+    int amb;
+    { Lock l; amb = gSet.haAmbient; }
+    if (amb > 0) {
+      JsonDocument d;
+      d["name"] = "Ambient colour";
+      d["state_topic"] = T("ambient");
+      d["value_template"] = "{{ value_json.hex }}";
+      d["json_attributes_topic"] = T("ambient");
+      d["icon"] = "mdi:palette";
+      discover("sensor", "ambient", d);
+    } else {
+      removeOld("sensor", "ambient");
+    }
+  }
 }
 
 // ------------------------------------------------------------------ commands
@@ -575,6 +590,31 @@ static String targetSig() {
   return s;
 }
 
+// <base>/ambient: the colour of the picture as one light would show it (singleColour over every zone of the Sync Box's picture, in the mode chosen on the setup page), so a
+// Home Assistant automation can colour any light. At most twice a second, and only when it moved by more than 4 levels (or every 30 s), not retained.
+static uint32_t gAmbMs = 0, gAmbForceMs = 0;
+static int gAmbLast[3] = {-100, -100, -100};
+static void publishAmbient(uint32_t now) {
+  int amb;
+  { Lock l; amb = gSet.haAmbient; }
+  if (amb <= 0 || now - gAmbMs < 500) return;
+  gAmbMs = now;
+  uint8_t z8[fwb::kZones][3];
+  uint32_t age;
+  if (!relayZones(z8, &age) || age > 3000) return;
+  float z[fwb::kZones][3], c[3];
+  for (int q = 0; q < fwb::kZones; q++) for (int k = 0; k < 3; k++) z[q][k] = z8[q][k];
+  fwb::singleColour(z, fwb::singleMask(0), amb - 1, c);
+  int rgb[3], moved = 0;
+  for (int k = 0; k < 3; k++) { rgb[k] = (int)(c[k] + 0.5f); if (abs(rgb[k] - gAmbLast[k]) > moved) moved = abs(rgb[k] - gAmbLast[k]); }
+  if (moved <= 4 && now - gAmbForceMs < 30000) return;
+  for (int k = 0; k < 3; k++) gAmbLast[k] = rgb[k];
+  gAmbForceMs = now;
+  char buf[96];
+  snprintf(buf, sizeof buf, "{\"r\":%d,\"g\":%d,\"b\":%d,\"hex\":\"#%02x%02x%02x\"}", rgb[0], rgb[1], rgb[2], rgb[0], rgb[1], rgb[2]);
+  pub(T("ambient"), String(buf), false, 0);
+}
+
 void mqttLoop() {
   if (gGen != gMqttGen) { gGen = gMqttGen; startClient(); }
   const bool wantPerf = gClient && gConnected && perfSetting();     // measured only while the switch is on AND the broker is reachable
@@ -589,6 +629,7 @@ void mqttLoop() {
     perfTake(p);
     pub(T("perf"), perfJson(p), false, 0);
   }
+  publishAmbient(now);
   if (now - gLastCheck < 200) return;                     // look for a change 5 times a second (building the state JSON is not free)
   gLastCheck = now;
   RelayStatus rs;

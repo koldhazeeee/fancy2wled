@@ -844,6 +844,10 @@ async function cdp(wsUrl) {
     check('mqtt: the performance-stats switch is saved when turned on', dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt.perf === true && dev.state.cfg.mqtt.perf === true, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt));
     await p.ev("document.getElementById('mqPerf').checked=false; document.getElementById('mqSave').click(); 1"); await sleep(600);
     check('mqtt: ... and turned off again', dev.state.cfg.mqtt.perf === false);
+    check('mqtt: the ambient colour starts off', mq.ambient === 'off' && (await p.ev("document.getElementById('mqAmb').value")) === 'off', JSON.stringify(mq));
+    await p.ev("document.getElementById('mqAmb').value='dominant'; document.getElementById('mqSave').click(); 1"); await sleep(600);
+    check('mqtt: the ambient colour mode is saved', dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt.ambient === 'dominant' && dev.state.cfg.mqtt.ambient === 'dominant', JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt));
+    await p.ev("document.getElementById('mqAmb').value='off'; document.getElementById('mqSave').click(); 1"); await sleep(600);
     dev.state.lastConfigPost = null;
     await p.ev("document.getElementById('mqSave').click(); 1"); await sleep(500);
     check('mqtt: saving again without typing a password leaves it unchanged (not sent)', dev.state.lastConfigPost && dev.state.lastConfigPost.mqtt && !('pass' in dev.state.lastConfigPost.mqtt), JSON.stringify(dev.state.lastConfigPost));

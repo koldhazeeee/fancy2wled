@@ -178,6 +178,8 @@ static void loadFromFlash() {
   s.mqttBase = gS("mqBase", "");
   s.mqttDisc = gS("mqDisc", "homeassistant");
   s.perfDebug = gB("perf", false);
+  s.haAmbient = gI("mqAmb", 0);
+  if (s.haAmbient < 0 || s.haAmbient > 4) s.haAmbient = 0;
   s.otaOn = gB("otaOn", false);
   s.otaPass = gS("otaPass", "");
   if (s.otaPass.length() == 0) s.otaOn = false;                   // never on without a password
@@ -234,6 +236,7 @@ void settingsSave() {
   prefs.putString("mqBase", s.mqttBase);
   prefs.putString("mqDisc", s.mqttDisc);
   prefs.putBool("perf", s.perfDebug);
+  prefs.putInt("mqAmb", s.haAmbient);
   prefs.putBool("otaOn", s.otaOn);
   prefs.putString("otaPass", s.otaPass);
   prefs.putInt("kOut", s.smoothOut);
@@ -378,6 +381,7 @@ void settingsToJson(JsonDocument& d) {
   mq["base"] = s.mqttBase;
   mq["discovery"] = s.mqttDisc;
   mq["perf"] = s.perfDebug;
+  { static const char* kAmb[5] = {"off", "average", "dominant", "ambient", "lightest"}; mq["ambient"] = kAmb[s.haAmbient < 0 || s.haAmbient > 4 ? 0 : s.haAmbient]; }
   d["ota"]["enabled"] = s.otaOn;
   d["ota"]["passSet"] = s.otaPass.length() > 0;                    // the password itself is never sent back
 }
@@ -567,6 +571,14 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
       n.mqttHost = h;
     }
     if (!mq["perf"].isNull()) n.perfDebug = mq["perf"].as<bool>();
+    if (!mq["ambient"].isNull()) {
+      static const char* kAmb[5] = {"off", "average", "dominant", "ambient", "lightest"};
+      const String a = mq["ambient"].as<String>();
+      int v = -1;
+      for (int k = 0; k < 5; k++) if (a == kAmb[k]) v = k;
+      if (v < 0) return "ambient must be off, average, dominant, ambient or lightest";
+      n.haAmbient = v;
+    }
     if (!mq["port"].isNull()) n.mqttPort = mq["port"].as<int>();
     if (!mq["user"].isNull()) { n.mqttUser = mq["user"].as<String>(); if (n.mqttUser.length() > 64) return "The MQTT user name is too long"; }
     if (!mq["pass"].isNull()) { n.mqttPass = mq["pass"].as<String>(); if (n.mqttPass.length() > 96) return "The MQTT password is too long"; }

@@ -88,6 +88,7 @@ struct Settings {
   int mqttPort = 1883;
   String mqttBase;                     // topic prefix; "" = fancy2wled/<last 4 of the board id>
   String mqttDisc = "homeassistant";   // Home Assistant's discovery prefix
+  int haAmbient = 0;                   // publish the picture's colour for Home Assistant (<base>/ambient): 0 off, 1 + fwb::SingleMode (average, dominant, ambient, lightest)
   bool perfDebug = false;              // measure and publish performance statistics over MQTT (off = nothing is measured)
   // Firmware updates over Wi-Fi (the setup page's upload and PlatformIO's espota). Off until an update password exists; never exported.
   bool otaOn = false;
