@@ -110,6 +110,9 @@ struct Rt {
   bool lastRgbw = false;
   uint32_t lastSendMs = 0;
   bool prepared = false, wasTesting = false;
+  int fadeDir = 0;                             // Fade in / out: +1 fading in (the stream started), -1 fading out (it is about to be handed back), 0 none
+  uint32_t fadeT0 = 0;                         // when the fade began
+  float fadeFrom = 0.f;                        // the brightness factor it began at (a reversed fade continues from where it was)
   uint32_t smoothUs = 0, computedGen = 0xFFFFFFFF, smoothGen = 0xFFFFFFFF;
   SmoothInfo smooth = {0, -1, 0, 0, 0u, 0u};   // how the strip beyond the TV eases (recomputed when settings change)
   // The WLED's address. A name (wled-ceiling.local) is resolved by the background task, never by the relay loop (a lookup can take
@@ -1040,7 +1043,7 @@ void relayLoop() {
 
   struct TSnap { bool enabled, whiteMin, turnOn, restore, hostChanged; int start, count, bri; float trim; int kind; float sat; bool vivid; bool darkOut; int spanFirst, spanLast; int blur; };
   TSnap sn[kMaxTargets];
-  int nT, fps, tvMode, motionPct, adaptiveCalm;
+  int nT, fps, tvMode, motionPct, adaptiveCalm, fadeMs;
   bool globalOn, tvOff;
   FinishParams fin;
   {
@@ -1051,6 +1054,7 @@ void relayLoop() {
     tvMode = gSet.tvMode;
     motionPct = gSet.motion;
     adaptiveCalm = gSet.adaptive;
+    fadeMs = gSet.fadeMs;
     fin.deadband = gSet.deadband; fin.blackCut = gSet.blackCut; fin.dither = gSet.dither;
     tvOff = gHave && now - gLastFrame < kStaleMs && tvIsOff(gBlack, now, (uint32_t)gSet.tvSecs * 1000u);   // the picture has been black long enough
     for (int i = 0; i < nT; i++) {
@@ -1102,12 +1106,19 @@ void relayLoop() {
   }
   if (nStream == 0) return;
 
+  // paused (Home Assistant) = as if the box were silent; so is "the TV is off" unless that was set to do nothing
+  const bool tvHold = tvOff && tvMode != 0;
+  const bool fresh = globalOn && gHave && now - gLastFrame < kStaleMs && !tvHold && !gUpdating;
+
   // ---- is an output cycle due?
   const uint32_t tickMs = 1000u / (uint32_t)fps;
   const uint32_t since = now - gLastTick;
   bool anyBehind = false;
+  // A target that has to stop (the box went quiet, paused, TV off) or is fading needs a tick too: before 0.4.13 a box that went silent while the picture stood still
+  // never caused one, so the WLED was kept in realtime mode with the last frame instead of being handed back.
   for (int i = 0; i < nT; i++)
-    if (streaming[i] && (!gRt[i].o.converged || !gRt[i].o.curValid || gRt[i].computedGen != gSettingsGen)) anyBehind = true;
+    if (streaming[i] && (!gRt[i].o.converged || !gRt[i].o.curValid || gRt[i].computedGen != gSettingsGen || (!fresh && gRt[i].prepared) || gRt[i].fadeDir != 0))
+      anyBehind = true;
   const bool eventDue = gNewPending && since >= kMinGapMs;           // a new picture: send it right away
   const bool tickDue = since >= tickMs && anyBehind;                 // keep smoothing toward the target
   if (!eventDue && !tickDue) {
@@ -1125,9 +1136,6 @@ void relayLoop() {
   const uint32_t pf0 = gPerfOn ? micros() : 0;              // performance statistics: time the frame work
   uint32_t sendUs = 0;
   bool sentAny = false, allConverged = true;
-  // paused (Home Assistant) = as if the box were silent; so is "the TV is off" unless that was set to do nothing
-  const bool tvHold = tvOff && tvMode != 0;
-  const bool fresh = globalOn && gHave && now - gLastFrame < kStaleMs && !tvHold && !gUpdating;
   // motion smoothing: one picture for every target, slid between the Sync Box's pictures (a share of one interval behind the newest)
   float zi[kZones][3];
   bool interp = false, motionSettled = true;
@@ -1149,13 +1157,23 @@ void relayLoop() {
     const bool testing = r.testUntil && (int32_t)(r.testUntil - now) > 0;
     if (r.testUntil && !testing) r.testUntil = 0;
     if (!fresh && !testing) {                                // box gone quiet, paused or TV off: give this WLED back (TV off, mode 2: switch it off)
-      if (r.prepared) requestRestore(i, globalOn && tvHold && tvMode == 2);
-      else if (r.offByTv && globalOn && tvHold && tvMode == 1) requestHandBackAfterOff(i);   // switched off earlier; the setting now says hand back
-      continue;
+      // Fade in / out: first fade what it shows to black, then hand it back. Not while a firmware update is starting (that hands back at once).
+      const bool canFade = fadeMs > 0 && r.prepared && !gUpdating && r.lastLen > 0;
+      if (canFade && r.fadeDir != -1) { r.fadeFrom = fadeGain(r.fadeDir, now - r.fadeT0, fadeMs, r.fadeFrom); r.fadeDir = -1; r.fadeT0 = now; }
+      if (!canFade || now - r.fadeT0 >= (uint32_t)fadeMs) {
+        r.fadeDir = 0;
+        if (r.prepared) requestRestore(i, globalOn && tvHold && tvMode == 2);
+        else if (r.offByTv && globalOn && tvHold && tvMode == 1) requestHandBackAfterOff(i);   // switched off earlier; the setting now says hand back
+        continue;
+      }
+    } else if (r.fadeDir == -1) {                            // the picture came back during a fade out: fade back in from where it got to
+      r.fadeFrom = fadeGain(-1, now - r.fadeT0, fadeMs, r.fadeFrom); r.fadeDir = 1; r.fadeT0 = now;
     }
     if (!r.prepared) {
       String host; { Lock l; host = gSet.t[i].wHost; }
       requestPrepare(i, host, sn[i].turnOn, sn[i].bri, sn[i].restore);
+      if (fadeMs > 0) { r.fadeDir = 1; r.fadeFrom = 0.f; r.fadeT0 = now; }     // a new stream fades in from black
+      else r.fadeDir = 0;
     }
     if (testing != r.wasTesting) { r.wasTesting = testing; r.o.converged = false; }
     // A Govee light's first frame carries "streaming on", which switches it on: until the prepare job has read what the light was like (on or off, how bright), send
@@ -1189,6 +1207,12 @@ void relayLoop() {
         bool reused = false;
         len = targetOutTick(p, r.o, gPayload, &reused);
         FWB_TICK_STAT_NOTE(reused);
+        if (r.fadeDir != 0) {                                // Fade in / out: the bytes that go out, so the fade is exact whatever the smoothing does
+          const float g = fadeGain(r.fadeDir, now - r.fadeT0, fadeMs, r.fadeFrom);
+          if (r.fadeDir > 0 && now - r.fadeT0 >= (uint32_t)fadeMs) r.fadeDir = 0;   // faded in: done
+          if (g < 1.f) for (size_t k = 0; k < len; k++) gPayload[k] = (uint8_t)((float)gPayload[k] * g + 0.5f);
+          if (r.fadeDir != 0) r.o.converged = false;         // keep ticking until the fade is over
+        }
         r.computedGen = gSettingsGen;
         r.smoothUs = nowUs;
         packed = true;

@@ -734,6 +734,16 @@ float motionDelayMs(const Motion& m, int percent) {
 }
 
 // ---------------------------------------------------------------------------
+float fadeGain(int dir, uint32_t elapsedMs, int fadeMs, float from) {
+  if (dir == 0) return 1.f;
+  const float f = clamp01(from);
+  if (fadeMs <= 0) return dir > 0 ? 1.f : 0.f;
+  const float x = clamp01((float)elapsedMs / (float)fadeMs);
+  const float s = x * x * (3.f - 2.f * x);
+  return dir > 0 ? f + (1.f - f) * s : f * (1.f - s);
+}
+
+// ---------------------------------------------------------------------------
 bool isSceneCut(const uint8_t prev[kZones][3], const uint8_t now[kZones][3]) {
   int big = 0;
   for (int z = 0; z < kZones; z++) {

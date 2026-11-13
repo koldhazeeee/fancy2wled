@@ -327,6 +327,11 @@ bool motionAt(const Motion& m, uint32_t timeMs, float out[kZones][3]);
 // How far behind the newest picture to show: percent (0..100) of one picture interval.
 float motionDelayMs(const Motion& m, int percent);
 
+// ---- fading in and out when the stream starts and stops (Look > Fade in / out) ----
+// The brightness factor (0..1) of a fade: dir +1 fades in from `from` to 1, dir -1 fades out from `from` to 0, over fadeMs along a smoothstep (no sudden start or end);
+// dir 0 = no fade (1). A fade that reverses half way passes the factor it had reached as `from`, so the light never jumps.
+float fadeGain(int dir, uint32_t elapsedMs, int fadeMs, float from);
+
 // ---- scene cuts ----------------------------------------------------------------
 // "Snap on scene cuts": a packet in which at least kCutZones of the 24 zones changed by more than kCutLevels (the largest of the three channels) since the previous
 // packet is a cut (half the picture jumping at once), and the relay then shows it at once instead of smoothing into it. On the recordings in tools/reference/data it

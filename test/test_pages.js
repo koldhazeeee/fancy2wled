@@ -433,6 +433,16 @@ async function cdp(wsUrl) {
       await sl('kMot', 0); await sl('kAdp', 0);
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // fade in and out (F5): off by default, shown in seconds, saved
+    {
+      check('fade: starts off', (await p.ev("document.getElementById('kFade').value")) === '0' && /off/.test(await p.ev("document.getElementById('kFadeV').textContent")));
+      await p.ev("var e=document.getElementById('kFade'); e.value='600'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(150);
+      check('fade: the label shows seconds', /0\.6 s/.test(await p.ev("document.getElementById('kFadeV').textContent")), await p.ev("document.getElementById('kFadeV').textContent"));
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('fade: Save sends it in milliseconds', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.fadeMs === 600, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+      await p.ev("var e=document.getElementById('kFade'); e.value='0'; e.dispatchEvent(new Event('input',{bubbles:true})); document.getElementById('save').click(); 1"); await sleep(500);
+    }
     // snap on scene cuts (F3): off by default, saved, and a tip when the box spreads cuts over several packets
     {
       const tick = async v => { await p.ev("var e=document.getElementById('kSnap'); e.checked=" + v + "; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };

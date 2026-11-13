@@ -70,6 +70,7 @@ struct Settings {
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
   int boxSpeed = 40;                   // the box's own "Speed of Diffusion" 10..100 % (how far each packet moves towards the new picture): what Reaction boost undoes; 100 = the box does not smooth
+  int fadeMs = 0;                      // Fade in / out 0..2000 ms: fade to black before a WLED is handed back (TV off, paused, box silent) and fade in when a stream starts (0 = at once)
   bool snapCuts = false;               // show a scene cut at once (isSceneCut in core.h) instead of smoothing into it, whatever the timing setting
   int adaptive = 0;                    // adaptive smoothing 0..100: how calm (0 = off): smooths small changes, lets big ones through (oneEuroStep in core.h); Motion smoothing wins when both are on
   int motion = 0;                      // motion smoothing 0..100 %: slide between the Sync Box's pictures instead of jumping, shown that share of one picture interval late (0 = off; while on it replaces smoothing over time and the reaction boost)

@@ -6,6 +6,11 @@ repository's releases page.
 
 ## Unreleased
 
+* **Fix: a WLED was not handed back when the Sync Box went silent** (unplugged, crashed, lost from Wi-Fi) while the picture stood still. The relay kept it in
+  realtime mode with the last picture, resent every second, until the box came back. It happened when every target was a WLED (a Govee target hid it). Found
+  on the board: 0.4.12 still sent frames 7 s after the box went quiet; now the WLED is handed back after the usual 4 s.
+* **Fade in and out** (Look, When the TV is off; off by default): the lights fade to black before they are handed back (TV off, paused, box silent) and fade in
+  when the picture comes back, over up to 2 seconds, instead of switching at once. Checked on the board with a 1 s fade.
 * **Snap on scene cuts** (Look, Timing; off by default): when half the picture or more jumps at once, the lights show it straight away instead of smoothing into
   it, whatever the timing setting, so cuts look like cuts while movement stays smooth. With Motion smoothing 100 a cut arrives in about 17 ms instead of 54. The status
   counts the cuts the relay sees (`box.cuts`).

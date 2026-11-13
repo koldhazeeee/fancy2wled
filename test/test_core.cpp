@@ -1382,6 +1382,10 @@ int main(int argc, char** argv) {
           "blurScratchFloats: the whole strip, a part, a part past the end, an empty part");
   }
 
+  CHECK(fadeGain(0, 123, 500, 0.3f) == 1.f && fadeGain(1, 0, 500, 0.f) == 0.f && fadeGain(1, 500, 500, 0.f) == 1.f && fabsf(fadeGain(1, 250, 500, 0.f) - 0.5f) < 1e-6f &&
+        fadeGain(-1, 0, 500, 1.f) == 1.f && fadeGain(-1, 600, 500, 1.f) == 0.f && fabsf(fadeGain(-1, 250, 500, 0.8f) - 0.4f) < 1e-6f &&
+        fabsf(fadeGain(1, 250, 500, 0.4f) - 0.7f) < 1e-6f && fadeGain(1, 10, 0, 0.f) == 1.f && fadeGain(-1, 10, 0, 1.f) == 0.f && fadeGain(1, 5, 1000, 0.f) < 0.001f,
+        "fadeGain: the ends, half way, a reversed fade continues from where it was, no fade time");
   CHECK(nCut > 100 && cutBad == 0 && cutYes >= 5, "isSceneCut agrees with the reference on %d packet pairs (%d of them cuts; %d disagree)", nCut, cutYes, cutBad);
   printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d, adapt %d, cut %d vectors; %d checks passed, %d failed\n",
          nDecode, nClassify, nUsage, nUv, nLin, nLoop, nApply, nDdp, nGovee, nSharp, nVivid, nMotion, nBlur, nSpeed, nFinish, nAdapt, nCut, g_pass, g_fail);
