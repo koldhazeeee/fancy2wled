@@ -203,12 +203,17 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="kGam">Gamma <span id="kGamV"></span></label><input id="kGam" type="range" min="0.6" max="2.4" step="0.05" data-live="1"></div>
   <div class="row"><label for="kSat">Saturation <span id="kSatV"></span></label><input id="kSat" type="range" min="0" max="2" step="0.05" data-live="1"></div>
 <h3>Timing</h3>
-  <div class="row"><label for="kSmo">Smoothing over time <span id="kSmoV"></span></label><input id="kSmo" type="range" min="0" max="0.9" step="0.05" data-live="1"></div>
-  <div class="row"><label for="kBoost">Reaction boost <span id="kBoostV"></span></label><input id="kBoost" type="range" min="0" max="100" step="5" data-live="1"></div>
+  <div class="row"><label for="kMode">How the lights move</label><select id="kMode">
+    <option value="follow">Follow the box (smoothing over time, reaction boost)</option>
+    <option value="motion">Motion smoothing: slide from picture to picture</option>
+    <option value="adaptive">Adaptive: calm when still, quick on big changes</option></select></div>
+  <p class="small mut" id="kModeNote"></p>
+  <div class="row" data-mode="follow"><label for="kSmo">Smoothing over time <span id="kSmoV"></span></label><input id="kSmo" type="range" min="0" max="0.9" step="0.05" data-live="1"></div>
+  <div class="row" data-mode="follow"><label for="kBoost">Reaction boost <span id="kBoostV"></span></label><input id="kBoost" type="range" min="0" max="100" step="5" data-live="1"></div>
+  <div class="row" data-mode="motion"><label for="kMot">Motion smoothing <span id="kMotV"></span></label><input id="kMot" type="range" min="0" max="100" step="5" data-live="1"></div>
+  <div class="row" data-mode="adaptive"><label for="kAdp">Adaptive smoothing <span id="kAdpV"></span></label><input id="kAdp" type="range" min="0" max="100" step="5" data-live="1"></div>
   <div class="row"><label for="kBsp">Box speed <span id="kBspV"></span></label><input id="kBsp" type="range" min="10" max="100" step="5" data-live="1"></div>
   <p class="small mut" id="bspDet" aria-live="polite"></p>
-  <div class="row"><label for="kMot">Motion smoothing <span id="kMotV"></span></label><input id="kMot" type="range" min="0" max="100" step="5" data-live="1"></div>
-  <div class="row"><label for="kAdp">Adaptive smoothing <span id="kAdpV"></span></label><input id="kAdp" type="range" min="0" max="100" step="5" data-live="1"></div>
   <div class="row"><label for="kSnap">Snap on scene cuts</label><input id="kSnap" type="checkbox" style="flex:0 0 auto" data-live="1"></div>
   <div class="row"><label for="kFps">Output rate</label><select id="kFps" data-live="1"><option value="30">30 frames a second (default)</option><option value="45">45 frames a second</option><option value="60">60 frames a second</option></select></div>
 <details class="help"><summary>About motion smoothing and the box's own smoothing</summary>
@@ -360,7 +365,6 @@ input[type=range].wide{width:100%}
     var det=seenSpeed&&seenSpeed.pct>=0?seenSpeed.pct:-1;
     if(det>=0&&Math.abs(det-bsp)>=10)add((boost>0&&mot===0)?'fix':'tip','The relay measured the Sync Box\'s Speed of Diffusion as about '+det+'% (from the sudden changes in the picture), but Box speed here says '+bsp+'. '+((boost>0&&mot===0)?'Reaction boost undoes the wrong amount of smoothing. ':'')+'Set Box speed to '+det+', or if the box should be at '+bsp+', check its Speed of Diffusion in its app.');
     if(bsp>=100&&boost>0&&mot===0)add('fix','Reaction boost does nothing at a box speed of 100: the box does not smooth, so there is nothing to undo. Set the boost to 0.');
-    if(mot>0&&(boost>0||smo>0)){var un=[];if(boost>0)un.push('Reaction boost');if(smo>0)un.push('Smoothing over time');add('tip','Motion smoothing is on, so '+un.join(' and ')+(un.length>1?' are':' is')+' not used while it is. Set '+(un.length>1?'them':'it')+' to 0 to tidy up, or Motion smoothing to 0 to use '+(un.length>1?'them':'it')+'.');}
     if(bsp<100&&mot===0&&boost===0)add('tip',"The box is smoothing its colours (speed "+bsp+"%), so the lights lag behind the picture. The best fix: set the box's Speed of Diffusion to 100% in its app and Box speed here to 100. Or keep the box as it is and raise Reaction boost.");
     if(bsp<100&&mot>0)add('tip',"The box is smoothing (speed "+bsp+"%) and Motion smoothing adds more delay on top. For the lowest delay set the box's Speed of Diffusion to 100% in its app and Box speed here to 100.");
     if(bsp<100&&boost>=0.9&&mot===0)add('tip','A Reaction boost this high can overshoot for a moment when Wi-Fi drops a packet. 50 to 70 is safer.');
@@ -368,7 +372,6 @@ input[type=range].wide{width:100%}
     if(mot>0&&mot<100)add('tip','Motion smoothing is smoothest at 100. Below that it jumps part of the way to each new picture (at 50 it is rougher than Smoothing over time 0.5): for a quicker reaction lower it, for smooth movement use 100.');
     var adp=parseInt($('kAdp').value,10);
     if(adp>0&&mot>0)add('tip','Motion smoothing and Adaptive smoothing are both on; Motion smoothing is used. Set one of them to 0.');
-    if(adp>0&&mot===0&&smo>0)add('tip','Adaptive smoothing is on, so Smoothing over time is not used while it is. Set Smoothing over time to 0 to tidy up, or Adaptive smoothing to 0 to use it.');
     if($('kSnap').checked&&bsp<100&&boost===0)add('tip','Snap on scene cuts helps little while the box smooths (speed '+bsp+'%): it spreads a cut over several packets, so only the first part of it is snapped. Set Speed of Diffusion to 100% in the box app (and Box speed here to 100), or use Reaction boost.');
     var fps=parseInt($('kFps').value,10);
     for(i=0;i<cfg.targets.length;i++){var ti=tinfo(i);if(ti&&ti.enabled&&ti.kind!=='govee'&&seenFps[i]>0&&seenFps[i]<fps-2)add('tip',ti.name+': its WLED refreshes about '+seenFps[i]+' times a second, below the Output rate of '+fps+', so it cannot show every frame. Lower the Output rate, or raise the Target refresh rate in WLED (Config > LED Preferences) if the strip allows it.');}
@@ -712,7 +715,21 @@ input[type=range].wide{width:100%}
     usage=list.map(function(t){return t.usage||[];});
     applyKind();vals();labels();info();setDirty(false);drawMap();advice();
   }
-  function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';var sh=parseInt($('tSharp').value,10);$('tSharpV').textContent='('+(sh<=0?'smooth':(sh>=100?'sharp':sh+'%'))+')';$('tSatV').textContent='('+Math.round(100*parseFloat($('tSat').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kMotV').textContent='('+(parseInt($('kMot').value,10)<=0?'off':parseInt($('kMot').value,10)+'%')+')';$('kBcutV').textContent='('+(parseInt($('kBcut').value,10)<=0?'off':parseInt($('kBcut').value,10)+' levels')+')';$('kDeadV').textContent='('+(parseFloat($('kDead').value)<=0?'off':parseFloat($('kDead').value)+' levels')+')';$('kBspV').textContent='('+parseInt($('kBsp').value,10)+'%'+(parseInt($('kBsp').value,10)>=100?', the box does not smooth':'')+')';$('tBlurV').textContent='('+(parseInt($('tBlur').value,10)<=0?'off':parseInt($('tBlur').value,10)+(isGovee()?' segments':' LEDs'))+')';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';var fm=parseInt($('kFade').value,10);$('kFadeV').textContent='('+(fm<=0?'off':(fm/1000).toFixed(1)+' s')+')';var ad=parseInt($('kAdp').value,10);$('kAdpV').textContent='('+(ad<=0?'off':ad<35?ad+', quick':(ad<70?ad+', calm':ad+', very calm'))+')';}
+  function vals(){$('tTrimV').textContent='('+Math.round(100*parseFloat($('tTrim').value))+'%)';var sh=parseInt($('tSharp').value,10);$('tSharpV').textContent='('+(sh<=0?'smooth':(sh>=100?'sharp':sh+'%'))+')';$('tSatV').textContent='('+Math.round(100*parseFloat($('tSat').value))+'%)';['Bri','Gam','Sat','Smo'].forEach(function(k){$('k'+k+'V').textContent='('+parseFloat($('k'+k).value).toFixed(2)+')';});$('kOutV').textContent='('+parseInt($('kOut').value,10)+'%)';$('kMotV').textContent='('+(parseInt($('kMot').value,10)<=0?'off':parseInt($('kMot').value,10)+'%')+')';$('kBcutV').textContent='('+(parseInt($('kBcut').value,10)<=0?'off':parseInt($('kBcut').value,10)+' levels')+')';$('kDeadV').textContent='('+(parseFloat($('kDead').value)<=0?'off':parseFloat($('kDead').value)+' levels')+')';$('kBspV').textContent='('+parseInt($('kBsp').value,10)+'%'+(parseInt($('kBsp').value,10)>=100?', the box does not smooth':'')+')';$('tBlurV').textContent='('+(parseInt($('tBlur').value,10)<=0?'off':parseInt($('tBlur').value,10)+(isGovee()?' segments':' LEDs'))+')';$('kBoostV').textContent='('+parseInt($('kBoost').value,10)+'%)';showMode();var fm=parseInt($('kFade').value,10);$('kFadeV').textContent='('+(fm<=0?'off':(fm/1000).toFixed(1)+' s')+')';var ad=parseInt($('kAdp').value,10);$('kAdpV').textContent='('+(ad<=0?'off':ad<35?ad+', quick':(ad<70?ad+', calm':ad+', very calm'))+')';}
+  /* Timing mode (L4): one picker instead of four sliders that interact. The mode is worked out from the values (Motion smoothing above 0 wins, then Adaptive), so the
+     settings need no new field; picking a mode sets the values, and only that mode's sliders are shown. */
+  var MODE_NOTE={follow:'The lights follow each picture from the Sync Box, eased by Smoothing over time; Reaction boost undoes the smoothing of the box itself when it is slower than 100%.',
+    motion:'Smoothest on movement (at 100), about 35 ms later than following the box. Smoothing over time and Reaction boost are not used.',
+    adaptive:'Smoother than following the box on still and slow scenes, as quick on big changes; small changes are slowed. Smoothing over time is not used.'};
+  function timingMode(){return parseInt($('kMot').value,10)>0?'motion':(parseInt($('kAdp').value,10)>0?'adaptive':'follow');}
+  function showMode(){var m=timingMode();$('kMode').value=m;$('kModeNote').textContent=MODE_NOTE[m];document.querySelectorAll('[data-mode]').forEach(function(r){r.classList.toggle('hidden',r.getAttribute('data-mode')!==m);});}
+  $('kMode').addEventListener('change',function(){
+    var m=this.value,set=function(id,v){var e=$(id);if(String(e.value)!==String(v)){e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));}};
+    if(m==='motion'){set('kAdp',0);if(parseInt($('kMot').value,10)<=0)set('kMot',100);}
+    else if(m==='adaptive'){set('kMot',0);if(parseInt($('kAdp').value,10)<=0)set('kAdp',50);}
+    else{set('kMot',0);set('kAdp',0);}
+    showMode();
+  });
   function setDirty(d){dirty=d;$('dirty').textContent=d?'Not saved yet':'';}
   function gather(){
     var p=place(),s=tvSpan(),lay;

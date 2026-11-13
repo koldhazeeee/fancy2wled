@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **Timing is one choice now** (Look): *How the lights move* picks Follow the box, Motion smoothing or Adaptive, and shows only that one's sliders, instead of
+  four sliders that partly cancel each other out. Your settings are unchanged: the page works the choice out from them. The Settings check no longer lists settings
+  that the chosen way does not use.
 * **Fix: a WLED was not handed back when the Sync Box went silent** (unplugged, crashed, lost from Wi-Fi) while the picture stood still. The relay kept it in
   realtime mode with the last picture, resent every second, until the box came back. It happened when every target was a WLED (a Govee target hid it). Found
   on the board: 0.4.12 still sent frames 7 s after the box went quiet; now the WLED is handed back after the usual 4 s.

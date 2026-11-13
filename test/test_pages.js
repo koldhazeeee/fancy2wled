@@ -403,7 +403,7 @@ async function cdp(wsUrl) {
       await sl('kBoost', 60);
       check('check: a boost at box speed 100 is a fix, and sorted first', /^Fix: Reaction boost does nothing at a box speed of 100/.test(await adv()), await adv());
       await sl('kMot', 50);
-      check('check: with motion smoothing on, the boost and the smoothing over time are said to be unused (no boost fix any more)', /Motion smoothing is on, so Reaction boost and Smoothing over time are not used/.test(await adv()) && !/does nothing/.test(await adv()), await adv());
+      check('timing mode: Motion smoothing above 0 shows the motion mode, hides the follow sliders, and the boost fix is gone', (await p.ev("document.getElementById('kMode').value")) === 'motion' && (await p.ev("document.getElementById('kSmo').closest('.row').classList.contains('hidden')")) === true && (await p.ev("document.getElementById('kMot').closest('.row').classList.contains('hidden')")) === false && !/does nothing/.test(await adv()), await adv());
       await sl('kBoost', 0); await sl('kSmo', 0);
       check('check: with nothing contradictory it says so', /Motion smoothing is on/.test(await adv()) === false && !/Fix:/.test(await adv()), await adv());
       await sl('kBsp', 40);
@@ -427,10 +427,27 @@ async function cdp(wsUrl) {
       await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
       check('adaptive: Save sends it', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.adaptive === 50, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
       await sl('kSmo', 0.5); await sl('kMot', 0);
-      check('adaptive: with Smoothing over time set, the check says it is not used', /Adaptive smoothing is on, so Smoothing over time is not used/.test(await adv()), await adv());
+      check('timing mode: Adaptive smoothing above 0 shows the adaptive mode and only its slider', (await p.ev("document.getElementById('kMode').value")) === 'adaptive' && (await p.ev("document.getElementById('kAdp').closest('.row').classList.contains('hidden')")) === false && (await p.ev("document.getElementById('kSmo').closest('.row').classList.contains('hidden')")) === true, await p.ev("document.getElementById('kMode').value"));
       await sl('kMot', 100);
       check('adaptive: with Motion smoothing on too, the check says which one is used', /both on; Motion smoothing is used/.test(await adv()), await adv());
       await sl('kMot', 0); await sl('kAdp', 0);
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
+    }
+    // the timing mode picker (L4): picking a mode sets the values and shows only that mode's sliders
+    {
+      const mode = async v => { await p.ev("var e=document.getElementById('kMode'); e.value='" + v + "'; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };
+      const val = id => p.ev("document.getElementById('" + id + "').value");
+      const hid = id => p.ev("document.getElementById('" + id + "').closest('.row').classList.contains('hidden')");
+      check('timing mode: the defaults are the follow mode, with its two sliders', (await val('kMode')) === 'follow' && !(await hid('kSmo')) && !(await hid('kBoost')) && (await hid('kMot')) && (await hid('kAdp')) && !(await hid('kBsp')));
+      await mode('motion');
+      check('timing mode: picking Motion smoothing sets it to 100', (await val('kMot')) === '100' && (await val('kAdp')) === '0' && /Smoothest on movement/.test(await p.ev("document.getElementById('kModeNote').textContent")));
+      await mode('adaptive');
+      check('timing mode: picking Adaptive sets it to 50 and Motion smoothing to 0', (await val('kAdp')) === '50' && (await val('kMot')) === '0' && (await val('kMode')) === 'adaptive');
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('timing mode: Save sends the values the mode set', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.adaptive === 50 && dev.state.lastConfigPost.look.motion === 0, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+      await mode('follow');
+      check('timing mode: back to following the box sets both to 0', (await val('kAdp')) === '0' && (await val('kMot')) === '0' && !(await hid('kSmo')));
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
     // fade in and out (F5): off by default, shown in seconds, saved
