@@ -76,7 +76,7 @@ struct Settings {
   int blackCut = 0;                    // near-black cut-off 0..10 levels: an LED whose brightest channel is below this goes dark
   bool dither = false;                 // while the colours move, carry the rounding error to the next frame
   int smoothOut = 100;                 // 0 = off .. 100: LEDs beyond the TV settle on their end-corner zone colour (softens the hand-over at the TV edge)
-  int fps = 30;
+  int fps = 30;                        // output rate while the lights move (20..60 frames a second; a still picture sends nothing new). Smoothing over time feels the same at any rate
   // Home Assistant over MQTT (discovery): the board connects OUT to the broker
   bool mqttOn = false;
   String mqttHost, mqttUser, mqttPass;
@@ -188,6 +188,7 @@ struct TargetStatus {
   float rttAvgMs = -1, rttMinMs = -1, rttMaxMs = -1;                   // probe round trips to this target (a TCP connect to a WLED, a status question to a Govee light)
   int rttSamples = 0, rttLost = 0, rttAgeS = -1;                       // probes in the last 20; how many got no answer; seconds since the latest
   float showMs = -1;                                                   // a WLED: the modelled time to show a received frame (wledShowMs)
+  int wledFps = 0;                                                     // a WLED: the refresh rate it reports (0 = not known yet)
 };
 struct RelayStatus {
   bool tvOff = false;                       // the picture has been black for the configured time (frames are still arriving)

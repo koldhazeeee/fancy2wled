@@ -63,6 +63,9 @@ static uint8_t gSeq = 0;
 static uint32_t gLastTick = 0;                 // when the last output cycle ran (a new Sync Box frame or the smoothing tick)
 static bool gNewPending = false;               // a Sync Box frame arrived that has not been sent on yet
 static uint32_t gWaitHintMs = 10;              // how long the main loop may sleep before the relay needs to act again
+// Smoothing over time is defined as the share left after one 30 fps tick, whatever the output rate (Look > Output rate): raising the rate makes the lights step
+// more finely, it does not make the smoothing quicker.
+static const float kSmoothRefMs = 1000.f / 30.f;
 static const uint32_t kMinGapMs = 6;           // never run two output cycles closer than this
 static const uint32_t kKeepaliveMs = 1000;     // resend an unchanged frame this often so WLED does not leave realtime mode (2.5 s)
 static const uint32_t kGoveeGapMs = 80;         // a Govee light gets at most about 12 frames a second (UDP, no acknowledgement, no documented limit)
@@ -970,6 +973,7 @@ void relayStatus(RelayStatus& s, bool detail) {
       ts.rttSamples = q.samples; ts.rttLost = q.lost; ts.rttAvgMs = q.avgMs; ts.rttMinMs = q.minMs; ts.rttMaxMs = q.maxMs; }
     ts.rttAgeS = r.rttMs ? (int)((now - r.rttMs) / 1000) : -1;
     ts.showMs = t.kind == 0 ? wledShowMs(r.wledLeds, (float)r.wledFps) : -1.f;
+    ts.wledFps = t.kind == 0 ? r.wledFps : 0;
     if (detail) {
       ts.name = t.name; ts.host = t.wHost; ts.wledName = r.wledName;
       const uint32_t a = r.ipRaw;
@@ -1156,7 +1160,7 @@ void relayLoop() {
         p.vivid = sn[i].vivid; p.sat = sn[i].sat; p.blur = sn[i].blur; p.darkOut = sn[i].darkOut; p.spanFirst = sn[i].spanFirst; p.spanLast = sn[i].spanLast;
         if (p.blur > 0) p.blurScratch = blurScratch(n, p.spanFirst, p.spanLast);
         p.trim = sn[i].trim; p.testing = testing; p.interp = interp; p.motionSettled = motionSettled;
-        p.smoothing = gSet.kSmo; p.dtMs = (nowUs - r.smoothUs) / 1000.f; p.refMs = (float)tickMs;
+        p.smoothing = gSet.kSmo; p.dtMs = (nowUs - r.smoothUs) / 1000.f; p.refMs = kSmoothRefMs;   // the same feel at any output rate
         p.finish = fin; p.finishBuffers = finishActive(fin) && ensureFinish(r, n);
         p.whiteMin = sn[i].whiteMin;
         bool reused = false;

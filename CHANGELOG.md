@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **Output rate** (Look, Timing): 30 (default), 45 or 60 frames a second while the lights move, so Motion smoothing steps more finely. *Smoothing over time* feels the
+  same at any rate (it used to be tied to the rate, which was fixed at 30). The Settings check points out a WLED whose own refresh rate is below the chosen rate, and
+  that Motion smoothing is smoothest at 100.
 * **Fix: Motion smoothing jumped after a lost packet instead of sliding.** After a gap in the Sync Box's packets (Wi-Fi drops some) the next picture was placed on
   the motion clock before it had arrived, so the lights jumped to it. On recordings of a real box Motion smoothing 100 is now **2.5 times smoother**, and nearly twice
   on a slow pan. **After updating:** with Motion smoothing on, movement is smoother and on average a little later (half way about 54 ms after a picture arrives

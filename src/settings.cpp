@@ -171,6 +171,7 @@ static void loadFromFlash() {
   if (s.otaPass.length() == 0) s.otaOn = false;                   // never on without a password
   s.smoothOut = gI("kOut", 100);
   s.fps = gI("fps", 30);
+  if (s.fps < 20 || s.fps > 60) s.fps = 30;
   s.boxHost = gS("boxHost", "");
   s.ssid = gS("ssid", "");
   s.pass = gS("pass", "");
@@ -340,6 +341,7 @@ void settingsToJson(JsonDocument& d) {
   k["dither"] = s.dither;
   k["boxSpeed"] = s.boxSpeed;
   k["smoothOut"] = s.smoothOut;
+  k["fps"] = s.fps;
   d["box"]["host"] = s.boxHost;
   d["relay"]["enabled"] = s.enabled;
   d["relay"]["tvOff"]["mode"] = s.tvMode == 0 ? "nothing" : (s.tvMode == 1 ? "handback" : "off");
@@ -489,6 +491,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["dither"].isNull()) n.dither = k["dither"].as<bool>();
   if (!k["boxSpeed"].isNull()) n.boxSpeed = (int)clampf(k["boxSpeed"].as<float>(), 10.f, 100.f);
   if (!k["smoothOut"].isNull()) n.smoothOut = (int)clampf(k["smoothOut"].as<float>(), 0.f, 100.f);
+  if (!k["fps"].isNull()) n.fps = (int)clampf(k["fps"].as<float>(), 20.f, 60.f);
   if (!b["host"].isNull()) {                                  // only accept the Sync Box from this address: an IP address, or empty for anyone
     String h = b["host"].as<String>();
     h.trim();

@@ -399,7 +399,7 @@ async function cdp(wsUrl) {
       await sl('kBoost', 0); await sl('kMot', 0); await sl('kBsp', 40); await sl('kSmo', 0.5);
       check('check: a box left at speed 40 with no boost and no motion smoothing gets the tip to set it to 100', /Tip: The box is smoothing its colours \(speed 40%\).*Speed of Diffusion to 100%/.test(await adv()), await adv());
       await sl('kBsp', 100);
-      check('check: at box speed 100 that tip is gone and the steps tip appears instead', !/speed 40%/.test(await adv()) && /Tip: At a box speed of 100.*Motion smoothing 50 to 100/.test(await adv()), await adv());
+      check('check: at box speed 100 that tip is gone and the steps tip appears instead', !/speed 40%/.test(await adv()) && /Tip: At a box speed of 100.*Try Motion smoothing 100/.test(await adv()), await adv());
       await sl('kBoost', 60);
       check('check: a boost at box speed 100 is a fix, and sorted first', /^Fix: Reaction boost does nothing at a box speed of 100/.test(await adv()), await adv());
       await sl('kMot', 50);
@@ -410,7 +410,29 @@ async function cdp(wsUrl) {
       check('check: motion smoothing on top of a slow box is a tip', /The box is smoothing \(speed 40%\) and Motion smoothing adds more delay/.test(await adv()), await adv());
       await sl('kBsp', 100); await sl('kMot', 100); await sl('kSmo', 0);
       check('check: a good setup (box 100, motion smoothing, no boost, no extra smoothing) shows no look advice', !/Reaction boost|Smoothing over time|box speed|box is smoothing/.test(await adv()), await adv());
+      await sl('kMot', 50);
+      check('check: motion smoothing below 100 gets the tip that it is smoothest at 100', /Tip: Motion smoothing is smoothest at 100/.test(await adv()), await adv());
+      await sl('kMot', 100);
+      check('check: ... and at 100 it does not', !/smoothest at 100/.test(await adv()), await adv());
       await sl('kBsp', 40); await sl('kMot', 0); await sl('kSmo', 0.5); await sl('kBoost', 0);          // back to the defaults
+    }
+    // the output rate (P2): 30 by default, saved, and a tip when a WLED refreshes more slowly than it
+    {
+      const sel = async v => { await p.ev("var e=document.getElementById('kFps'); e.value='" + v + "'; e.dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(150); };
+      const adv = () => p.ev("document.getElementById('advice').textContent");
+      check('rate: the output rate starts at 30 frames a second', (await p.ev("document.getElementById('kFps').value")) === '30');
+      await sel(60);
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+      check('rate: Save sends the output rate', dev.state.lastConfigPost && dev.state.lastConfigPost.look && dev.state.lastConfigPost.look.fps === 60, JSON.stringify(dev.state.lastConfigPost && dev.state.lastConfigPost.look));
+      const tname = dev.state.cfg.targets[0].name;
+      dev.state.lat = { [tname]: { fps: 40 } };
+      await sleep(3000);
+      check('rate: a WLED that refreshes 40 times a second below an output rate of 60 gets a tip', new RegExp(tname + ': its WLED refreshes about 40 times a second, below the Output rate of 60').test(await adv()), await adv());
+      await sel(30);
+      check('rate: at 30 the tip is gone', !/refreshes about 40/.test(await adv()), await adv());
+      dev.state.lat = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
     // the finishing stage: black cut-off, hold steady, dither (all off by default)
     {

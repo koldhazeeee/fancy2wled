@@ -88,7 +88,7 @@ def run(relay):
     ip = socket.gethostbyname(relay)
     result = {"version": None, "runs": {}}
     base = {"brightness": 1.0, "gamma": 1.0, "saturation": 1.0, "smoothing": 0.0, "boost": 0.0, "motion": 0, "boxSpeed": 100, "smoothOut": 100,
-            "blackCut": 0, "deadband": 0.0, "dither": False}
+            "blackCut": 0, "deadband": 0.0, "dither": False, "fps": 30}
     try:
         result["version"] = api(relay, "/api/status")["ver"]
         api(relay, "/api/config", {"box": {"host": me}, "wled": {"host": me}})

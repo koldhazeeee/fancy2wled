@@ -203,6 +203,7 @@ static esp_err_t h_status(httpd_req_t* req) {
       if (ts.rttAvgMs >= 0) { la["rttMs"] = tenth(ts.rttAvgMs); la["rttMinMs"] = tenth(ts.rttMinMs); la["rttMaxMs"] = tenth(ts.rttMaxMs); }
     }
     if (ts.showMs >= 0) la["showMs"] = tenth(ts.showMs);
+    if (ts.wledFps > 0) la["fps"] = ts.wledFps;        // the refresh rate the WLED reports (the Settings check compares it with the output rate)
   }
   JsonObject w = d["wled"].to<JsonObject>();       // the first target, under its old name (tools written for one target)
   w["host"] = s.targets[0].host;

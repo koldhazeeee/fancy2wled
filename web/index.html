@@ -208,8 +208,10 @@ input[type=range].wide{width:100%}
   <div class="row"><label for="kBsp">Box speed <span id="kBspV"></span></label><input id="kBsp" type="range" min="10" max="100" step="5" data-live="1"></div>
   <p class="small mut" id="bspDet" aria-live="polite"></p>
   <div class="row"><label for="kMot">Motion smoothing <span id="kMotV"></span></label><input id="kMot" type="range" min="0" max="100" step="5" data-live="1"></div>
+  <div class="row"><label for="kFps">Output rate</label><select id="kFps" data-live="1"><option value="30">30 frames a second (default)</option><option value="45">45 frames a second</option><option value="60">60 frames a second</option></select></div>
 <details class="help"><summary>About motion smoothing and the box's own smoothing</summary>
-  <p class="small mut"><b>Motion smoothing</b> slides the lights from one Sync Box picture to the next instead of jumping, so movement looks continuous. The box sends a new picture only about every 100 ms; at 100 the lights run one picture behind (about 100 ms) so they always have the next one to slide towards, at lower values less. While it is on it replaces <i>Smoothing over time</i> and <i>Reaction boost</i>. 0 is off.</p>
+  <p class="small mut"><b>Motion smoothing</b> slides the lights from one Sync Box picture to the next instead of jumping, so movement looks continuous. The box sends a new picture only about every 100 ms; at 100 the lights run one picture behind (about 100 ms) so they always have the next one to slide towards, at lower values less. While it is on it replaces <i>Smoothing over time</i> and <i>Reaction boost</i>. 0 is off. It is smoothest at 100: below that it jumps part of the way to each new picture.</p>
+  <p class="small mut"><b>Output rate</b> is how many frames a second go to the lights while they are moving (a still picture sends nothing new). A higher rate makes Motion smoothing and fades step more finely; it does not change how quick the smoothing is. A Govee light takes at most about 12 a second whatever you choose, and a WLED cannot show more than its own refresh rate.</p>
   <p class="small mut">The Sync Box smooths its own colours, which is most of the delay between the picture and the lights. In the box's app, <i>Speed of Diffusion</i> sets how far each packet moves towards the new picture (40% = 40% of the way, so a change takes about half a second to arrive). <b>The best fix is to set the box's speed to 100%</b>: it then sends the real picture at once. Set <b>Box speed</b> here to the same number as in the box's app. <b>Reaction boost</b> undoes the smoothing in software when the box is slower than 100%: 0 follows the box exactly, 100 rebuilds the picture it is aiming at (it does nothing at a box speed of 100). A lost packet at the wrong moment can make one frame overshoot, so around 60 is a good start. At high values fast flashes look sharper and a dark scene can flick to black a little early.</p>
 </details>
 </div>
@@ -356,7 +358,10 @@ input[type=range].wide{width:100%}
     if(bsp<100&&mot===0&&boost===0)add('tip',"The box is smoothing its colours (speed "+bsp+"%), so the lights lag behind the picture. The best fix: set the box's Speed of Diffusion to 100% in its app and Box speed here to 100. Or keep the box as it is and raise Reaction boost.");
     if(bsp<100&&mot>0)add('tip',"The box is smoothing (speed "+bsp+"%) and Motion smoothing adds more delay on top. For the lowest delay set the box's Speed of Diffusion to 100% in its app and Box speed here to 100.");
     if(bsp<100&&boost>=0.9&&mot===0)add('tip','A Reaction boost this high can overshoot for a moment when Wi-Fi drops a packet. 50 to 70 is safer.');
-    if(bsp>=100&&mot===0)add('tip','At a box speed of 100 the box sends a new picture only about every 100 ms, so the lights move in steps. Try Motion smoothing 50 to 100.');
+    if(bsp>=100&&mot===0)add('tip','At a box speed of 100 the box sends a new picture only about every 100 ms, so the lights move in steps. Try Motion smoothing 100.');
+    if(mot>0&&mot<100)add('tip','Motion smoothing is smoothest at 100. Below that it jumps part of the way to each new picture (at 50 it is rougher than Smoothing over time 0.5): for a quicker reaction lower it, for smooth movement use 100.');
+    var fps=parseInt($('kFps').value,10);
+    for(i=0;i<cfg.targets.length;i++){var ti=tinfo(i);if(ti&&ti.enabled&&ti.kind!=='govee'&&seenFps[i]>0&&seenFps[i]<fps-2)add('tip',ti.name+': its WLED refreshes about '+seenFps[i]+' times a second, below the Output rate of '+fps+', so it cannot show every frame. Lower the Output rate, or raise the Target refresh rate in WLED (Config > LED Preferences) if the strip allows it.');}
     var ts=[];for(i=0;i<cfg.targets.length;i++)ts.push(tinfo(i));
     ts.forEach(function(t){
       if(!t||!t.enabled||t.kind==='govee'||t.count<1)return;
@@ -514,7 +519,7 @@ input[type=range].wide{width:100%}
   $('boxLockOff').onclick=function(){setBoxLock('');};
   $('boxMovedUse').onclick=function(){setBoxLock(this.dataset.ip);};
   /* The box's Speed of Diffusion as the board measures it from the picture changes (box.speed in the status). It is advice only: nothing the board does depends on it. */
-  var seenSpeed=null;
+  var seenSpeed=null,seenFps=[];                     /* seenFps: the refresh rate each target's WLED reports (status, lat.fps) */
   function speedNote(){
     var el=$('bspDet'),d=seenSpeed;if(!el)return;
     if(!d){el.textContent='';return;}
@@ -527,6 +532,7 @@ input[type=range].wide{width:100%}
       var s=await j('/api/status');
       var sp=(s.box&&s.box.speed)||null;
       if(JSON.stringify(sp)!==JSON.stringify(seenSpeed)){seenSpeed=sp;speedNote();try{advice();}catch(e){}}
+      var fr=(s.targets||[]).map(function(t){return (t.lat&&t.lat.fps)|0;});if(JSON.stringify(fr)!==JSON.stringify(seenFps)){seenFps=fr;try{advice();}catch(e){}}
       show('wifiCard',s.mode==='ap');show('main',s.mode!=='ap');show('nav',s.mode!=='ap');show('picNow',s.mode!=='ap');if(s.mode==='ap'&&curTab!=='status')setView('status',curSub,true);
       pill('pWifi',s.mode==='ap'?'warn':'ok',s.mode==='ap'?'Setup mode':'Wi-Fi '+s.ssid);
       var bp=!!(s.box&&s.box.problem),bf=s.box.frames||{};
@@ -688,7 +694,7 @@ input[type=range].wide{width:100%}
     $('tvFirst').value=L.spanFirst>=0?L.spanFirst+W.start:'';$('tvLast').value=L.spanLast>=0?L.spanLast+W.start:'';
     $('lCorner').value=L.corner;$('lDir').value=L.ccw?1:0;for(var i=0;i<4;i++)$('lS'+i).value=L.sides[i]>0?L.sides[i]:'';$('lShift').value=L.shift;
     var TV=(c.relay&&c.relay.tvOff)||{};$('tvMode').value=TV.mode||'handback';$('tvSecs').value=TV.seconds||15;
-    $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;$('kBoost').value=Math.round(100*(c.look.boost||0));$('kMot').value=c.look.motion==null?0:c.look.motion;$('kBsp').value=c.look.boxSpeed==null?40:c.look.boxSpeed;$('kBcut').value=c.look.blackCut||0;$('kDead').value=c.look.deadband||0;$('kDith').checked=!!c.look.dither;
+    $('kBri').value=c.look.brightness;$('kGam').value=c.look.gamma;$('kSat').value=c.look.saturation;$('kSmo').value=c.look.smoothing;$('kOut').value=c.look.smoothOut==null?100:c.look.smoothOut;$('kBoost').value=Math.round(100*(c.look.boost||0));$('kMot').value=c.look.motion==null?0:c.look.motion;$('kBsp').value=c.look.boxSpeed==null?40:c.look.boxSpeed;$('kBcut').value=c.look.blackCut||0;$('kDead').value=c.look.deadband||0;$('kDith').checked=!!c.look.dither;$('kFps').value=String(c.look.fps||30);
     $('lPlace').querySelector('option[value=table]').disabled=!L.hasTable;
     var n=$('layNote');n.classList.toggle('hidden',!L.hasTable);n.textContent=L.hasTable?'A phone-calibrated layout is stored ('+W.count+' LEDs); choose "Use what the phone calibration measured" to use it.':'';
     var M=c.mqtt||{};$('mqOn').checked=!!M.enabled;$('mqHost').value=M.host||'';$('mqPort').value=M.port||1883;$('mqUser').value=M.user||'';$('mqPass').value='';
@@ -706,7 +712,7 @@ input[type=range].wide{width:100%}
     return {target:sel,name:$('tName').value.trim(),kind:$('tKind').value,enabled:$('tOn').checked,trim:parseFloat($('tTrim').value),sharp:num('tSharp',0),sat:parseFloat($('tSat').value),vivid:$('tVivid').checked,darkOutside:$('tDark').checked,blur:num('tBlur',0),wled:{host:$('wHost').value.trim(),start:num('wStart',0),count:num('wCount',0),turnOn:$('wOn').checked,restore:$('wRestore').checked,brightness:num('wBri',-1)},
       layout:lay,
       relay:{tvOff:{mode:$('tvMode').value,seconds:num('tvSecs',15)}},
-      look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,motion:parseInt($('kMot').value,10),boxSpeed:parseInt($('kBsp').value,10),blackCut:parseInt($('kBcut').value,10),deadband:parseFloat($('kDead').value),dither:$('kDith').checked,smoothOut:parseInt($('kOut').value,10)}};
+      look:{brightness:parseFloat($('kBri').value),gamma:parseFloat($('kGam').value),saturation:parseFloat($('kSat').value),smoothing:parseFloat($('kSmo').value),boost:parseInt($('kBoost').value,10)/100,motion:parseInt($('kMot').value,10),boxSpeed:parseInt($('kBsp').value,10),blackCut:parseInt($('kBcut').value,10),deadband:parseFloat($('kDead').value),dither:$('kDith').checked,smoothOut:parseInt($('kOut').value,10),fps:parseInt($('kFps').value,10)}};
   }
   async function load(){try{setCfg(await j('/api/config'));}catch(e){}refreshOta();}
 
