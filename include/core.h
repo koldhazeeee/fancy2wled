@@ -201,6 +201,13 @@ SpeedResult speedResult(const SpeedDetect& d);
 float boxLevelOffset(int boxSpeedPercent);
 void boxLevels(float zones[kZones][3], int mode, int boxSpeedPercent);
 
+// Colour temperature (-100 warm .. +50 cool, 0 neutral): the multipliers for a white point of 6500 K * 2^(temp / 100), from Tanner Helland's fit of the blackbody colours,
+// relative to 6500 K and divided by the largest (no channel is raised, nothing clips). Vibrance (-1 .. 1): each zone moves away from (or toward) the middle of its brightest
+// and darkest channel by 1 + v * (1 - saturation), so dull colours change most and max + min (the brightness) stays put. toneZones does vibrance, then the white point,
+// clamped to 0..255. Independent version: tools/reference/tone.py.
+void colourTempMultipliers(int temp, float out[3]);
+void toneZones(float zones[kZones][3], const float white[3], float vibrance);
+
 // The shared look applied to the box's 24 zone colours (0..255) once per Sync Box frame: saturation (around the luma), gamma, then brightness. out may equal raw.
 void adjustZones(float out[kZones][3], const float raw[kZones][3], float brightness, float gamma, float saturation);
 // One easing step of a target's shown colours (n LEDs, 3 floats each) towards the wanted ones times `trim`: cur += (tgt * trim - cur) * (1 - decay).
@@ -257,6 +264,7 @@ struct TargetOutParams {
   SmoothInfo smooth = {0, -1, 0, 0, 0u, 0u};
   bool vivid = false;
   float sat = 1.f;                       // the target's own saturation (1 = untouched)
+  float white[3] = {1.f, 1.f, 1.f};      // the target's own white balance: a gain per channel (1 = untouched)
   int blur = 0;                          // blur along the picture part, in LEDs (0 = off)
   float* blurScratch = nullptr;          // blurScratchFloats(n, spanFirst, spanLast) floats; no blur when null
   bool darkOut = false;

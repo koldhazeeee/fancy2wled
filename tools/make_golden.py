@@ -14,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from reference import adaptive, cuts, finish, govee, layout, levels, motion, protocol, single, speed  # noqa: E402
+from reference import adaptive, cuts, finish, govee, layout, levels, motion, protocol, single, speed, tone  # noqa: E402
 
 
 def ent(entries):
@@ -324,6 +324,14 @@ def main():
         mode, spd = i % 3, [100, 40, 70, 10, 55][i % 5]
         out = levels.apply(zs, mode, spd)
         lines.append("LEVELS %d %d %.4f %s %s" % (mode, spd, levels.offset(spd), hexz(zs), " ".join("%.4f" % v for z in out for v in z)))
+
+    # --- colour temperature and vibrance on the zones --------------------------------------------------------------------------------------------------------------
+    trnd = random.Random(66)
+    for i, (temp, vib) in enumerate([(0, 0), (-100, 0), (50, 0), (-30, 0), (20, 0), (0, 60), (0, -50), (-60, 40), (35, -100), (0, 100), (-100, 100), (10, 20)]):
+        zs = [tuple(trnd.randrange(256) for _ in range(3)) for _ in range(24)]
+        m = tone.multipliers(temp)
+        out = tone.tone(zs, m, vib / 100.0)
+        lines.append("TONE %d %d %.5f %.5f %.5f %s %s" % (temp, vib, m[0], m[1], m[2], hexz(zs), " ".join("%.4f" % v for z in out for v in z)))
 
     # --- blur along a strip --------------------------------------------------------------------------------------------------------------------------------------
     for n, first, last, blur in ((30, -1, -1, 5), (30, 5, 24, 5), (30, 0, 29, 1), (30, 10, 12, 8), (12, 2, 9, 20), (50, -1, -1, 3), (40, 3, 200, 6), (25, 7, 3, 4), (2, -1, -1, 10), (64, 8, 55, 12)):

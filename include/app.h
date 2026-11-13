@@ -56,6 +56,7 @@ struct Target {
   int sides[4] = {0, 0, 0, 0};         // 0 = automatic
   int shift = 0;
   int aw = 16, ah = 9;
+  float white[3] = {1.f, 1.f, 1.f};    // this target's white balance: a gain per channel 0.5..1.5 (a light that is bluer or redder than the others)
   int single = 0;                      // single-colour layout: fwb::SingleMode (0 average, 1 dominant, 2 ambient, 3 lightest)
   int singleZones = 0;                 // ... taken from: 0 the whole picture, 1 the top row, 2 the right column, 3 the bottom row, 4 the left column
 };
@@ -71,6 +72,8 @@ struct Settings {
   // look (shared by all targets; each target has its own brightness trim)
   float kBri = 1.f, kGam = 1.f, kSat = 1.f, kSmo = 0.5f;
   float kBoost = 0.f;                  // reaction boost 0..1: undo the Sync Box's own smoothing (0 = off)
+  int colourTemp = 0;                  // colour temperature -100 (warm) .. +50 (cool), 0 = neutral (colourTempMultipliers in core.h)
+  int vibrance = 0;                    // vibrance -100 .. 100 %: dull colours made stronger (or weaker) more than strong ones, the brightness kept (toneZones)
   int levels = 0;                      // Box levels: 0 as sent, 1 give the box's offset back, 2 that and stretch limited-range video (boxLevels in core.h)
   int boxSpeed = 40;                   // the box's own "Speed of Diffusion" 10..100 % (how far each packet moves towards the new picture): what Reaction boost undoes; 100 = the box does not smooth
   int fadeMs = 0;                      // Fade in / out 0..2000 ms: fade to black before a WLED is handed back (TV off, paused, box silent) and fade in when a stream starts (0 = at once)

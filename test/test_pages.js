@@ -544,6 +544,22 @@ async function cdp(wsUrl) {
       check('timing mode: back to following the box sets both to 0', (await val('kAdp')) === '0' && (await val('kMot')) === '0' && !(await hid('kSmo')));
       await p.ev("document.getElementById('save').click(); 1"); await sleep(500);
     }
+    // colour temperature, vibrance (shared) and white balance (per target) (F7)
+    {
+      const sl = async (id, v) => { await p.ev("var e=document.getElementById('" + id + "'); e.value='" + v + "'; e.dispatchEvent(new Event('input',{bubbles:true})); 1"); await sleep(120); };
+      const txt = id => p.ev("document.getElementById('" + id + "').textContent");
+      check('tone: temperature and vibrance start neutral', /neutral/.test(await txt('kTmpV')) && /off/.test(await txt('kVibV')));
+      await sl('kTmp', -50); await sl('kVib', 30);
+      check('tone: the labels say warmer with the Kelvin, and the vibrance', /warmer, 4600 K/.test(await txt('kTmpV')) && /\+30%/.test(await txt('kVibV')), (await txt('kTmpV')) + ' ' + (await txt('kVibV')));
+      await sl('tWB', 85);
+      dev.state.lastConfigPost = null;
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(700);
+      const c = dev.state.lastConfigPost || {};
+      check('tone: Save sends temperature, vibrance and the target white balance', c.look && c.look.temperature === -50 && c.look.vibrance === 30 && JSON.stringify(c.white) === '[1,1,0.85]', JSON.stringify([c.look && c.look.temperature, c.look && c.look.vibrance, c.white]));
+      check('tone: the white balance comes back from the board', (await p.ev("document.getElementById('tWB').value")) === '85' && /85%/.test(await txt('tWBV')));
+      await sl('kTmp', 0); await sl('kVib', 0); await sl('tWB', 100);
+      await p.ev("document.getElementById('save').click(); 1"); await sleep(600);
+    }
     // box levels (F6): as sent by default, saved
     {
       check('levels: start as the box sends them', (await p.ev("document.getElementById('kLvl').value")) === 'sent');

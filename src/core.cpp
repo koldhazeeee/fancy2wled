@@ -734,6 +734,43 @@ float motionDelayMs(const Motion& m, int percent) {
 }
 
 // ---------------------------------------------------------------------------
+static void hellandRgb(float kelvin, float out[3]) {
+  const float t = kelvin / 100.f;
+  float r, g, b;
+  if (t <= 66.f) { r = 255.f; g = 99.4708025861f * logf(t) - 161.1195681661f; }
+  else { r = 329.698727446f * powf(t - 60.f, -0.1332047592f); g = 288.1221695283f * powf(t - 60.f, -0.0755148492f); }
+  if (t >= 66.f) b = 255.f;
+  else if (t <= 19.f) b = 0.f;
+  else b = 138.5177312231f * logf(t - 10.f) - 305.0447927307f;
+  out[0] = r < 0.f ? 0.f : (r > 255.f ? 255.f : r);
+  out[1] = g < 0.f ? 0.f : (g > 255.f ? 255.f : g);
+  out[2] = b < 0.f ? 0.f : (b > 255.f ? 255.f : b);
+}
+
+void colourTempMultipliers(int temp, float out[3]) {
+  const int t = temp < -100 ? -100 : (temp > 50 ? 50 : temp);
+  if (t == 0) { out[0] = out[1] = out[2] = 1.f; return; }
+  float a[3], ref[3];
+  hellandRgb(6500.f * powf(2.f, (float)t / 100.f), a);
+  hellandRgb(6500.f, ref);
+  float top = 0.f;
+  for (int c = 0; c < 3; c++) { out[c] = a[c] / ref[c]; if (out[c] > top) top = out[c]; }
+  for (int c = 0; c < 3; c++) out[c] /= top;
+}
+
+void toneZones(float zones[kZones][3], const float white[3], float vibrance) {
+  for (int z = 0; z < kZones; z++) {
+    float* c = zones[z];
+    if (vibrance != 0.f) {
+      const float mx = maxf(c[0], maxf(c[1], c[2])), mn = c[0] < c[1] ? (c[0] < c[2] ? c[0] : c[2]) : (c[1] < c[2] ? c[1] : c[2]);
+      const float f = 1.f + vibrance * (1.f - (mx - mn) / 255.f), mid = (mx + mn) * 0.5f;
+      for (int k = 0; k < 3; k++) c[k] = mid + (c[k] - mid) * f;
+    }
+    for (int k = 0; k < 3; k++) { const float v = c[k] * white[k]; c[k] = v < 0.f ? 0.f : (v > 255.f ? 255.f : v); }
+  }
+}
+
+// ---------------------------------------------------------------------------
 float boxLevelOffset(int boxSpeedPercent) {
   const int s = boxSpeedPercent < 10 ? 10 : (boxSpeedPercent > 100 ? 100 : boxSpeedPercent);
   return s >= 40 ? 26.f + 2.f * (float)(100 - s) / 60.f : 28.f;
@@ -1107,6 +1144,8 @@ size_t targetOutTick(const TargetOutParams& p, TargetOutState& s, uint8_t* out, 
       applyTable(p.table, n, p.zones, s.tgt, p.smooth, p.vivid);
     }
     if (p.sat != 1.f) saturateColours(s.tgt, n, p.sat);                                        // the target's own saturation, on top of the shared one
+    if (p.white[0] != 1.f || p.white[1] != 1.f || p.white[2] != 1.f)                           // the target's own white balance (a strip that is bluer than the others)
+      for (int i = 0; i < n; i++) for (int k = 0; k < 3; k++) s.tgt[i * 3 + k] *= p.white[k];
     if (p.single < 0) {
       if (p.blur > 0 && p.blurScratch) blurColours(s.tgt, n, p.spanFirst, p.spanLast, p.blur, p.blurScratch);   // soften the steps between zones
       if (p.darkOut) darkOutside(s.tgt, n, p.spanFirst, p.spanLast);                             // the part of the strip not along the picture stays dark

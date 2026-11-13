@@ -67,7 +67,7 @@ static String stateJson(const RelayStatus& s) {
   d["wled_leds"] = s.wledLeds;
   d["rssi"] = WiFi.RSSI();
   d["uptime"] = (uint32_t)(millis() / 1000);
-  int bri, sat, smo, out, boo, bsp, mot, adp, bcut, fps, fade;
+  int bri, sat, smo, out, boo, bsp, mot, adp, bcut, fps, fade, tmp, vib;
   float gam, dead;
   bool en, dith, snap;
   { Lock l;
@@ -75,7 +75,7 @@ static String stateJson(const RelayStatus& s) {
     bri = (int)(gSet.kBri * 100.f + 0.5f); sat = (int)(gSet.kSat * 100.f + 0.5f); smo = (int)(gSet.kSmo * 100.f + 0.5f); boo = (int)(gSet.kBoost * 100.f + 0.5f);
     out = gSet.smoothOut; gam = gSet.kGam;
     bsp = gSet.boxSpeed; mot = gSet.motion; adp = gSet.adaptive; bcut = gSet.blackCut; dead = gSet.deadband; dith = gSet.dither; snap = gSet.snapCuts;
-    fps = gSet.fps; fade = gSet.fadeMs; }
+    fps = gSet.fps; fade = gSet.fadeMs; tmp = gSet.colourTemp; vib = gSet.vibrance; }
   d["enabled"] = en;
   d["brightness"] = bri > 100 ? 100 : bri;      // the Home Assistant control is 0-100 % (the setup page can go higher)
   d["gamma"] = gam;
@@ -92,6 +92,8 @@ static String stateJson(const RelayStatus& s) {
   d["hold_steady"] = dead;
   d["dither"] = dith;
   d["fade"] = fade;
+  d["temperature"] = tmp;
+  d["vibrance"] = vib;
   d["relaying"] = String(s.state) == "relaying";
   { Lock l;
     JsonArray ta = d["targets"].to<JsonArray>();
@@ -362,6 +364,8 @@ static void publishDiscovery() {
   number("black_cut", "Black cut-off", 0, 10, 1, "", "{{ value_json.black_cut }}");
   number("hold_steady", "Hold steady", 0, 8, 0.5f, "", "{{ value_json.hold_steady }}");
   number("fade", "Fade in and out", 0, 2000, 100, "ms", "{{ value_json.fade }}");
+  number("temperature", "Colour temperature", -100, 50, 5, "", "{{ value_json.temperature }}");
+  number("vibrance", "Vibrance", -100, 100, 5, "%", "{{ value_json.vibrance }}");
   lookSwitch("dither", "Dither", "dither", "mdi:blur");
   lookSwitch("snap_cuts", "Snap on scene cuts", "snap_cuts", "mdi:content-cut");
   button("rainbow", "Rainbow test", "mdi:looks", nullptr, false);
@@ -424,6 +428,8 @@ static bool applyLook(const String& key, const String& payload) {
   else if (key == "black_cut" && v >= 0.f && v <= 10.f) look["blackCut"] = v;
   else if (key == "hold_steady" && v >= 0.f && v <= 8.f) look["deadband"] = v;
   else if (key == "fade" && v >= 0.f && v <= 2000.f) look["fadeMs"] = v;
+  else if (key == "temperature" && v >= -100.f && v <= 50.f) look["temperature"] = v;
+  else if (key == "vibrance" && v >= -100.f && v <= 100.f) look["vibrance"] = v;
   else return false;
   return settingsFromJson(d.as<JsonVariantConst>(), true).length() == 0;
 }

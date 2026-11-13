@@ -67,6 +67,8 @@ static void loadTarget(Target& t, int i) {
   for (int s = 0; s < 4; s++) t.sides[s] = gI(("lS" + String(s)).c_str(), 0);
   t.shift = gI("lShift", 0);
   if (t.lType < LAYOUT_LINEAR || t.lType > LAYOUT_SINGLE) t.lType = LAYOUT_LINEAR;
+  t.white[0] = gF("tWr", 1.f); t.white[1] = gF("tWg", 1.f); t.white[2] = gF("tWb", 1.f);
+  for (int c = 0; c < 3; c++) if (!(t.white[c] >= 0.5f && t.white[c] <= 1.5f)) t.white[c] = 1.f;
   t.single = gI("lSgl", 0);
   if (t.single < 0 || t.single > 3) t.single = 0;
   t.singleZones = gI("lSgz", 0);
@@ -113,13 +115,16 @@ static void saveTarget(const Target& t, int i) {
   prefs.putBool(K("lCcw", i).c_str(), t.ccw);
   for (int s = 0; s < 4; s++) prefs.putInt(K(("lS" + String(s)).c_str(), i).c_str(), t.sides[s]);
   prefs.putInt(K("lShift", i).c_str(), t.shift);
+  prefs.putFloat(K("tWr", i).c_str(), t.white[0]);
+  prefs.putFloat(K("tWg", i).c_str(), t.white[1]);
+  prefs.putFloat(K("tWb", i).c_str(), t.white[2]);
   prefs.putInt(K("lSgl", i).c_str(), t.single);
   prefs.putInt(K("lSgz", i).c_str(), t.singleZones);
 }
 
 static void eraseTargetKeys(int i) {
   static const char* keys[] = {"tName", "tKind", "lSharp", "tSat", "lVivid", "tOn", "tTrim", "wHost", "wStart", "wCount", "wOn", "wRestore", "wBri", "whiteMin", "lType", "lRight",
-                               "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "lSgl", "lSgz", "tbl4"};
+                               "lEdge", "lSf", "lSl", "lCorner", "lCcw", "lS0", "lS1", "lS2", "lS3", "lShift", "lSgl", "lSgz", "tWr", "tWg", "tWb", "tbl4"};
   for (const char* k : keys) prefs.remove(K(k, i).c_str());
 }
 
@@ -147,6 +152,10 @@ static void loadFromFlash() {
   s.kSat = gF("kSat", 1.f);
   s.kSmo = gF("kSmo", 0.5f);
   s.kBoost = gF("kBoost", 0.f);
+  s.colourTemp = gI("kTmp", 0);
+  if (s.colourTemp < -100 || s.colourTemp > 50) s.colourTemp = 0;
+  s.vibrance = gI("kVib", 0);
+  if (s.vibrance < -100 || s.vibrance > 100) s.vibrance = 0;
   s.levels = gI("kLvl", 0);
   if (s.levels < 0 || s.levels > 2) s.levels = 0;
   s.boxSpeed = gI("kBsp", 40);
@@ -228,6 +237,8 @@ void settingsSave() {
   prefs.putBool("kDith", s.dither);
   prefs.putInt("kBsp", s.boxSpeed);
   prefs.putInt("kLvl", s.levels);
+  prefs.putInt("kTmp", s.colourTemp);
+  prefs.putInt("kVib", s.vibrance);
   prefs.putBool("enabled", s.enabled);
   prefs.putInt("tvMode", s.tvMode);
   prefs.putInt("tvSecs", s.tvSecs);
@@ -318,6 +329,7 @@ static void targetToJson(const Target& t, int i, JsonObject o) {
   o["vivid"] = t.vivid;
   o["darkOutside"] = t.darkOutside;
   o["blur"] = t.blur;
+  { JsonArray wa = o["white"].to<JsonArray>(); for (int c = 0; c < 3; c++) wa.add(((int)(t.white[c] * 100.f + 0.5f)) / 100.f); }
   o["enabled"] = t.enabled;
   o["trim"] = t.trim;
   JsonObject w = o["wled"].to<JsonObject>();
@@ -369,6 +381,8 @@ void settingsToJson(JsonDocument& d) {
   k["blackCut"] = s.blackCut;
   k["dither"] = s.dither;
   k["boxSpeed"] = s.boxSpeed;
+  k["temperature"] = s.colourTemp;
+  k["vibrance"] = s.vibrance;
   { static const char* kLv[3] = {"sent", "restore", "video"}; k["levels"] = kLv[s.levels < 0 || s.levels > 2 ? 0 : s.levels]; }
   k["smoothOut"] = s.smoothOut;
   k["fps"] = s.fps;
@@ -454,6 +468,11 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
     else if (t == "single") n.lType = LAYOUT_SINGLE;
     else return "Unknown layout type";
   }
+  if (x["white"].is<JsonArrayConst>()) {
+    JsonArrayConst wa = x["white"];
+    if (wa.size() != 3) return "white must be three numbers (red, green, blue gains, 0.5 to 1.5)";
+    for (int c = 0; c < 3; c++) n.white[c] = clampf(wa[c].as<float>(), 0.5f, 1.5f);
+  }
   if (!y["single"].isNull()) {
     const String m = y["single"].as<String>();
     int v = -1;
@@ -516,7 +535,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
       if (e.length()) return e;
     }
   } else if (!d["wled"].isNull() || !d["layout"].isNull() || !d["name"].isNull() || !d["trim"].isNull() || !d["enabled"].isNull() || !d["kind"].isNull() ||
-             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull() || !d["darkOutside"].isNull() || !d["blur"].isNull()) {
+             !d["sharp"].isNull() || !d["sat"].isNull() || !d["vivid"].isNull() || !d["darkOutside"].isNull() || !d["blur"].isNull() || !d["white"].isNull()) {
     const int ti = d["target"] | 0;                   // which target the top-level wled / layout / name / trim apply to
     if (ti < 0 || ti >= n.nTargets) return "There is no target " + String(ti + 1);
     String e = applyTargetJson(n.t[ti], ti, d, d["wled"], d["layout"]);
@@ -539,6 +558,8 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (!k["blackCut"].isNull()) n.blackCut = (int)clampf(k["blackCut"].as<float>(), 0.f, 10.f);
   if (!k["dither"].isNull()) n.dither = k["dither"].as<bool>();
   if (!k["boxSpeed"].isNull()) n.boxSpeed = (int)clampf(k["boxSpeed"].as<float>(), 10.f, 100.f);
+  if (!k["temperature"].isNull()) n.colourTemp = (int)clampf(k["temperature"].as<float>(), -100.f, 50.f);
+  if (!k["vibrance"].isNull()) n.vibrance = (int)clampf(k["vibrance"].as<float>(), -100.f, 100.f);
   if (!k["levels"].isNull()) {
     const String lv = k["levels"].as<String>();
     if (lv == "sent") n.levels = 0;

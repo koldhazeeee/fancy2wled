@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **Colour temperature, vibrance and white balance** (all off by default): a warmer or cooler white for every light (Look, Colour; about 3250 K to 9200 K,
+  nothing clips), vibrance that strengthens dull colours more than strong ones without changing the brightness (Look, Colour), and a red / green / blue gain per
+  target for a light whose white does not match the others (Lights, Colour). Temperature and vibrance are in Home Assistant too.
 * **Box levels** (Look, Colour; off by default): give back the 26-28 levels the Sync Box takes off every colour, so white reaches full white, and optionally
   stretch limited-range video to full range. What the box cut to black stays black.
 * **Getting started** (Status): until a board is set up, a short checklist (find the WLED, where the LEDs are, the TV part, the rainbow test, lock to the box),

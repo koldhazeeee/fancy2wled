@@ -187,7 +187,7 @@ int main(int argc, char** argv) {
   FILE* f = fopen(path, "r");
   if (!f) { printf("cannot open %s\n", path); return 2; }
   static char line[400000];
-  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0, nSingle = 0, singleBad = 0, nLevels = 0, levelsBad = 0;
+  int nDecode = 0, nUv = 0, nLin = 0, nLoop = 0, nDdp = 0, nApply = 0, nClassify = 0, nUsage = 0, nGovee = 0, nSharp = 0, nVivid = 0, nMotion = 0, nBlur = 0, nSpeed = 0, nFinish = 0, nAdapt = 0, nCut = 0, cutBad = 0, cutYes = 0, nSingle = 0, singleBad = 0, nLevels = 0, levelsBad = 0, nTone = 0, toneBad = 0;
   while (fgets(line, sizeof line, f)) {
     if (line[0] == '#' || line[0] == '\n') continue;
     char kind[16];
@@ -414,6 +414,22 @@ int main(int argc, char** argv) {
       }
       CHECK(bad == 0 && worst < 0.02f, "motion: %d of %d queries disagree about reaching the newest picture, worst colour difference %.4f", bad, nQ, worst);
       nMotion++;
+    } else if (k == "TONE") {
+      // TONE <temp> <vibrance %> <3 multipliers> <hex zones> <72 floats>: colour temperature and vibrance
+      const char* p = rest;
+      int temp = 0, vib = 0, adv = 0; float m[3] = {0, 0, 0}; char hex[200] = {0};
+      if (sscanf(p, "%d %d %f %f %f %199s%n", &temp, &vib, &m[0], &m[1], &m[2], hex, &adv) != 6) { CHECK(false, "bad TONE line"); continue; }
+      p += adv;
+      float got[3];
+      colourTempMultipliers(temp, got);
+      bool ok = fabsf(got[0] - m[0]) < 0.001f && fabsf(got[1] - m[1]) < 0.001f && fabsf(got[2] - m[2]) < 0.001f;
+      const auto zb = fromHex(hex);
+      float z[kZones][3];
+      for (int q = 0; q < kZones; q++) for (int c = 0; c < 3; c++) z[q][c] = (float)zb[q * 3 + c];
+      toneZones(z, got, vib / 100.f);
+      for (int j = 0; j < kZones * 3; j++) { float w = 0; sscanf(p, " %f%n", &w, &adv); p += adv; if (fabsf(z[j / 3][j % 3] - w) > 0.05f) ok = false; }
+      if (!ok) toneBad++;
+      nTone++;
     } else if (k == "LEVELS") {
       // LEVELS <mode> <box speed> <offset> <hex zones> <72 floats>: the box's values with their offset given back
       const char* p = rest;
@@ -1436,6 +1452,7 @@ int main(int argc, char** argv) {
         fadeGain(-1, 0, 500, 1.f) == 1.f && fadeGain(-1, 600, 500, 1.f) == 0.f && fabsf(fadeGain(-1, 250, 500, 0.8f) - 0.4f) < 1e-6f &&
         fabsf(fadeGain(1, 250, 500, 0.4f) - 0.7f) < 1e-6f && fadeGain(1, 10, 0, 0.f) == 1.f && fadeGain(-1, 10, 0, 1.f) == 0.f && fadeGain(1, 5, 1000, 0.f) < 0.001f,
         "fadeGain: the ends, half way, a reversed fade continues from where it was, no fade time");
+  CHECK(nTone >= 12 && toneBad == 0, "colour temperature and vibrance agree with the reference in %d vectors (%d differ)", nTone, toneBad);
   CHECK(nLevels >= 30 && levelsBad == 0, "box levels agree with the reference in %d vectors (%d differ)", nLevels, levelsBad);
   CHECK(nSingle >= 75 && singleBad == 0, "single-colour lights: colour and picture map agree with the reference in %d vectors (%d differ)", nSingle, singleBad);
   CHECK(nCut > 100 && cutBad == 0 && cutYes >= 5, "isSceneCut agrees with the reference on %d packet pairs (%d of them cuts; %d disagree)", nCut, cutYes, cutBad);
