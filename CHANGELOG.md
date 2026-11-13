@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* **An open setup page no longer makes the lights stutter.** While the page was open (and more while editing a layout) the web server could stop the relay for up to about
+  3 milliseconds in the middle of an output tick. The relay now runs above the web server, and the picture map's recount no longer holds the relay up: with a page open and
+  being edited, the worst tick on the board went from 3.3 ms to 0.7 ms, the same as with no page open ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 * Behind the scenes: the colour work of an output tick (mixing, saturation, blur, easing, the finishing stage, packing) moved from the relay into the tested core
   (`targetOutTick`), so the whole chain is now tested on a PC. The LED output is byte for byte the same (36 fixed pictures on the board, and a frozen copy of the
   0.4.12 code compared over 21,000 random ticks) and it is not slower on the board (212 against 214 microseconds per tick on four real targets).

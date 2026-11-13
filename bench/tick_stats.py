@@ -44,10 +44,18 @@ def collect(windows, timeout):
     rows = []
     t0 = time.time()
     pat = re.compile(r"TICKSTAT n=(\d+) avg_us=([\d.]+) max_us=(\d+) reused=(\d+)")
+    # since 0.4.13 the line also has the relay's waits for the shared lock (see Lock in include/app.h); older firmware does not print them
+    lock = re.compile(r"lockmax_us=(\d+) locksum_us=(\d+) lockslow=(\d+) lockby=(\S+) lockfor=(\S+) locktask=(\S+) lockheld=(\d+)")
     while len(rows) < windows + 1 and time.time() - t0 < timeout:
-        m = pat.search(ser.readline().decode("utf-8", "replace"))
+        line = ser.readline().decode("utf-8", "replace")
+        m = pat.search(line)
         if m and int(m.group(1)) > 0:
-            rows.append({"n": int(m.group(1)), "avg_us": float(m.group(2)), "max_us": int(m.group(3)), "reused": int(m.group(4))})
+            row = {"n": int(m.group(1)), "avg_us": float(m.group(2)), "max_us": int(m.group(3)), "reused": int(m.group(4))}
+            k = lock.search(line)
+            if k:
+                row.update({"lock_max_us": int(k.group(1)), "lock_sum_us": int(k.group(2)), "lock_slow": int(k.group(3)), "lock_by": k.group(4), "lock_for": k.group(5),
+                            "lock_task": k.group(6), "lock_slow_held": int(k.group(7))})
+            rows.append(row)
     ser.close()
     return rows[1:]                                    # the first window may be partial
 
@@ -80,6 +88,22 @@ def main():
            "reused_share": round(sum(r["reused"] for r in rows) / ticks, 3), "per_window": rows}
     print("%s: %d ticks in %d windows | average %.1f us per tick (median of windows %.1f) | worst %d us | %.0f %% of ticks reused the previous wanted colours"
           % (a.label, ticks, len(rows), wavg, res["avg_us_median_of_windows"], res["worst_us"], 100 * res["reused_share"]))
+    if all("lock_max_us" in r for r in rows):
+        worst = max(rows, key=lambda r: r["lock_max_us"])
+        res["lock_worst_us"] = worst["lock_max_us"]
+        res["lock_wait_us_per_s"] = round(sum(r["lock_sum_us"] for r in rows) / (5.0 * len(rows)), 1)
+        res["lock_slow_waits"] = sum(r["lock_slow"] for r in rows)
+        res["lock_slow_waits_held"] = sum(r["lock_slow_held"] for r in rows)
+        holders = {}
+        for r in rows:
+            if r["lock_slow"]:
+                key = "%s (%s)" % (r["lock_by"], r["lock_task"])
+                holders[key] = holders.get(key, 0) + 1
+        res["lock_slow_holders"] = holders
+        print("  relay waiting for the lock: worst %d us (held by %s in task %s, wanted by %s) | %.1f us per second | %d waits over 200 us, %d of them while another task"
+              " held the lock (the rest: the lock was free and the relay was not running) | the windows' worst slow waits: %s"
+              % (worst["lock_max_us"], worst["lock_by"], worst["lock_task"], worst["lock_for"], res["lock_wait_us_per_s"], res["lock_slow_waits"],
+                 res["lock_slow_waits_held"], holders or "none"))
     if a.out:
         os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
         json.dump(res, open(a.out, "w", newline=chr(10)), indent=1)

@@ -188,6 +188,20 @@ static bool ensureFinish(Rt& r, int n) {                                  // the
 #ifdef FWB_TICK_STATS
 static uint32_t gTsT0, gTsSum, gTsN, gTsMax, gTsReused, gTsLast;
 static bool gTsSame;
+// The relay task's waits for gLock (see Lock in app.h): the longest in the window, who held the lock then and who wanted it, the total, and how many took over 200 us.
+volatile const char* gLockWho = nullptr;
+volatile int gLockDepth = 0;
+static TaskHandle_t gRelayTask = nullptr;
+static uint32_t gLwMax = 0, gLwSum = 0, gLwSlow = 0, gLwSlowHeld = 0;
+static const char* gLwBy = "-";
+static const char* gLwTask = "-";
+static const char* gLwFor = "-";
+void lockWaitNote(uint32_t waitUs, const char* heldBy, const char* holderTask, const char* who) {
+  if (!gRelayTask || xTaskGetCurrentTaskHandle() != gRelayTask) return;   // only the relay's waits count (and the counters are the relay task's own)
+  gLwSum += waitUs;
+  if (waitUs > 200) { gLwSlow++; if (holderTask) gLwSlowHeld++; }
+  if (waitUs > gLwMax) { gLwMax = waitUs; gLwBy = heldBy ? heldBy : (holderTask ? "?" : "free"); gLwTask = holderTask ? holderTask : "none"; gLwFor = who; }
+}
 static void tickStatEnd(bool packed) {
   if (packed) {
     const uint32_t d = micros() - gTsT0;
@@ -196,8 +210,11 @@ static void tickStatEnd(bool packed) {
     if (gTsSame) gTsReused++;
   }
   if (millis() - gTsLast >= 5000) {
-    Serial.printf("TICKSTAT n=%u avg_us=%.1f max_us=%u reused=%u\n", (unsigned)gTsN, gTsN ? (double)gTsSum / gTsN : 0.0, (unsigned)gTsMax, (unsigned)gTsReused);
+    Serial.printf("TICKSTAT n=%u avg_us=%.1f max_us=%u reused=%u lockmax_us=%u locksum_us=%u lockslow=%u lockby=%s lockfor=%s locktask=%s lockheld=%u\n", (unsigned)gTsN,
+                  gTsN ? (double)gTsSum / gTsN : 0.0, (unsigned)gTsMax, (unsigned)gTsReused, (unsigned)gLwMax, (unsigned)gLwSum, (unsigned)gLwSlow, gLwBy, gLwFor,
+                  gLwTask, (unsigned)gLwSlowHeld);
     gTsSum = gTsN = gTsMax = gTsReused = 0;
+    gLwMax = gLwSum = gLwSlow = gLwSlowHeld = 0; gLwBy = gLwFor = gLwTask = "-";
     gTsLast = millis();
   }
 }
@@ -901,6 +918,9 @@ static void calSendFrame(int i) {
 }
 
 void relayBegin() {
+#ifdef FWB_TICK_STATS
+  gRelayTask = xTaskGetCurrentTaskHandle();          // setup() and loop() run in the same task: the one whose lock waits are counted
+#endif
   openSockets();
   if (!gJobs) {
     gJobs = xQueueCreate(12, sizeof(WledJob*));

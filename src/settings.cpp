@@ -236,17 +236,26 @@ void settingsReset() {
 
 // ---------------------------------------------------------------- per-LED tables
 // The per-LED table of a target from its layout settings (n = its LED count, out has room for n entries).
-static void buildTable(const Target& t, int idx, fwb::Entry* out, int n) {
-  if (t.lType == LAYOUT_TABLE && gStoredN[idx] == n) {
-    for (int k = 0; k < n; k++) out[k] = fwb::Entry{gStored[idx][k * 4], gStored[idx][k * 4 + 1], gStored[idx][k * 4 + 2], gStored[idx][k * 4 + 3]};
-  } else if (t.lType == LAYOUT_LOOP) {
+// A layout worked out from the target's own settings (loop or straight run, then sharpened). Reads nothing shared, so it can run without the lock.
+static void buildGenerated(const Target& t, fwb::Entry* out, int n) {
+  if (t.lType == LAYOUT_LOOP) {
     const bool custom = t.sides[0] > 0;
     if (!fwb::tableLoop(out, n, t.corner, t.ccw, custom ? t.sides : nullptr, t.shift, t.aw, t.ah))
       fwb::tableLinear(out, n, t.led0Right, t.spanFirst, t.spanLast, t.linEdge);
   } else {   // linear (also the fallback when a calibrated table does not match the LED count)
     fwb::tableLinear(out, n, t.led0Right, t.spanFirst, t.spanLast, t.linEdge);
   }
-  if (!(t.lType == LAYOUT_TABLE && gStoredN[idx] == n)) fwb::sharpenTable(out, n, t.sharp);     // a phone-measured table stays as measured
+  fwb::sharpenTable(out, n, t.sharp);
+}
+
+static bool usesStoredTable(const Target& t, int idx, int n) { return t.lType == LAYOUT_TABLE && gStoredN[idx] == n; }   // under the lock
+
+static void buildTable(const Target& t, int idx, fwb::Entry* out, int n) {
+  if (usesStoredTable(t, idx, n)) {             // a phone-measured table stays as measured
+    for (int k = 0; k < n; k++) out[k] = fwb::Entry{gStored[idx][k * 4], gStored[idx][k * 4 + 1], gStored[idx][k * 4 + 2], gStored[idx][k * 4 + 3]};
+  } else {
+    buildGenerated(t, out, n);
+  }
 }
 
 void tableRebuild() {
@@ -558,21 +567,30 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
 // The picture map for a target: how many of its LEDs follow each of the 24 zones. `req` holds an unsaved edit (the "wled" / "layout"
 // parts of a settings request); it is validated like a real one but nothing is stored. A null `req` means the saved settings.
 String targetUsage(int idx, JsonVariantConst req, float out[fwb::kZones], int* leds) {
-  Lock l;
   for (int z = 0; z < fwb::kZones; z++) out[z] = 0.f;
   *leds = 0;
-  if (idx < 0 || idx >= gSet.nTargets) return "There is no target " + String(idx + 1);
-  Target t = gSet.t[idx];
-  if (!req.isNull()) {
-    String e = applyTargetJson(t, idx, req, req["wled"], req["layout"]);
-    if (e.length()) return e;
+  // Only reading the settings needs the lock. Working out a whole layout (up to a millisecond for a long strip) is done after it is released: the setup page asks for
+  // this after every edit on the Layout view, and the relay needs the same lock for every output tick.
+  Target t;
+  int n;
+  fwb::Entry* tb;
+  bool built = false;
+  {
+    Lock l;
+    if (idx < 0 || idx >= gSet.nTargets) return "There is no target " + String(idx + 1);
+    t = gSet.t[idx];
+    if (!req.isNull()) {
+      String e = applyTargetJson(t, idx, req, req["wled"], req["layout"]);
+      if (e.length()) return e;
+    }
+    n = t.wCount;
+    *leds = n;
+    if (n <= 0 || n > fwb::kMaxLeds) return "";
+    tb = (fwb::Entry*)malloc(sizeof(fwb::Entry) * n);
+    if (!tb) return "Out of memory";
+    if (usesStoredTable(t, idx, n)) { buildTable(t, idx, tb, n); built = true; }     // a phone-measured table is shared data: copied under the lock
   }
-  const int n = t.wCount;
-  *leds = n;
-  if (n <= 0 || n > fwb::kMaxLeds) return "";
-  fwb::Entry* tb = (fwb::Entry*)malloc(sizeof(fwb::Entry) * n);
-  if (!tb) return "Out of memory";
-  buildTable(t, idx, tb, n);
+  if (!built) buildGenerated(t, tb, n);
   fwb::zoneUsage(tb, n, out);
   free(tb);
   return "";

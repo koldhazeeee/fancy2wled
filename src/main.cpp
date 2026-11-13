@@ -22,6 +22,11 @@ void setup() {
   goveeBegin();
   webBegin();
   mqttBegin();
+  // The relay runs in this task (Arduino's loopTask, priority 1 on core 1). The web server and the MQTT client run at priority 5 on either core, so a page request served
+  // on core 1 used to stop the relay for up to about 3 ms in the middle of a tick (measured with the atoms3-tickstat build and bench/page_load.py: the shared lock was free
+  // in every such case, the relay was simply not running). Above them, the lights come first; the relay sleeps in select() between packets and its colour work is about
+  // 0.25 ms per tick, so the page and MQTT still get nearly all of the core. A web handler that holds the shared lock is raised by the mutex's priority inheritance.
+  vTaskPrioritySet(nullptr, 6);
 }
 
 void loop() {

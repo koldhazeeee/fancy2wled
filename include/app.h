@@ -99,10 +99,32 @@ extern volatile uint32_t gSettingsGen;      // bumped whenever settings change
 extern volatile uint32_t gMqttGen;          // bumped when the MQTT settings change (reconnects)
 extern SemaphoreHandle_t gLock;
 
+#ifdef FWB_TICK_STATS
+// The measurement build (pio run -e atoms3-tickstat) also finds out how long the relay waits for this lock, and which function held it meanwhile: every Lock records the
+// function that took it (the outermost one while it is held), and the relay task's waits are counted in relay.cpp (lockWaitNote). The normal firmware has the plain Lock below.
+extern volatile const char* gLockWho;
+extern volatile int gLockDepth;
+// heldBy: the function holding the lock when the wait began (null: nobody, so the time was spent with the task not running, i.e. preempted); holderTask: that task's name.
+void lockWaitNote(uint32_t waitUs, const char* heldBy, const char* holderTask, const char* who);
+struct Lock {
+  explicit Lock(const char* who = __builtin_FUNCTION()) {
+    const TaskHandle_t h = xSemaphoreGetMutexHolder(gLock);
+    const char* holder = h ? (const char*)gLockWho : nullptr;
+    const char* holderTask = h ? pcTaskGetTaskName(h) : nullptr;
+    const uint32_t t0 = micros();
+    xSemaphoreTakeRecursive(gLock, portMAX_DELAY);
+    const uint32_t waited = micros() - t0;
+    if (gLockDepth++ == 0) gLockWho = who;
+    lockWaitNote(waited, holder, holderTask, who);
+  }
+  ~Lock() { if (--gLockDepth == 0) gLockWho = nullptr; xSemaphoreGiveRecursive(gLock); }
+};
+#else
 struct Lock {
   Lock() { xSemaphoreTakeRecursive(gLock, portMAX_DELAY); }
   ~Lock() { xSemaphoreGiveRecursive(gLock); }
 };
+#endif
 
 void settingsBegin();                       // create lock, load from flash
 void settingsSave();

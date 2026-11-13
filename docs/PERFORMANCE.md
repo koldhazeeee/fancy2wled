@@ -121,6 +121,30 @@ Found with the linker's list of discarded sections, a search for names that occu
 `tools/make_golden.py`, and a stale sentence in `docs/RESILIENCE.md` that still pointed at `kBoxLead`. Left in on purpose: `vividBlend()` and `motionReset()`, which only the tests
 call (they are the tested form of what the relay does inline). Nothing was found in the page's script or styles.
 
+## An open setup page no longer stalls the lights (0.4.13)
+
+The worst single tick used to reach 1 to 4 milliseconds while the setup page was open. The `atoms3-tickstat` build now also reports how long the relay waits for the
+shared lock and which function and task held it (`Lock` in `include/app.h` records its caller in that build only), and `bench/page_load.py` makes the same requests as
+an open page that is being edited (live colours twice a second, the status every 2.5 s, the picture map of every target once a second). Measured on the real board with
+four real targets, 12 windows of 5 seconds each:
+
+| condition | average tick | worst tick (median of windows / worst) | relay waits over 200 us |
+|---|---:|---:|---|
+| no page (0.4.12 code) | 225 us | 590 / 1261 us | 0 |
+| page open and editing (0.4.12 code) | 246 us | 1376 / 3264 us | 8, **all with the lock free** |
+| page open, relay above the web server | 228 us | 645 / 690 us | 7, all while `targetUsage` held the lock (up to 0.73 ms) |
+| page open, both fixes | 223 us | 648 / 684 us | **0** (worst wait 14 us) |
+
+The cause was not the lock: the relay runs in Arduino's loop task at priority 1, and the web server (priority 5, either core) simply ran instead of it. The relay task now
+runs at priority 6 (`src/main.cpp`); it sleeps between packets and its colour work is about 0.25 ms per tick, so the page and MQTT keep nearly all of the core. The
+second cause was the picture map's recount (`targetUsage`), which held the lock while it built a whole layout; it now only copies the settings under the lock.
+
+Still unexplained: about once a minute one tick takes about 6 ms with the lock free, with or without the page, on 0.4.12 as well. Something above the relay's
+priority runs then (the Wi-Fi driver, the network stack, or a flash write stalling the cache are the candidates); it was not chased further.
+
+Reproduce: `pio run -e atoms3-tickstat -t upload`, then `python bench/tick_stats.py --windows 12` alone and again with `python bench/page_load.py fancy2wled.local --editing`
+running beside it.
+
 ## One observation
 
 The *Smooth beyond the TV* blend (`smoothOut`) adds nothing for layouts built from a position along the TV (linear or loop): the LEDs beyond the TV already show the corner zone
