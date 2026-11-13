@@ -941,6 +941,49 @@ void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* 
 #undef FWB_FINISH
 }
 
+// ---------------------------------------------------------------------------
+int blurScratchFloats(int n, int first, int last) {
+  const int m = (first >= 0 && last >= first) ? ((last < n ? last : n - 1) - first + 1) : n;
+  return 2 * (m > 0 ? m : n) * 3;
+}
+
+size_t targetOutTick(const TargetOutParams& p, TargetOutState& s, uint8_t* out, bool* reused) {
+  const int n = p.n;
+  // The wanted colours depend only on the picture, the settings and the table: while a target eases toward a picture that has not changed (several output ticks per
+  // Sync Box packet), they are not worked out again.
+  const bool sameInput = !p.testing && s.tgtValid && s.tgtN == n && s.tgtGen == p.gen && memcmp(s.lastZones, p.zones, sizeof s.lastZones) == 0;
+  if (!sameInput) {
+    applyTable(p.table, n, p.zones, s.tgt, p.smooth, p.vivid);
+    if (p.sat != 1.f) saturateColours(s.tgt, n, p.sat);                                        // the target's own saturation, on top of the shared one
+    if (p.blur > 0 && p.blurScratch) blurColours(s.tgt, n, p.spanFirst, p.spanLast, p.blur, p.blurScratch);   // soften the steps between zones
+    if (p.darkOut) darkOutside(s.tgt, n, p.spanFirst, p.spanLast);                               // the part of the strip not along the picture stays dark
+    memcpy(s.lastZones, p.zones, sizeof s.lastZones);
+    s.tgtValid = !p.testing;
+    s.tgtN = n;
+    s.tgtGen = p.gen;
+  }
+  if (reused) *reused = sameInput;
+  const bool freshCur = !s.curValid;
+  if (!s.curValid) {
+    scaleColours(s.cur, s.tgt, n, p.trim);
+    s.curValid = true;
+    s.converged = p.interp ? p.motionSettled : true;
+  } else if (p.interp && !p.testing) {                     // Motion smoothing: the picture is already slid in time, no easing on top of it
+    scaleColours(s.cur, s.tgt, n, p.trim);
+    s.converged = p.motionSettled;
+  } else {
+    const float worst = easeColours(s.cur, s.tgt, n, p.trim, smoothDecay(p.smoothing, p.dtMs, p.refMs));
+    s.converged = worst < 0.5f;                            // less than half a colour step away: nothing visible left to smooth
+  }
+  const float* shown = s.cur;
+  if (finishActive(p.finish) && p.finishBuffers) {        // black cut-off, deadband, dither: after every temporal stage, so Reaction boost is not touched
+    finishColours(s.cur, n, s.held, s.resid, s.dark, p.finish, !s.converged, freshCur || s.finGen != p.gen, s.fin);
+    s.finGen = p.gen;
+    shown = s.fin;
+  }
+  return packColours(shown, n, p.whiteMin, out);
+}
+
 void speedReset(SpeedDetect& d) { d = SpeedDetect(); }
 
 void speedPush(SpeedDetect& d, const uint8_t zones[kZones][3], int steps) {

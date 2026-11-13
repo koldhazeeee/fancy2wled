@@ -219,6 +219,53 @@ struct FinishParams { float deadband = 0.f; int blackCut = 0; bool dither = fals
 inline bool finishActive(const FinishParams& p) { return p.deadband > 0.f || p.blackCut > 0 || p.dither; }
 void finishColours(const float* cur, int n, float* held, float* resid, uint8_t* dark, const FinishParams& p, bool moving, bool fresh, float* out);
 
+// ---- one target's colour work in an output tick --------------------------------
+// Everything the relay does to one target's LEDs between "the picture to show" (24 zones, already adjusted, boosted or slid in time) and the bytes that go to the
+// network: mixing the LEDs from the zones (applyTable), the target's own saturation, blur and dark-outside, the temporal stage (easing toward the wanted colours, or
+// none when Motion smoothing already slid the picture), the finishing stage and packing. It lives here, not in the relay, so the whole chain is tested on a PC.
+// The state belongs to the caller (one per target); the caller allocates the buffers (n LEDs: tgt and cur n * 3 floats; the finishing stage's held, resid and fin
+// n * 3 floats and dark n bytes, only needed while that stage is on).
+struct TargetOutState {
+  float* tgt = nullptr;                  // the wanted colours (the zones mixed onto the LEDs, before easing)
+  float* cur = nullptr;                  // the colours shown (eased toward tgt * trim)
+  float* held = nullptr;                 // the finishing stage's state and output (see finishColours)
+  float* resid = nullptr;
+  float* fin = nullptr;
+  uint8_t* dark = nullptr;
+  float lastZones[kZones][3] = {};       // the zones tgt was computed from: a tick with the same picture, settings and table reuses tgt
+  bool tgtValid = false;
+  int tgtN = 0;
+  uint32_t tgtGen = 0xFFFFFFFF;
+  bool curValid = false;                 // false: the next tick shows the wanted colours at once (no easing from stale colours)
+  bool converged = false;                // after the tick: nothing visible is left to ease or slide (the caller may stop ticking)
+  uint32_t finGen = 0xFFFFFFFF;          // the settings generation the finishing state belongs to
+};
+struct TargetOutParams {
+  const Entry* table = nullptr;          // n entries
+  int n = 0;
+  const float (*zones)[3] = nullptr;     // the picture to show: kZones colours
+  uint32_t gen = 0;                      // the settings generation: when it changes, nothing is reused
+  SmoothInfo smooth = {0, -1, 0, 0, 0u, 0u};
+  bool vivid = false;
+  float sat = 1.f;                       // the target's own saturation (1 = untouched)
+  int blur = 0;                          // blur along the picture part, in LEDs (0 = off)
+  float* blurScratch = nullptr;          // blurScratchFloats(n, spanFirst, spanLast) floats; no blur when null
+  bool darkOut = false;
+  int spanFirst = -1, spanLast = -1;     // the TV part of the strip (-1 = none)
+  float trim = 1.f;                      // the target's brightness
+  bool testing = false;                  // the zones are a test pattern: the wanted colours are not kept for reuse
+  bool interp = false;                   // the zones were slid in time by Motion smoothing: no easing on top
+  bool motionSettled = true;             // ... and Motion smoothing has reached the newest picture
+  float smoothing = 0.f, dtMs = 0.f, refMs = 1000.f / 30.f;   // Smoothing over time and the time since the previous tick (see smoothDecay)
+  FinishParams finish;
+  bool finishBuffers = false;            // the state's finishing buffers are allocated for n LEDs (the stage runs only then)
+  bool whiteMin = false;                 // RGBW output
+};
+// Runs the chain and writes the bytes (n * 3, or n * 4 for RGBW) to out; returns how many. reused (may be null): the wanted colours were kept from the previous tick.
+size_t targetOutTick(const TargetOutParams& p, TargetOutState& s, uint8_t* out, bool* reused = nullptr);
+// The scratch blurColours needs for the picture part first..last of n LEDs (first < 0 = the whole strip), in floats.
+int blurScratchFloats(int n, int first, int last);
+
 // Vivid blending between two zone colours. Mixing two colours in RGB (red and green half and half is a dull dark yellow) turns unlike hues into
 // grey or brown in between. This blends along the colour wheel instead: the hue takes the shorter way round from one colour to the other (red -> orange ->
 // yellow -> green), saturation and brightness blend straight. A grey or black end has no hue of its own and takes the other end's. w = 0 gives a, 1 gives b.

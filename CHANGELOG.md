@@ -6,6 +6,9 @@ repository's releases page.
 
 ## Unreleased
 
+* Behind the scenes: the colour work of an output tick (mixing, saturation, blur, easing, the finishing stage, packing) moved from the relay into the tested core
+  (`targetOutTick`), so the whole chain is now tested on a PC. The LED output is byte for byte the same (36 fixed pictures on the board, and a frozen copy of the
+  0.4.12 code compared over 21,000 random ticks) and it is not slower on the board (212 against 214 microseconds per tick on four real targets).
 * The README shows a 14-second animation of the lights following the picture (an animated image, so it plays on the README itself), with a 1080p video file to download, so people can see the result before setting anything up. No sound, no metadata.
 
 ## 0.4.12 - 2026-11-06

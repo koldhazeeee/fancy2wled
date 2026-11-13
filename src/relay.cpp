@@ -93,23 +93,16 @@ struct Mark {                                  // marker blocks (the setup page 
   bool dirty = true;
 };
 struct Rt {
-  float *tgt = nullptr, *cur = nullptr;        // wanted / shown colours of this target's LEDs (n * 3)
-  int cap = 0;
-  float *held = nullptr, *resid = nullptr, *fin = nullptr;   // the finishing stage's state per LED (n * 3 each) and its output ...
-  uint8_t* dark = nullptr;                     // ... and whether an LED is below the black cut-off (n); allocated only while that stage is on
-  int finCap = 0;
-  uint32_t finGen = 0xFFFFFFFF;                // the settings generation the state belongs to (a change of settings starts it afresh)
-  float lastZones[kZones][3] = {};             // the zone colours tgt was computed from: a tick with no new picture (easing toward it) does not compute it again
-  bool tgtValid = false;
-  int tgtN = 0;
-  uint32_t tgtGen = 0xFFFFFFFF;
+  TargetOutState o;                            // the colour work (targetOutTick in core.h): wanted / shown colours (n * 3 each), the finishing stage's buffers (only while it is on)
+  int cap = 0;                                 // LEDs o.tgt / o.cur have room for
+  int finCap = 0;                              // LEDs the finishing buffers have room for
   uint8_t* last = nullptr;                     // the last frame sent: identical frames are not sent again
   int lastCap = 0;
   size_t lastLen = 0;                          // 0 = nothing valid (the next frame is always sent)
   int lastStart = 0;
   bool lastRgbw = false;
   uint32_t lastSendMs = 0;
-  bool curValid = false, converged = false, prepared = false, wasTesting = false;
+  bool prepared = false, wasTesting = false;
   uint32_t smoothUs = 0, computedGen = 0xFFFFFFFF, smoothGen = 0xFFFFFFFF;
   SmoothInfo smooth = {0, -1, 0, 0, 0u, 0u};   // how the strip beyond the TV eases (recomputed when settings change)
   // The WLED's address. A name (wled-ceiling.local) is resolved by the background task, never by the relay loop (a lookup can take
@@ -150,38 +143,41 @@ static Rt gRt[kMaxTargets];
 static int gCalTarget = -1;                    // the target with a finder / calibration session (one at a time)
 
 static void freeBuffers(Rt& r) {
-  free(r.tgt); free(r.cur); free(r.last); free(r.held); free(r.resid); free(r.fin); free(r.dark);
-  r.tgt = r.cur = r.held = r.resid = r.fin = nullptr;
-  r.dark = nullptr;
+  TargetOutState& o = r.o;
+  free(o.tgt); free(o.cur); free(r.last); free(o.held); free(o.resid); free(o.fin); free(o.dark);
+  o.tgt = o.cur = o.held = o.resid = o.fin = nullptr;
+  o.dark = nullptr;
   r.finCap = 0;
-  r.tgtValid = false;
+  o.tgtValid = false;
   r.last = nullptr;
   r.cap = r.lastCap = 0;
   r.lastLen = 0;
-  r.curValid = false;
-  r.converged = false;
+  o.curValid = false;
+  o.converged = false;
 }
 static bool ensureBuffers(Rt& r, int n) {
-  if (r.cap >= n && r.tgt && r.cur && r.last) return true;
+  TargetOutState& o = r.o;
+  if (r.cap >= n && o.tgt && o.cur && r.last) return true;
   freeBuffers(r);
-  r.tgt = (float*)malloc(sizeof(float) * n * 3);
-  r.cur = (float*)malloc(sizeof(float) * n * 3);
+  o.tgt = (float*)malloc(sizeof(float) * n * 3);
+  o.cur = (float*)malloc(sizeof(float) * n * 3);
   r.last = (uint8_t*)malloc((size_t)n * 4);
-  if (!r.tgt || !r.cur || !r.last) { freeBuffers(r); return false; }
+  if (!o.tgt || !o.cur || !r.last) { freeBuffers(r); return false; }
   r.cap = n;
   r.lastCap = n * 4;
   return true;
 }
 
 static bool ensureFinish(Rt& r, int n) {                                  // the finishing stage's memory: only while the stage is on
-  if (r.finCap >= n && r.held && r.resid && r.fin && r.dark) return true;
-  free(r.held); free(r.resid); free(r.fin); free(r.dark);
-  r.held = (float*)calloc((size_t)n * 3, sizeof(float));
-  r.resid = (float*)calloc((size_t)n * 3, sizeof(float));
-  r.fin = (float*)calloc((size_t)n * 3, sizeof(float));
-  r.dark = (uint8_t*)calloc((size_t)n, 1);
-  r.finGen = 0xFFFFFFFF;
-  if (!r.held || !r.resid || !r.fin || !r.dark) { free(r.held); free(r.resid); free(r.fin); free(r.dark); r.held = r.resid = r.fin = nullptr; r.dark = nullptr; r.finCap = 0; return false; }
+  TargetOutState& o = r.o;
+  if (r.finCap >= n && o.held && o.resid && o.fin && o.dark) return true;
+  free(o.held); free(o.resid); free(o.fin); free(o.dark);
+  o.held = (float*)calloc((size_t)n * 3, sizeof(float));
+  o.resid = (float*)calloc((size_t)n * 3, sizeof(float));
+  o.fin = (float*)calloc((size_t)n * 3, sizeof(float));
+  o.dark = (uint8_t*)calloc((size_t)n, 1);
+  o.finGen = 0xFFFFFFFF;
+  if (!o.held || !o.resid || !o.fin || !o.dark) { free(o.held); free(o.resid); free(o.fin); free(o.dark); o.held = o.resid = o.fin = nullptr; o.dark = nullptr; r.finCap = 0; return false; }
   r.finCap = n;
   return true;
 }
@@ -718,8 +714,8 @@ static void requestRestore(int i, bool switchOff = false) {
     if (switchOff) r.offByTv = true;
   }
   r.prepared = false;
-  r.curValid = false;
-  r.converged = false;
+  r.o.curValid = false;
+  r.o.converged = false;
   r.lastLen = 0;
 }
 
@@ -978,18 +974,18 @@ void relayStatus(RelayStatus& s, bool detail) {
   else s.state = "relaying";
 }
 
-// Blur along a strip's picture part (spanFirst..spanLast; no part set = the whole strip) with a scratch buffer that is allocated the first time it is needed.
+// The scratch the blur along a strip's picture part needs (spanFirst..spanLast; no part set = the whole strip), allocated the first time it is needed and shared by
+// the targets (they are worked out one after the other). Null when it cannot be had: the blur is then left out.
 static float* gBlurScratch = nullptr;
 static int gBlurCap = 0;
-static void blurPart(float* rgb, int n, int first, int last, int blur) {
-  const int m = (first >= 0 && last >= first) ? ((last < n ? last : n - 1) - first + 1) : n;
-  const int need = 2 * (m > 0 ? m : n) * 3;
+static float* blurScratch(int n, int first, int last) {
+  const int need = blurScratchFloats(n, first, last);
   if (need > gBlurCap) {
     free(gBlurScratch);
     gBlurScratch = (float*)malloc((size_t)need * sizeof(float));
     gBlurCap = gBlurScratch ? need : 0;
   }
-  if (gBlurScratch) blurColours(rgb, n, first, last, blur, gBlurScratch);
+  return gBlurScratch;
 }
 
 // ---------------------------------------------------------------- the main relay step
@@ -999,7 +995,7 @@ static void blurPart(float* rgb, int n, int first, int last, int blur) {
 // to a target is not sent again (a keep-alive every second stops WLED leaving realtime mode).
 void relayLoop() {
   const bool gotNew = pollBox();
-  if (gotNew) { gNewPending = true; for (int i = 0; i < kMaxTargets; i++) gRt[i].converged = false; }
+  if (gotNew) { gNewPending = true; for (int i = 0; i < kMaxTargets; i++) gRt[i].o.converged = false; }
   const uint32_t now = millis();
   gWaitHintMs = 10;
   if (!gGoveeBootDone && WiFi.status() == WL_CONNECTED) { int n0; { Lock l; n0 = gSet.nTargets; } goveeBootHandBack(n0); }   // once, before any stream is prepared
@@ -1026,7 +1022,7 @@ void relayLoop() {
   for (int i = nT; i < kMaxTargets; i++) {                  // targets that no longer exist: hand their WLED back and free their memory
     Rt& r = gRt[i];
     if (r.prepared) requestRestore(i);
-    if (r.tgt) { Lock l; freeBuffers(r); }
+    if (r.o.tgt) { Lock l; freeBuffers(r); }
     if (r.cal.active || r.cal.endPending) { Lock l; r.cal = Cal(); if (gCalTarget == i) gCalTarget = -1; }
     r.testUntil = 0; r.mark.until = 0;
   }
@@ -1054,7 +1050,7 @@ void relayLoop() {
     }
     bool marking, send = false;
     { Lock l; marking = r.mark.until && (int32_t)(r.mark.until - now) > 0;
-      if (r.mark.until && !marking) { r.mark.until = 0; r.curValid = false; }          // expired: the picture takes over again
+      if (r.mark.until && !marking) { r.mark.until = 0; r.o.curValid = false; }          // expired: the picture takes over again
       if (marking) send = r.mark.dirty || now - r.mark.lastSend > 200; }
     if (marking) {
       if (!r.prepared) { String host; { Lock l; host = gSet.t[i].wHost; } requestPrepare(i, host, sn[i].turnOn, sn[i].bri, sn[i].restore); }
@@ -1072,7 +1068,7 @@ void relayLoop() {
   const uint32_t since = now - gLastTick;
   bool anyBehind = false;
   for (int i = 0; i < nT; i++)
-    if (streaming[i] && (!gRt[i].converged || !gRt[i].curValid || gRt[i].computedGen != gSettingsGen)) anyBehind = true;
+    if (streaming[i] && (!gRt[i].o.converged || !gRt[i].o.curValid || gRt[i].computedGen != gSettingsGen)) anyBehind = true;
   const bool eventDue = gNewPending && since >= kMinGapMs;           // a new picture: send it right away
   const bool tickDue = since >= tickMs && anyBehind;                 // keep smoothing toward the target
   if (!eventDue && !tickDue) {
@@ -1114,7 +1110,7 @@ void relayLoop() {
       String host; { Lock l; host = gSet.t[i].wHost; }
       requestPrepare(i, host, sn[i].turnOn, sn[i].bri, sn[i].restore);
     }
-    if (testing != r.wasTesting) { r.wasTesting = testing; r.converged = false; }
+    if (testing != r.wasTesting) { r.wasTesting = testing; r.o.converged = false; }
     // A Govee light's first frame carries "streaming on", which switches it on: until the prepare job has read what the light was like (on or off, how bright), send
     // nothing, or the job would record the light as "on" and hand it back on even though it was off.
     if (sn[i].kind == 1) { bool ready; { Lock l; ready = r.prepDone; } if (!ready) { allConverged = false; continue; } }
@@ -1134,51 +1130,26 @@ void relayLoop() {
         const float(*zones)[3] = interp ? zi : gAdj;
         if (testing) { float raw[kZones][3]; rainbowZones(raw); adjustInto(adjR, raw); zones = adjR; }
         if (r.smoothGen != gSettingsGen) { r.smooth = smoothInfo(gTable[i], n, gSet.smoothOut); r.smoothGen = gSettingsGen; }
-        // The wanted colours depend only on the picture, the settings and the table: while this target eases toward a picture that has not changed (several output
-        // ticks per Sync Box packet), they are not worked out again.
-        const bool sameInput = !testing && r.tgtValid && r.tgtN == n && r.tgtGen == gSettingsGen && memcmp(r.lastZones, zones, sizeof r.lastZones) == 0;
-        if (!sameInput) {
-          applyTable(gTable[i], n, zones, r.tgt, r.smooth, sn[i].vivid);
-          if (sn[i].sat != 1.f) saturateColours(r.tgt, n, sn[i].sat);                  // this target's own saturation, on top of the shared one
-          if (sn[i].blur > 0) blurPart(r.tgt, n, sn[i].spanFirst, sn[i].spanLast, sn[i].blur);   // soften the steps between zones along the picture part
-          if (sn[i].darkOut) darkOutside(r.tgt, n, sn[i].spanFirst, sn[i].spanLast);   // the part of the strip that is not along the picture stays dark
-          memcpy(r.lastZones, zones, sizeof r.lastZones);
-          r.tgtValid = !testing;
-          r.tgtN = n;
-          r.tgtGen = gSettingsGen;
-        }
-        FWB_TICK_STAT_NOTE(sameInput);
-        r.computedGen = gSettingsGen;
-        const float smo = gSet.kSmo;
-        const float trim = sn[i].trim;
         const uint32_t nowUs = micros();
-        const bool freshCur = !r.curValid;
-        if (!r.curValid) {
-          scaleColours(r.cur, r.tgt, n, trim);
-          r.curValid = true;
-          r.converged = interp ? motionSettled : true;
-        } else if (interp && !testing) {                     // motion smoothing: the picture is already slid in time, no easing on top of it
-          scaleColours(r.cur, r.tgt, n, trim);
-          r.converged = motionSettled;
-        } else {
-          const float decay = smoothDecay(smo, (nowUs - r.smoothUs) / 1000.f, (float)tickMs);
-          const float worst = easeColours(r.cur, r.tgt, n, trim, decay);
-          r.converged = worst < 0.5f;                        // less than half a colour step away: nothing visible left to smooth
-        }
+        TargetOutParams p;                                   // the colour work itself is in the core (targetOutTick), so it is tested on a PC
+        p.table = gTable[i]; p.n = n; p.zones = zones; p.gen = gSettingsGen; p.smooth = r.smooth;
+        p.vivid = sn[i].vivid; p.sat = sn[i].sat; p.blur = sn[i].blur; p.darkOut = sn[i].darkOut; p.spanFirst = sn[i].spanFirst; p.spanLast = sn[i].spanLast;
+        if (p.blur > 0) p.blurScratch = blurScratch(n, p.spanFirst, p.spanLast);
+        p.trim = sn[i].trim; p.testing = testing; p.interp = interp; p.motionSettled = motionSettled;
+        p.smoothing = gSet.kSmo; p.dtMs = (nowUs - r.smoothUs) / 1000.f; p.refMs = (float)tickMs;
+        p.finish = fin; p.finishBuffers = finishActive(fin) && ensureFinish(r, n);
+        p.whiteMin = sn[i].whiteMin;
+        bool reused = false;
+        len = targetOutTick(p, r.o, gPayload, &reused);
+        FWB_TICK_STAT_NOTE(reused);
+        r.computedGen = gSettingsGen;
         r.smoothUs = nowUs;
-        const float* shown = r.cur;
-        if (finishActive(fin) && ensureFinish(r, n)) {                                // black cut-off, deadband, dither: after every temporal stage, so Reaction boost is not touched
-          finishColours(r.cur, n, r.held, r.resid, r.dark, fin, !r.converged, freshCur || r.finGen != gSettingsGen, r.fin);
-          r.finGen = gSettingsGen;
-          shown = r.fin;
-        }
-        len = packColours(shown, n, sn[i].whiteMin, gPayload);
         packed = true;
       }
     }
     FWB_TICK_STAT_END(packed);
     if (!packed) continue;
-    if (!r.converged) allConverged = false;
+    if (!r.o.converged) allConverged = false;
     const bool same = len == r.lastLen && sn[i].start == r.lastStart && sn[i].whiteMin == r.lastRgbw && memcmp(gPayload, r.last, len) == 0;
     if (!same && sn[i].kind == 1 && r.lastLen && now - r.lastSendMs < kGoveeGapMs) { allConverged = false; continue; }   // a Govee light is not flooded: the newest colours go out on the next tick
     if (same && now - r.lastSendMs < kKeepaliveMs) {
@@ -1335,8 +1306,8 @@ static void finishCal(int i) {
   if (govee) {                                                  // hand the light back like at the end of a stream (the picture prepares it again if it is still on)
     if (gRt[i].prepared) requestRestore(i);
     Rt& rg = gRt[i];
-    rg.curValid = false;
-    rg.converged = false;
+    rg.o.curValid = false;
+    rg.o.converged = false;
     rg.lastLen = 0;
     return;
   }
@@ -1346,8 +1317,8 @@ static void finishCal(int i) {
     postJob(j);
   }
   Rt& r = gRt[i];
-  r.curValid = false;
-  r.converged = false;
+  r.o.curValid = false;
+  r.o.converged = false;
   r.prepared = false;
   r.lastLen = 0;
 }
@@ -1358,7 +1329,7 @@ void testPattern(int target, int seconds) {
     if (target >= 0 && i != target) continue;
     Rt& r = gRt[i];
     r.testUntil = seconds > 0 ? millis() + (uint32_t)seconds * 1000UL : 0;
-    if (!r.testUntil) r.curValid = false;
+    if (!r.testUntil) r.o.curValid = false;
   }
 }
 
@@ -1388,7 +1359,7 @@ void markShow(int target, const MarkBlock* blocks, int n, int seconds) {
   if (target < 0 || target >= gSet.nTargets) return;
   Rt& r = gRt[target];
   if (r.cal.active) return;                      // calibration owns the LEDs
-  if (seconds <= 0 || n <= 0) { if (r.mark.until) r.curValid = false; r.mark.until = 0; return; }
+  if (seconds <= 0 || n <= 0) { if (r.mark.until) r.o.curValid = false; r.mark.until = 0; return; }
   if (n > 8) n = 8;
   for (int i = 0; i < n; i++) r.mark.b[i] = blocks[i];
   r.mark.n = n;

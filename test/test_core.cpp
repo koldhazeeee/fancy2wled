@@ -21,6 +21,128 @@ static int g_fail = 0, g_pass = 0;
     else { g_fail++; printf("FAIL: " __VA_ARGS__); printf("\n"); } \
   } while (0)
 
+// The colour block of relayLoop exactly as it was in src/relay.cpp at commit 93e6c2e (0.4.12), before it moved into the core as targetOutTick: same calls, same order,
+// same state. targetOutTick has to give the same bytes and leave the same state, tick after tick.
+namespace relay0412 {
+struct St {
+  std::vector<float> tgt, cur, held, resid, fin;
+  std::vector<uint8_t> dark;
+  float lastZones[kZones][3] = {};
+  bool tgtValid = false; int tgtN = 0; uint32_t tgtGen = 0xFFFFFFFF;
+  bool curValid = false, converged = false;
+  uint32_t finGen = 0xFFFFFFFF;
+};
+static size_t tick(St& r, const Entry* table, int n, const float (*zones)[3], uint32_t gen, const SmoothInfo& smooth, bool vivid, float sat, int blur, bool darkOut,
+                   int spanFirst, int spanLast, float trim, bool testing, bool interp, bool motionSettled, float smo, float dtMs, float tickMs, const FinishParams& fin,
+                   bool finBuffers, bool whiteMin, uint8_t* out, bool* sameOut) {
+  const bool sameInput = !testing && r.tgtValid && r.tgtN == n && r.tgtGen == gen && memcmp(r.lastZones, zones, sizeof r.lastZones) == 0;
+  if (!sameInput) {
+    applyTable(table, n, zones, r.tgt.data(), smooth, vivid);
+    if (sat != 1.f) saturateColours(r.tgt.data(), n, sat);
+    if (blur > 0) {
+      const int m = (spanFirst >= 0 && spanLast >= spanFirst) ? ((spanLast < n ? spanLast : n - 1) - spanFirst + 1) : n;
+      std::vector<float> scratch((size_t)(2 * (m > 0 ? m : n) * 3));
+      blurColours(r.tgt.data(), n, spanFirst, spanLast, blur, scratch.data());
+    }
+    if (darkOut) darkOutside(r.tgt.data(), n, spanFirst, spanLast);
+    memcpy(r.lastZones, zones, sizeof r.lastZones);
+    r.tgtValid = !testing;
+    r.tgtN = n;
+    r.tgtGen = gen;
+  }
+  *sameOut = sameInput;
+  const bool freshCur = !r.curValid;
+  if (!r.curValid) {
+    scaleColours(r.cur.data(), r.tgt.data(), n, trim);
+    r.curValid = true;
+    r.converged = interp ? motionSettled : true;
+  } else if (interp && !testing) {
+    scaleColours(r.cur.data(), r.tgt.data(), n, trim);
+    r.converged = motionSettled;
+  } else {
+    const float decay = smoothDecay(smo, dtMs, tickMs);
+    const float worst = easeColours(r.cur.data(), r.tgt.data(), n, trim, decay);
+    r.converged = worst < 0.5f;
+  }
+  const float* shown = r.cur.data();
+  if (finishActive(fin) && finBuffers) {
+    finishColours(r.cur.data(), n, r.held.data(), r.resid.data(), r.dark.data(), fin, !r.converged, freshCur || r.finGen != gen, r.fin.data());
+    r.finGen = gen;
+    shown = r.fin.data();
+  }
+  return packColours(shown, n, whiteMin, out);
+}
+}  // namespace relay0412
+
+// Random sequences of output ticks through targetOutTick and through the 0.4.12 relay block: pictures that change or stay, settings generations that change, a test
+// pattern switched on and off, Motion smoothing on and off, the finishing stage on and off, RGB and RGBW. Returns the number of ticks that differ in any byte or any state.
+static int targetOutVsRelay0412(int sequences) {
+  uint32_t seed = 0x5EED0412u;
+  auto rnd = [&seed]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return seed; };
+  auto rf = [&rnd]() { return (float)(rnd() % 25600) / 100.f; };
+  int bad = 0;
+  for (int sq = 0; sq < sequences; sq++) {
+    const int n = 1 + (int)(rnd() % 280);
+    std::vector<Entry> tbl((size_t)n);
+    if (sq % 3 == 0) {
+      for (int i = 0; i < n; i++) tbl[(size_t)i] = Entry{(uint8_t)(rnd() % kZones), (uint8_t)(rnd() % kZones), (uint8_t)(rnd() % 256), (uint8_t)(rnd() % 3 ? 0 : rnd() % 256)};
+    } else {
+      const int sf = (int)(rnd() % (uint32_t)n), sl = sf + (int)(rnd() % (uint32_t)(n - sf));
+      tableLinear(tbl.data(), n, rnd() % 2 != 0, rnd() % 4 ? sf : -1, rnd() % 4 ? sl : -1, (int)(rnd() % 4));
+    }
+    const SmoothInfo sm = smoothInfo(tbl.data(), n, (int)(rnd() % 3) * 50);
+    relay0412::St a;
+    a.tgt.assign((size_t)n * 3, 0.f); a.cur.assign((size_t)n * 3, 0.f); a.held.assign((size_t)n * 3, 0.f); a.resid.assign((size_t)n * 3, 0.f); a.fin.assign((size_t)n * 3, 0.f);
+    a.dark.assign((size_t)n, 0);
+    std::vector<float> tgt((size_t)n * 3, 0.f), cur((size_t)n * 3, 0.f), held((size_t)n * 3, 0.f), resid((size_t)n * 3, 0.f), fin((size_t)n * 3, 0.f), scratch;
+    std::vector<uint8_t> dark((size_t)n, 0);
+    TargetOutState b;
+    b.tgt = tgt.data(); b.cur = cur.data(); b.held = held.data(); b.resid = resid.data(); b.fin = fin.data(); b.dark = dark.data();
+    float zones[kZones][3];
+    for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) zones[z][c] = rf();
+    uint32_t gen = 1;
+    bool vivid = rnd() % 2, darkOut = rnd() % 4 == 0, whiteMin = rnd() % 4 == 0, interp = rnd() % 3 == 0;
+    float sat = rnd() % 2 ? 1.f : 0.5f + (float)(rnd() % 250) / 100.f, trim = 0.2f + (float)(rnd() % 180) / 100.f, smo = (float)(rnd() % 19) * 0.05f;
+    int blur = rnd() % 2 ? 0 : 1 + (int)(rnd() % 20);
+    const int spanFirst = rnd() % 3 ? (int)(rnd() % (uint32_t)n) : -1, spanLast = spanFirst < 0 ? -1 : spanFirst + (int)(rnd() % (uint32_t)(n - spanFirst + 3));
+    FinishParams fp;
+    std::vector<uint8_t> o1((size_t)n * 4), o2((size_t)n * 4);
+    for (int t = 0; t < 70; t++) {
+      const uint32_t ev = rnd() % 20;
+      if (ev < 6) { for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) zones[z][c] = rnd() % 5 ? rf() : 0.f; }   // a new picture
+      else if (ev == 6) zones[rnd() % kZones][rnd() % 3] = rf();                                                        // one channel moved
+      else if (ev == 7) { gen++; vivid = !vivid; }                                                                      // a setting changed
+      else if (ev == 8) { gen++; fp.deadband = rnd() % 2 ? 0.f : (float)(rnd() % 17) * 0.5f; fp.blackCut = (int)(rnd() % 11); fp.dither = rnd() % 2; }
+      else if (ev == 9) { gen++; sat = rnd() % 2 ? 1.f : (float)(rnd() % 300) / 100.f; blur = rnd() % 2 ? 0 : 1 + (int)(rnd() % 20); darkOut = !darkOut; }
+      else if (ev == 10) interp = !interp;
+      else if (ev == 11) { a.curValid = false; b.curValid = false; }                                                    // the relay forgets what it showed (markers, restore)
+      else if (ev == 12) { gen++; whiteMin = !whiteMin; trim = 0.2f + (float)(rnd() % 180) / 100.f; smo = (float)(rnd() % 19) * 0.05f; }
+      const bool testing = rnd() % 15 == 0, settled = rnd() % 2;
+      const float dt = (float)(rnd() % 120);
+      float zt[kZones][3];
+      const float (*zp)[3] = zones;
+      if (testing) { for (int z = 0; z < kZones; z++) for (int c = 0; c < 3; c++) zt[z][c] = (float)((z * 37 + c * 91) % 256); zp = zt; }
+      const bool finBuf = rnd() % 8 != 0;                                                                               // the finishing buffers could not be had
+      bool same1 = false, same2 = false;
+      const size_t l1 = relay0412::tick(a, tbl.data(), n, zp, gen, sm, vivid, sat, blur, darkOut, spanFirst, spanLast, trim, testing, interp, settled, smo, dt, 33.f, fp,
+                                        finBuf, whiteMin, o1.data(), &same1);
+      TargetOutParams p;
+      p.table = tbl.data(); p.n = n; p.zones = zp; p.gen = gen; p.smooth = sm; p.vivid = vivid; p.sat = sat; p.blur = blur; p.darkOut = darkOut;
+      p.spanFirst = spanFirst; p.spanLast = spanLast; p.trim = trim; p.testing = testing; p.interp = interp; p.motionSettled = settled;
+      p.smoothing = smo; p.dtMs = dt; p.refMs = 33.f; p.finish = fp; p.finishBuffers = finBuf; p.whiteMin = whiteMin;
+      if (blur > 0) { scratch.assign((size_t)blurScratchFloats(n, spanFirst, spanLast), 0.f); p.blurScratch = scratch.data(); }
+      const size_t l2 = targetOutTick(p, b, o2.data(), &same2);
+      const bool stateSame = a.tgtValid == b.tgtValid && a.tgtN == b.tgtN && a.tgtGen == b.tgtGen && a.curValid == b.curValid && a.converged == b.converged &&
+                             a.finGen == b.finGen && memcmp(a.lastZones, b.lastZones, sizeof a.lastZones) == 0 &&
+                             memcmp(a.tgt.data(), tgt.data(), tgt.size() * sizeof(float)) == 0 && memcmp(a.cur.data(), cur.data(), cur.size() * sizeof(float)) == 0 &&
+                             (!finishActive(fp) || !finBuf || (memcmp(a.held.data(), held.data(), held.size() * sizeof(float)) == 0 &&
+                                                                memcmp(a.resid.data(), resid.data(), resid.size() * sizeof(float)) == 0 && memcmp(a.dark.data(), dark.data(), dark.size()) == 0));
+      if (l1 != l2 || memcmp(o1.data(), o2.data(), l1) != 0 || same1 != same2 || !stateSame) bad++;
+    }
+  }
+  return bad;
+}
+
 static std::vector<uint8_t> fromHex(const std::string& h) {
   std::vector<uint8_t> v;
   for (size_t i = 0; i + 1 < h.size(); i += 2) v.push_back((uint8_t)strtol(h.substr(i, 2).c_str(), nullptr, 16));
@@ -1219,6 +1341,13 @@ int main(int argc, char** argv) {
     CHECK(frameBad == 0, "classifyFrame gives the original's answer for valid and damaged frames (%d differ)", frameBad);
     CHECK(finBad == 0, "finishColours, with its state, is bit-identical to the original over random sequences (%d frames differ)", finBad);
     CHECK(adjBad == 0, "adjustZones is within 0.002 of the original (%d values outside)", adjBad);
+  }
+
+  {  // ---- targetOutTick: the relay's colour block, moved into the core, still gives the same bytes and state as the 0.4.12 relay block
+    const int bad = targetOutVsRelay0412(300);
+    CHECK(bad == 0, "targetOutTick matches the 0.4.12 relay block over 300 random sequences of 70 ticks (%d ticks differ)", bad);
+    CHECK(blurScratchFloats(10, -1, -1) == 60 && blurScratchFloats(10, 2, 5) == 24 && blurScratchFloats(10, 4, 99) == 36 && blurScratchFloats(10, 6, 2) == 60,
+          "blurScratchFloats: the whole strip, a part, a part past the end, an empty part");
   }
 
   printf("decode %d, classify %d, usage %d, uv %d, linear %d, loop %d, apply %d, ddp %d, govee %d, sharp %d, vivid %d, motion %d, blur %d, speed %d, finish %d vectors; %d checks passed, %d failed\n",
