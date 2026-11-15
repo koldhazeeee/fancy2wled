@@ -4,7 +4,7 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
-## Unreleased
+## 0.5.0 - 2026-11-14
 
 * Fix: switching the dark-scenes stage (Black cut-off, Hold steady, Dither) off now gives its memory back (37 bytes per LED, about 19 KB on four targets); before,
   it stayed allocated until the next restart.
