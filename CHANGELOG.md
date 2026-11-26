@@ -4,7 +4,7 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
-## Not released yet
+## 0.5.1 - 2026-11-25
 
 Fixes for lights that were not put back the way they were, found in a review of 0.5.0:
 
