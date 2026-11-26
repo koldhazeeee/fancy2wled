@@ -413,7 +413,7 @@ static bool applyLook(const String& key, const String& payload) {
     const bool on = p.equalsIgnoreCase("ON"), off = p.equalsIgnoreCase("OFF");
     if (!on && !off) return false;
     look[key == "dither" ? "dither" : "snapCuts"] = on;
-    return settingsFromJson(d.as<JsonVariantConst>(), true).length() == 0;
+    return settingsChange(d.as<JsonVariantConst>()).length() == 0;
   }
   float v;
   if (!parseNumber(payload, &v)) return false;
@@ -434,7 +434,7 @@ static bool applyLook(const String& key, const String& payload) {
   else if (key == "vibrance" && v >= -100.f && v <= 100.f) look["vibrance"] = v;
   else if (key == "flash_limit" && v >= 0.f && v <= 100.f) look["flashLimit"] = v;
   else return false;
-  return settingsFromJson(d.as<JsonVariantConst>(), true).length() == 0;
+  return settingsChange(d.as<JsonVariantConst>()).length() == 0;
 }
 
 static void onCommand(const String& topic, const String& payload) {
@@ -448,7 +448,7 @@ static void onCommand(const String& topic, const String& payload) {
     if (!on && !off) return;                              // anything else is ignored, never read as "off"
     JsonDocument d;
     d["relay"]["enabled"] = on;
-    settingsFromJson(d.as<JsonVariantConst>(), true);
+    settingsChange(d.as<JsonVariantConst>());
   } else if (rel.startsWith("target/")) {                   // target/<n>/set (ON / OFF) and target/<n>/trim/set (0-150)
     const String r = rel.substring(7);
     const int slash = r.indexOf('/');
@@ -473,7 +473,7 @@ static void onCommand(const String& topic, const String& payload) {
     } else {
       return;
     }
-    if (settingsFromJson(d.as<JsonVariantConst>(), true).length()) return;
+    if (settingsChange(d.as<JsonVariantConst>()).length()) return;
   } else if (rel.startsWith("look/") && rel.endsWith("/set")) {
     if (!applyLook(rel.substring(5, rel.length() - 4), payload)) return;
   } else if (rel.startsWith("button/") && rel.endsWith("/press")) {

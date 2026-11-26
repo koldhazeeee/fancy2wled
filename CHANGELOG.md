@@ -4,6 +4,23 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## Not released yet
+
+Fixes for lights that were not put back the way they were, found in a review of 0.5.0:
+
+* Fix: two targets on the same WLED (two runs of one strip) left it switched on after the hand-back even when it had been off. The second target read the WLED
+  after the first had switched it on and put back that state last. Now they share the state from before the stream, and the WLED is handed back once, when the
+  last of them stops (until then a target that stops goes dark).
+* Fix: when a WLED answered but its on / off state could not be read (a timeout), the hand-back switched it off at brightness 0. The state is now asked twice, and
+  when it is still unknown the WLED is only taken out of streaming, not switched off. The setup page's *Check this WLED* no longer says "currently off" then.
+* Fix: the LED finder and the markers on a Govee light switched it on before its state had been read, so it was handed back on even when it had been off. They
+  now wait, like the picture already did.
+* Fix: running the LED finder on a WLED that was being streamed to made the stream's own state ("on") the one handed back for good.
+* Fix: the setup page showed a WLED's name and version as markup. Anything on the network that answers at the address you check could have run script in the
+  page. They are shown as text now, and so are the error messages.
+* Fix: a change from Home Assistant, the button or a new page password while *Preview on the lights* was open also saved the preview, which could then not be
+  reverted. Now only the change is saved; the preview stays a preview.
+
 ## 0.5.0 - 2026-11-14
 
 * Fix: switching the dark-scenes stage (Black cut-off, Hold steady, Dither) off now gives its memory back (37 bytes per LED, about 19 KB on four targets); before,

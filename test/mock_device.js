@@ -86,7 +86,14 @@ function createDevice(opts) {
       if (p === '/api/zones') return json(res, 200, { age: state.zonesAge != null ? state.zonesAge : 40, zones: state.zones || Array.from({ length: 24 }, () => [state.screen === 'white' ? 200 : 0, 0, 0]) });
       if (p === '/api/screen') return json(res, 200, { mode: state.calActive ? state.screen : 'idle' });
       if (p === '/api/wled/discover') return json(res, 200, { devices: [{ name: 'wled-test', ip: '192.0.2.50', host: 'wled-test.local' }] });
-      if (p === '/api/wled/info') return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false, on: true, bri: 128 });
+      if (p === '/api/wled/info') {
+        const h = url.searchParams.get('host');
+        // a device whose name and version carry markup (anything on the network can answer there), one whose state could not be read (no on / bri), one that is off
+        if (h === 'wled-markup.local') return json(res, 200, { name: '<img id="xssProbe" src="x" onerror="window.__xss=1">Den', ver: '0.15<b>', leds: state.total, rgbw: false, on: true, bri: 128 });
+        if (h === 'wled-nostate.local') return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false });
+        if (h === 'wled-off.local') return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false, on: false, bri: 128 });
+        return json(res, 200, { name: 'WLED', ver: '0.15', leds: state.total, rgbw: false, on: true, bri: 128 });
+      }
       if (p === '/api/govee/discover') return json(res, 200, { devices: [{ name: 'Govee H61C3', ip: '192.0.2.60', host: '192.0.2.60', device: 'AA:BB:CC:DD:EE:FF:00:11' }] });
       if (p === '/api/govee/info') {
         state.goveeInfoCalls = (state.goveeInfoCalls || 0) + 1;

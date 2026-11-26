@@ -153,6 +153,9 @@ String settingsImport(JsonVariantConst doc);
 // persist=false is a live preview: used immediately but not written to flash (settingsRevert() drops it).
 // imported=true (a config file): the firmware-update settings in it are ignored, so a file cannot set the update password.
 String settingsFromJson(JsonVariantConst d, bool persist = true, bool imported = false);
+// A change from outside the setup page (Home Assistant, the button): applied and saved like settingsFromJson(d, true), but a live preview the page has open is not saved
+// with it; it stays a preview (shown with the change on top) that the page can still save or revert. "" or an error message.
+String settingsChange(JsonVariantConst d);
 // Set (8-64 printable characters) or remove ("") the setup page's password; when one is set, `current` must be it. "" or an error message.
 String pagePassSet(const String& current, const String& pass);
 void settingsRevert();
@@ -250,7 +253,8 @@ bool relayZones(uint8_t zones[fwb::kZones][3], uint32_t* ageMs);   // latest dec
 // being streamed to); leds = the LEDs (or Govee segments) in that frame. The setup page draws it under the picture map.
 int relayLeds(int target, uint8_t* rgb, int maxSamples, int* leds);
 // WLED queries used by the web UI
-struct WledInfo { bool ok = false; String name, ver, error; int leds = 0; bool rgbw = false, on = false; int bri = 0; int fps = 0; };   // fps: the refresh rate WLED reports
+// fps: the refresh rate WLED reports. stateOk: on / bri were read (/json/state answered); when false they are only defaults and must not be taken for the WLED's state.
+struct WledInfo { bool ok = false; String name, ver, error; int leds = 0; bool rgbw = false, on = false; int bri = 0; int fps = 0; bool stateOk = false; };
 WledInfo wledQuery(const String& host);
 int wledDiscover(String& jsonOut);          // mDNS scan, writes a JSON array
 

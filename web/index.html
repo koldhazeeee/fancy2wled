@@ -730,7 +730,7 @@ input[type=range].wide{width:100%}
       var m=s.mqtt;if(m){var e=$('mqStatus');
         if(!m.enabled)e.innerHTML='<span class="mut">Off</span>';
         else if(m.connected)e.innerHTML='<span class="ok">Connected to the broker. Home Assistant should show a "Fancy2WLED" device.</span>';
-        else e.innerHTML='<span class="warn">Not connected'+(m.error?': '+m.error:'')+'</span>';}
+        else e.innerHTML='<span class="warn">Not connected'+(m.error?': '+esc(m.error):'')+'</span>';}
       info();
       return s;
     }catch(e){pill('pWifi','bad','No connection to the relay');return null;}
@@ -1194,7 +1194,7 @@ input[type=range].wide{width:100%}
     if($('mqPass').value!=='')m.pass=$('mqPass').value;
     $('mqStatus').innerHTML='<span class="mut">Saving...</span>';
     try{await j('/api/config',{mqtt:m});$('mqPass').value='';$('mqStatus').innerHTML='<span class="mut">Saved. Connecting...</span>';setTimeout(status,3000);}
-    catch(e){$('mqStatus').innerHTML='<span class="err">'+e.message+'</span>';}
+    catch(e){$('mqStatus').innerHTML='<span class="err">'+esc(e.message)+'</span>';}
   };
   $('tKind').addEventListener('change',function(){      // switching the type: sensible starting values for a Govee light (entry 0 is its right-hand end)
     applyKind();
@@ -1234,16 +1234,17 @@ input[type=range].wide{width:100%}
     }
     try{var d=await j('/api/wled/info?host='+encodeURIComponent($('wHost').value.trim()));
       totalLeds=d.leds;$('totLeds').textContent=totalLeds;$('fPos').max=Math.max(0,totalLeds-1);
-      $('wInfo').innerHTML='<span class="ok">'+d.name+' | WLED '+d.ver+' | '+d.leds+' LEDs'+(d.rgbw?' (RGBW)':'')+(d.on?'':' | currently off')+'</span>';
+      /* the name and version come from whatever answered at that address: text, never markup */
+      $('wInfo').innerHTML='<span class="ok">'+esc(d.name)+' | WLED '+esc(d.ver)+' | '+(d.leds|0)+' LEDs'+(d.rgbw?' (RGBW)':'')+(d.on===false?' | currently off':'')+'</span>';
       if(!parseInt($('wCount').value,10)){$('wCount').value=d.leds;changed();}
       info();
-    }catch(e){$('wInfo').innerHTML='<span class="err">'+e.message+'</span>';}
+    }catch(e){$('wInfo').innerHTML='<span class="err">'+esc(e.message)+'</span>';}
   };
   $('ssidSel').onchange=function(){$('ssid').value=$('ssidSel').value;};
   $('wifiGo').onclick=async function(){
     $('wifiMsg').textContent='Connecting...';
     try{await j('/api/wifi',{ssid:$('ssid').value||$('ssidSel').value,pass:$('pass').value});$('wifiMsg').innerHTML='<span class="ok">Saved. The board is restarting; reconnect your phone to your normal Wi-Fi.</span>';}
-    catch(e){$('wifiMsg').innerHTML='<span class="err">'+e.message+'</span>';}
+    catch(e){$('wifiMsg').innerHTML='<span class="err">'+esc(e.message)+'</span>';}
   };
   /* ------------------------------------------------------- back up / move to another board */
   function bk(html){$('bkMsg').innerHTML=html;}

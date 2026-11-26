@@ -528,8 +528,7 @@ static esp_err_t h_wled_info(httpd_req_t* req) {
   d["ver"] = i.ver;
   d["leds"] = i.leds;
   d["rgbw"] = i.rgbw;
-  d["on"] = i.on;
-  d["bri"] = i.bri;
+  if (i.stateOk) { d["on"] = i.on; d["bri"] = i.bri; }      // left out when the WLED's state could not be read (not "off")
   return sendDoc(req, d);
 }
 

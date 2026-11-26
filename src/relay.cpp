@@ -113,6 +113,7 @@ struct Cal {                                   // the LED finder / phone calibra
   char screen[8] = "idle";
   bool snapOn = false;
   int snapBri = 128;
+  bool snapKnown = false;                      // snapOn / snapBri are the WLED's real state from before the session (false: it could not be read; only "live" is handed back)
 };
 struct Mark {                                  // marker blocks (the setup page lights the start / end of the run and of the TV part)
   uint32_t until = 0, lastSend = 0;
@@ -312,16 +313,19 @@ WledInfo wledQuery(const String& host) {
   r.rgbw = doc["leds"]["rgbw"].as<bool>();
   r.name = doc["name"].as<String>();
   r.ver = doc["ver"].as<String>();
-  String st;
-  if (httpGet(host, "/json/state", st)) {
+  // Its on / off state and brightness: what the relay hands back when it stops. Asked twice (a WLED that just answered can still time out once); when both fail
+  // stateOk stays false, so nobody takes the defaults (off, brightness 0) for its state: up to 0.5.0 that switched a WLED off at the hand-back.
+  for (int attempt = 0; attempt < 2 && !r.stateOk; attempt++) {
+    String st;
+    if (!httpGet(host, "/json/state", st)) continue;
     JsonDocument f2;
     f2["on"] = true;
     f2["bri"] = true;
     JsonDocument d2;
-    if (!deserializeJson(d2, st, DeserializationOption::Filter(f2))) {
-      r.on = d2["on"].as<bool>();
-      r.bri = d2["bri"] | 128;
-    }
+    if (deserializeJson(d2, st, DeserializationOption::Filter(f2)) || d2["on"].isNull()) continue;
+    r.on = d2["on"].as<bool>();
+    r.bri = d2["bri"] | 128;
+    r.stateOk = true;
   }
   r.ok = true;
   return r;
@@ -481,6 +485,8 @@ struct WledJob {
   int bri = -1;
   bool explicitSnap = false, snapOn = false;       // restore to these values instead of the ones read when the stream began
   int snapBri = 128;
+  bool snapKnown = true;                           // (explicitSnap) false: the values are not known, only "live" is handed back
+  int shareWith = -1;                              // (prepare) another target already streaming to this WLED: its "before" state is this one's too
   bool forceOff = false;                           // (restore) switch the WLED off instead of putting it back how it was: the TV is off
   bool keepSnap = false;                           // (prepare) the WLED was switched off by us: keep the state remembered before, not "off"
   bool govee = false;                              // the target is a Govee light, not a WLED
@@ -489,6 +495,16 @@ struct WledJob {
   bool probeFps = false;
 };
 static QueueHandle_t gJobs = nullptr;
+
+// Another target streaming to the same WLED right now (two runs on one WLED), or -1. Such targets share the WLED's "before" state: the first one's prepare reads it, the
+// later ones copy it (reading it again would find what the first one just switched on), and the WLED is handed back only when the last of them stops. Up to 0.5.0 each
+// read its own, and the last hand-back (the second target's "on") left a WLED on that had been off. Relay task only.
+static int sharingTarget(int i, const String& host) {
+  if (host.length() == 0) return -1;
+  for (int j = 0; j < kMaxTargets; j++)
+    if (j != i && gRt[j].prepared && gRt[j].kindCache == 0 && gRt[j].hostCache == host) return j;
+  return -1;
+}
 
 static bool postJob(WledJob* j) {
   if (!gJobs || xQueueSend(gJobs, &j, 0) != pdTRUE) { delete j; return false; }
@@ -667,9 +683,15 @@ static void wledWorker(void*) {
         Rt& r = gRt[j->target];
         if (r.hostCache == j->host) {
           r.wledOk = wi.ok;
-          if (wi.ok) {
-            r.wledLeds = wi.leds; r.wledName = wi.name; if (wi.fps > 0) r.wledFps = wi.fps;
-            if (!(j->keepSnap && r.snapHost == j->host)) { r.snapHost = j->host; r.snapOn = wi.on; r.snapBri = wi.bri; }   // after "TV off" the WLED reads as off: that is not what to hand back
+          if (wi.ok) { r.wledLeds = wi.leds; r.wledName = wi.name; if (wi.fps > 0) r.wledFps = wi.fps; }
+          if (!(j->keepSnap && r.snapHost == j->host)) {           // after "TV off" the WLED reads as off: that is not what to hand back, the state kept from before is
+            r.snapHost = "";                                       // nothing known about this stream's "before" yet (never an old session's)
+            const int s = j->shareWith;
+            if (s >= 0 && s < kMaxTargets && s != j->target && gRt[s].wledOk) {   // another target reached this WLED first (and may have switched it on): its "before" is ours
+              if (gRt[s].snapHost == j->host) { r.snapHost = j->host; r.snapOn = gRt[s].snapOn; r.snapBri = gRt[s].snapBri; }
+            } else if (wi.ok && wi.stateOk) {
+              r.snapHost = j->host; r.snapOn = wi.on; r.snapBri = wi.bri;
+            }
           }
         }
       }
@@ -688,8 +710,8 @@ static void wledWorker(void*) {
       // realtime mode at once, so the lights return the moment we stop streaming.
       bool sOn = j->snapOn;
       int sBri = j->snapBri;
-      bool haveSnap = j->explicitSnap;
-      if (!haveSnap) {
+      bool haveSnap = j->explicitSnap && j->snapKnown;
+      if (!j->explicitSnap) {
         Lock l;
         const Rt& r = gRt[j->target];
         if (r.snapHost == j->host) { sOn = r.snapOn; sBri = r.snapBri; haveSnap = true; }
@@ -752,19 +774,20 @@ static void housekeeping(int nT) {
 
 static void requestPrepare(int i, const String& host, bool turnOn, int bri, bool restore) {
   Rt& r = gRt[i];
+  int kind, segs;
+  { Lock l; kind = gSet.t[i].kind; segs = gSet.t[i].wCount; }
+  const int share = kind == 0 ? sharingTarget(i, host) : -1;   // (before this target counts as prepared itself)
   r.prepared = true;                              // even if it fails: do not retry on every frame
   r.prepDone = false;
-  r.hostCache = host;
+  { Lock l; r.hostCache = host; }                 // the background task reads it under the lock
   r.restoreCache = restore;
   const bool resume = r.offByTv;                  // coming back after "TV off": switch it on whatever the target's setting says
   r.offByTv = false;
-  int kind, segs;
-  { Lock l; kind = gSet.t[i].kind; segs = gSet.t[i].wCount; }
   r.kindCache = kind;
   if (host.length() == 0) return;
   WledJob* j = new WledJob();
   j->prepare = true; j->target = i; j->host = host; j->turnOn = turnOn || resume; j->bri = bri; j->restore = restore; j->keepSnap = resume;
-  j->govee = kind == 1; j->segments = segs;
+  j->govee = kind == 1; j->segments = segs; j->shareWith = share;
   postJob(j);
 }
 
@@ -772,9 +795,20 @@ static void requestPrepare(int i, const String& host, bool turnOn, int bri, bool
 static void requestRestore(int i, bool switchOff = false) {
   Rt& r = gRt[i];
   if (r.prepared && r.hostCache.length() > 0) {
-    WledJob* j = new WledJob();
-    j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache; j->forceOff = switchOff; j->govee = r.kindCache == 1;
-    postJob(j);
+    if (r.kindCache == 0 && sharingTarget(i, r.hostCache) >= 0) {
+      // Another target still streams to this WLED: handing it back now would interrupt that stream (and put back a state while it runs). The WLED is handed back
+      // when the last of them stops; until then this run goes dark (when its address is still the one it was streamed to).
+      bool sameHost;
+      { Lock l; sameHost = i < gSet.nTargets && gSet.t[i].wHost == r.hostCache; }
+      if (sameHost && r.lastLen > 0 && r.lastLen <= sizeof gPayload) {
+        memset(gPayload, 0, r.lastLen);
+        ddpSend(i, gPayload, r.lastLen, r.lastStart, r.lastRgbw);
+      }
+    } else {
+      WledJob* j = new WledJob();
+      j->prepare = false; j->target = i; j->host = r.hostCache; j->restore = r.restoreCache; j->forceOff = switchOff; j->govee = r.kindCache == 1;
+      postJob(j);
+    }
     if (switchOff) r.offByTv = true;
   }
   r.prepared = false;
@@ -928,6 +962,13 @@ static bool pollBox() {
 
 // ---------------------------------------------------------------- finder / calibration frames, markers
 static void finishCal(int i);
+
+// A Govee light's frames carry "streaming on", which switches it on: nothing may be sent to it (picture, finder or markers) until its prepare job has read what the
+// light was like, or the job records it as "on" and hands it back on even though it was off. Up to 0.5.0 the finder and the markers did not wait. Relay task only.
+static bool goveeReady(int i) {
+  Lock l;
+  return gRt[i].prepared && gRt[i].prepDone;
+}
 
 static void markSendFrame(int i) {
   int st, cnt, n;
@@ -1158,9 +1199,9 @@ void relayLoop() {
       bool dirty, wd;
       { Lock l; dirty = r.cal.dirty; wd = now - r.cal.lastCmd > kCalWatchdogMs; }
       if (wd) { calEnd(); continue; }
-      if (sn[i].kind == 1 && !r.prepared) {                  // a Govee light: switch it on and into streaming first (a WLED takes the frames as they are)
-        String host; { Lock l; host = gSet.t[i].wHost; }
-        requestPrepare(i, host, true, 60, sn[i].restore);
+      if (sn[i].kind == 1) {                                 // a Govee light: switch it on and into streaming first (a WLED takes the frames as they are)
+        if (!r.prepared) { String host; { Lock l; host = gSet.t[i].wHost; } requestPrepare(i, host, true, 60, sn[i].restore); }
+        if (!goveeReady(i)) continue;                        // (the frames wait: see goveeReady)
       }
       if (dirty || now - r.cal.lastSend > 150) calSendFrame(i);
       continue;
@@ -1171,6 +1212,7 @@ void relayLoop() {
       if (marking) send = r.mark.dirty || now - r.mark.lastSend > 200; }
     if (marking) {
       if (!r.prepared) { String host; { Lock l; host = gSet.t[i].wHost; } requestPrepare(i, host, sn[i].turnOn, sn[i].bri, sn[i].restore); }
+      if (sn[i].kind == 1 && !goveeReady(i)) continue;      // (the markers stay due and go out once the light is ready)
       if (send) markSendFrame(i);
       continue;
     }
@@ -1266,7 +1308,7 @@ void relayLoop() {
     if (testing != r.wasTesting) { r.wasTesting = testing; r.o.converged = false; }
     // A Govee light's first frame carries "streaming on", which switches it on: until the prepare job has read what the light was like (on or off, how bright), send
     // nothing, or the job would record the light as "on" and hand it back on even though it was off.
-    if (sn[i].kind == 1) { bool ready; { Lock l; ready = r.prepDone; } if (!ready) { allConverged = false; continue; } }
+    if (sn[i].kind == 1 && !goveeReady(i)) { allConverged = false; continue; }
     // A Govee light takes at most about 12 frames a second (kGoveeGapMs): until its turn comes, do not mix colours it would not get. (The vivid blend
     // alone costs about 6 microseconds per segment.) Its next frame is computed from the picture of that moment.
     if (sn[i].kind == 1 && r.lastLen && !testing && now - r.lastSendMs < kGoveeGapMs) { allConverged = false; continue; }
@@ -1403,8 +1445,13 @@ String calBegin(int target, int* total) {
     r.cal.total = tot;
     r.cal.dirty = true;
     r.cal.lastCmd = millis();
-    r.cal.snapOn = wi.on;
-    r.cal.snapBri = wi.bri;
+    // What to put back when the finder ends. A WLED that is being streamed to reads as the stream left it (switched on by the relay): its state from before the stream
+    // is the one to keep, or the stream's own state would be handed back for good (up to 0.5.0). Otherwise what was just read, if it could be read.
+    if (r.prepared && r.kindCache == 0 && r.hostCache == host && r.snapHost == host) {
+      r.cal.snapOn = r.snapOn; r.cal.snapBri = r.snapBri; r.cal.snapKnown = true;
+    } else {
+      r.cal.snapOn = wi.on; r.cal.snapBri = wi.bri; r.cal.snapKnown = wi.stateOk;
+    }
     strcpy(r.cal.screen, "black");
     r.testUntil = 0;
     r.wledOk = true;
@@ -1454,18 +1501,20 @@ void calEnd() {
 }
 
 static void finishCal(int i) {
-  bool snapOn, govee;
+  bool snapOn, snapKnown, govee, goveeReadyNow;
   int snapBri, total;
   String host;
   {
     Lock l;
     Cal& c = gRt[i].cal;
-    snapOn = c.snapOn; snapBri = c.snapBri; total = c.total; host = gSet.t[i].wHost;
+    snapOn = c.snapOn; snapBri = c.snapBri; snapKnown = c.snapKnown; total = c.total; host = gSet.t[i].wHost;
     govee = gSet.t[i].kind == 1;
+    goveeReadyNow = gRt[i].prepared && gRt[i].prepDone;
     c.endPending = false;
     if (gCalTarget == i) gCalTarget = -1;
   }
-  if (total > 0) { memset(gPayload, 0, (size_t)total * 3); ddpSend(i, gPayload, (size_t)total * 3, 0, false); }   // switch off what we lit
+  // switch off what we lit (a Govee light only once it is streaming: an earlier frame would switch it on before its state was read, see goveeReady)
+  if (total > 0 && (!govee || goveeReadyNow)) { memset(gPayload, 0, (size_t)total * 3); ddpSend(i, gPayload, (size_t)total * 3, 0, false); }
   if (govee) {                                                  // hand the light back like at the end of a stream (the picture prepares it again if it is still on)
     if (gRt[i].prepared) requestRestore(i);
     Rt& rg = gRt[i];
@@ -1474,9 +1523,9 @@ static void finishCal(int i) {
     rg.lastLen = 0;
     return;
   }
-  if (host.length() > 0) {
+  if (host.length() > 0 && sharingTarget(i, host) < 0) {      // (another target still streaming to this WLED hands it back when it stops)
     WledJob* j = new WledJob();
-    j->prepare = false; j->target = i; j->host = host; j->restore = true; j->explicitSnap = true; j->snapOn = snapOn; j->snapBri = snapBri;
+    j->prepare = false; j->target = i; j->host = host; j->restore = true; j->explicitSnap = true; j->snapOn = snapOn; j->snapBri = snapBri; j->snapKnown = snapKnown;
     postJob(j);
   }
   Rt& r = gRt[i];

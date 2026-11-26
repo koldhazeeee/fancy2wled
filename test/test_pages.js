@@ -253,7 +253,20 @@ async function cdp(wsUrl) {
       dev.state.zonesAge = 9000; await sleep(1500);
       check('live map: when the box has been silent the zones go plain and the note says so', (await fillOf(3)) === 'var(--bg)' && /Waiting for a picture/.test(await text('mapLiveNote')), await text('mapLiveNote'));
       dev.state.zonesAge = null; dev.state.zones = null; await sleep(1200);
-    }    // ---- a Govee light as a target
+    }
+    {    // ---- "Check this WLED": what the device answers is shown as text, and its on / off state only when the board could read it
+      const hostWas = await ota("document.getElementById('wHost').value");
+      const checkHost = async h => { await ota(osv('wHost', h) + "document.getElementById('wCheck').click(); 1"); await sleep(600); return text('wInfo'); };
+      const shown = await checkHost('wled-markup.local');
+      check('wled check: a name with markup is shown as text, nothing in it runs', /Den \| WLED 0\.15/.test(shown) && !(await ota("!!document.getElementById('xssProbe') || !!window.__xss")) &&
+        (await ota("document.getElementById('wInfo').querySelectorAll('*').length")) === 1, shown);
+      const nostate = await checkHost('wled-nostate.local');
+      check('wled check: a state that could not be read is not called "off"', /WLED 0\.15/.test(nostate) && !/currently off/.test(nostate), nostate);
+      const off = await checkHost('wled-off.local');
+      check('wled check: a WLED that is off says so', /currently off/.test(off), off);
+      await ota(osv('wHost', hostWas) + '1');
+    }
+    // ---- a Govee light as a target
     const sel = id => "document.getElementById('" + id + "')";
     const setType = async v => { await ota(sel('tKind') + ".value='" + v + "'; " + sel('tKind') + ".dispatchEvent(new Event('change',{bubbles:true})); 1"); await sleep(300); };
     check('govee: a target is a WLED unless you say otherwise', (await ota(sel('tKind') + '.value')) === 'wled' && /Check this WLED/.test(await text('wCheck')) && !(await hidden('wStartRow')));

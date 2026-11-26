@@ -22,6 +22,9 @@ static const char* kNs = "fwb";
 
 
 static bool gPreview = false;     // settings in RAM differ from flash (live preview in the web UI)
+// What flash holds (kept in step by every load and write). While a live preview is open, a change from Home Assistant or the button is applied to this as well and
+// only this is written: up to 0.5.0 such a change wrote everything in RAM, so the unsaved preview was saved with it and could no longer be reverted.
+static Settings gSaved;
 
 static String K(const char* base, int i) { return i == 0 ? String(base) : String(base) + String(i); }
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -205,6 +208,7 @@ static void loadFromFlash() {
   s.boxHost = gS("boxHost", "");
   s.ssid = gS("ssid", "");
   s.pass = gS("pass", "");
+  gSaved = s;
 }
 
 void settingsBegin() {
@@ -223,9 +227,8 @@ void settingsRevert() {
   tableRebuild();
 }
 
-void settingsSave() {
-  Lock l;
-  const Settings& s = gSet;
+// Writes s to flash (under the lock) and remembers it as what flash holds.
+static void writeFlash(const Settings& s) {
   prefs.putInt("nT", s.nTargets);
   for (int i = 0; i < s.nTargets; i++) saveTarget(s.t[i], i);
   prefs.putFloat("kBri", s.kBri);
@@ -265,6 +268,12 @@ void settingsSave() {
   prefs.putString("boxHost", s.boxHost);
   prefs.putString("ssid", s.ssid);
   prefs.putString("pass", s.pass);
+  if (&s != &gSaved) gSaved = s;
+}
+
+void settingsSave() {
+  Lock l;
+  writeFlash(gSet);
 }
 
 void settingsReset() {
@@ -536,13 +545,13 @@ String pagePassSet(const String& current, const String& pass) {
   }
   if (pass.length() > 0 && !fwb::validUpdatePassword(pass.c_str())) return "The page password must be 8 to 64 characters (letters, digits, symbols or spaces).";
   gSet.pagePass = pass;
-  settingsSave();
+  if (gPreview) { gSaved.pagePass = pass; writeFlash(gSaved); }    // only the password is saved: an open preview stays a preview
+  else writeFlash(gSet);
   return "";
 }
 
-String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
-  Lock l;
-  Settings n = gSet;          // work on a copy; commit only if everything is valid
+// Applies a settings request to n (a copy; nothing is committed here) and checks it. "" or an error message. *mqttTouched: the MQTT settings were part of it.
+static String applyRequest(Settings& n, JsonVariantConst d, bool persist, bool imported, bool* mqttTouched) {
   JsonVariantConst k = d["look"], b = d["box"];
 
   if (d["targets"].is<JsonArrayConst>()) {            // the whole list (an import): replaces the targets
@@ -614,10 +623,9 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
     if (sec < 3 || sec > 600) return "The TV-off delay must be between 3 and 600 seconds";
     n.tvSecs = sec;
   }
-  bool mqttTouched = false;
   JsonVariantConst mq = d["mqtt"];
   if (persist && !mq.isNull()) {                       // MQTT settings are never a live preview
-    mqttTouched = true;
+    *mqttTouched = true;
     auto okTopic = [](const String& s) { for (size_t i = 0; i < s.length(); i++) { char c = s[i]; if (!(isalnum((unsigned char)c) || c == '_' || c == '-' || c == '/')) return false; } return true; };
     if (!mq["enabled"].isNull()) n.mqttOn = mq["enabled"].as<bool>();
     if (!mq["host"].isNull()) {
@@ -663,7 +671,15 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
       n.otaOn = en;
     }
   }
+  return "";
+}
 
+String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
+  Lock l;
+  Settings n = gSet;          // work on a copy; commit only if everything is valid
+  bool mqttTouched = false;
+  const String e = applyRequest(n, d, persist, imported, &mqttTouched);
+  if (e.length()) return e;
   const int oldCount = gSet.nTargets;
   gSet = n;
   if (n.nTargets < oldCount) {                          // targets dropped (an import with fewer): forget their saved tables
@@ -674,6 +690,23 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
   if (persist) { settingsSave(); gPreview = false; }
   else gPreview = true;                      // live preview: used right away, not written to flash until Save
   return "";
+}
+
+String settingsChange(JsonVariantConst d) {
+  Lock l;
+  if (!gPreview || d["targets"].is<JsonArrayConst>()) return settingsFromJson(d, true);   // nothing unsaved (or a whole new list of targets): an ordinary save
+  // A live preview is open on the setup page: the change goes into what is shown (on top of the preview) and into what is saved, and only the saved settings are written.
+  Settings live = gSet, saved = gSaved;
+  bool touchedLive = false, touchedSaved = false;
+  String e = applyRequest(saved, d, true, true, &touchedSaved);     // (imported = true: never the update password, which is not sent this way and must not be counted twice)
+  if (e.length()) return e;
+  e = applyRequest(live, d, true, true, &touchedLive);
+  if (e.length()) return e;
+  gSet = live;
+  writeFlash(saved);
+  if (touchedLive || touchedSaved) gMqttGen++;
+  tableRebuild();
+  return "";                                 // gPreview stays set: the page can still save or revert its preview
 }
 
 // The picture map for a target: how many of its LEDs follow each of the 24 zones. `req` holds an unsaved edit (the "wled" / "layout"

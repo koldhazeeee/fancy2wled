@@ -35,7 +35,7 @@ static void toggleSync() {
   { Lock l; nowOn = !gSet.enabled; }
   JsonDocument d;
   d["relay"]["enabled"] = nowOn;
-  settingsFromJson(d.as<JsonVariantConst>(), true);
+  settingsChange(d.as<JsonVariantConst>());
   // brief confirmation: green = sync on, violet = sync off
   gFlash[0] = nowOn ? 0 : 30; gFlash[1] = nowOn ? 40 : 0; gFlash[2] = nowOn ? 0 : 40;
   gFlashUntil = millis() + 350;
