@@ -50,6 +50,7 @@ void ledStatusLoop() {
     const uint32_t held = now - gPressStart;
     if (held > 8000) {                       // long hold: factory reset
       show(40, 0, 0);
+      if (!wifiIsAp() && WiFi.status() == WL_CONNECTED) relayStopAll(3000);   // hand the lights back before everything is erased
       settingsReset();
       delay(200);
       ESP.restart();

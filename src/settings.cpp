@@ -4,6 +4,8 @@
 // existing board upgrades without losing anything; targets 1.. use the same names with the target number appended.
 #include <Preferences.h>
 
+#include <new>
+
 #include "app.h"
 
 Settings gSet;
@@ -25,6 +27,22 @@ static bool gPreview = false;     // settings in RAM differ from flash (live pre
 // What flash holds (kept in step by every load and write). While a live preview is open, a change from Home Assistant or the button is applied to this as well and
 // only this is written: up to 0.5.0 such a change wrote everything in RAM, so the unsaved preview was saved with it and could no longer be reverted.
 static Settings gSaved;
+
+// Writing to flash happens outside gLock. Writing every key takes about 40 ms, and up to 0.5.1 it was done while holding the lock the relay needs for every output tick,
+// so each save (every Home Assistant command, the button) stalled the lights for one or two frames (measured with the atoms3-tickstat build). Now a change only marks
+// gSaved as to be written (markSaved, under the lock) and settingsFlush() writes it once the lock is free. gPrefsMux keeps the writes in order: a write copies gSaved
+// only after the one before it has finished, so the newest settings always land last.
+static SemaphoreHandle_t gPrefsMux = nullptr;
+static volatile bool gFlashPending = false;
+static volatile bool gErased = false;                 // a factory reset erased everything: nothing is written any more (the board restarts)
+static void markSaved(const Settings& s) {           // under the lock
+  if (&s != &gSaved) gSaved = s;
+  gFlashPending = true;
+}
+// Declared before the Lock in a function that saves: its destructor runs after the Lock's (the reverse order), so the write happens with the lock released.
+struct FlushAfter {
+  ~FlushAfter() { settingsFlush(); }
+};
 
 static String K(const char* base, int i) { return i == 0 ? String(base) : String(base) + String(i); }
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -213,22 +231,25 @@ static void loadFromFlash() {
 
 void settingsBegin() {
   gLock = xSemaphoreCreateRecursiveMutex();
+  gPrefsMux = xSemaphoreCreateMutex();
   prefs.begin(kNs, false);
   loadFromFlash();
   tableRebuild();
 }
 
-// Throw away unsaved live-preview changes (keeps the Wi-Fi settings, which are never previewed).
+// Throw away unsaved live-preview changes (keeps the Wi-Fi settings, which are never previewed). What flash holds is already in gSaved, so nothing is read back:
+// up to 0.5.1 this read every setting and calibrated table from flash while holding the lock, and the relay waited 172 ms for it (about five frames).
+// (A preview never changes the calibrated tables: they are only stored, and dropped, by changes that are saved.)
 void settingsRevert() {
   Lock l;
   if (!gPreview) return;
   gPreview = false;
-  loadFromFlash();
+  gSet = gSaved;
   tableRebuild();
 }
 
-// Writes s to flash (under the lock) and remembers it as what flash holds.
-static void writeFlash(const Settings& s) {
+// Writes s to flash. Only settingsFlush calls it: without the lock, holding gPrefsMux.
+static void prefsWrite(const Settings& s) {
   prefs.putInt("nT", s.nTargets);
   for (int i = 0; i < s.nTargets; i++) saveTarget(s.t[i], i);
   prefs.putFloat("kBri", s.kBri);
@@ -268,19 +289,38 @@ static void writeFlash(const Settings& s) {
   prefs.putString("boxHost", s.boxHost);
   prefs.putString("ssid", s.ssid);
   prefs.putString("pass", s.pass);
-  if (&s != &gSaved) gSaved = s;
 }
 
 void settingsSave() {
+  FlushAfter f;
   Lock l;
-  writeFlash(gSet);
+  markSaved(gSet);
+}
+
+void settingsFlush() {
+  if (!gFlashPending || !gPrefsMux || gErased) return;
+  if (xSemaphoreGetMutexHolder(gLock) == xTaskGetCurrentTaskHandle()) return;   // still inside a change: the outermost caller writes once it lets go of the lock
+  xSemaphoreTake(gPrefsMux, portMAX_DELAY);
+  Settings* copy = nullptr;
+  {
+    Lock l;
+    if (gFlashPending) {
+      copy = new (std::nothrow) Settings(gSaved);
+      if (copy) gFlashPending = false;                 // (out of memory: stays pending, the next change or the restart writes it)
+    }
+  }
+  if (copy) { prefsWrite(*copy); delete copy; }
+  xSemaphoreGive(gPrefsMux);
 }
 
 void settingsReset() {
+  if (gPrefsMux) xSemaphoreTake(gPrefsMux, portMAX_DELAY);   // (waits for a write in progress; none may follow the erase: the board restarts next)
+  { Lock l; gFlashPending = false; gErased = true; }
   prefs.clear();
   prefs.end();
   Preferences tls;
   if (tls.begin("fwb_tls", false)) { tls.clear(); tls.end(); }
+  if (gPrefsMux) xSemaphoreGive(gPrefsMux);
 }
 
 // ---------------------------------------------------------------- per-LED tables
@@ -538,6 +578,7 @@ static String applyTargetJson(Target& n, int idx, JsonVariantConst x, JsonVarian
 }
 
 String pagePassSet(const String& current, const String& pass) {
+  FlushAfter flushAfter;                     // (written once the lock below is released)
   Lock l;
   if (gSet.pagePass.length() > 0) {
     bool locked = false;
@@ -545,8 +586,8 @@ String pagePassSet(const String& current, const String& pass) {
   }
   if (pass.length() > 0 && !fwb::validUpdatePassword(pass.c_str())) return "The page password must be 8 to 64 characters (letters, digits, symbols or spaces).";
   gSet.pagePass = pass;
-  if (gPreview) { gSaved.pagePass = pass; writeFlash(gSaved); }    // only the password is saved: an open preview stays a preview
-  else writeFlash(gSet);
+  if (gPreview) { gSaved.pagePass = pass; markSaved(gSaved); }     // only the password is saved: an open preview stays a preview
+  else markSaved(gSet);
   return "";
 }
 
@@ -675,14 +716,15 @@ static String applyRequest(Settings& n, JsonVariantConst d, bool persist, bool i
 }
 
 String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
+  FlushAfter flushAfter;                     // (written once the lock below is released)
   Lock l;
   Settings n = gSet;          // work on a copy; commit only if everything is valid
   bool mqttTouched = false;
   const String e = applyRequest(n, d, persist, imported, &mqttTouched);
   if (e.length()) return e;
-  const int oldCount = gSet.nTargets;
+  const int oldCount = gSet.nTargets > gSaved.nTargets ? gSet.nTargets : gSaved.nTargets;
   gSet = n;
-  if (n.nTargets < oldCount) {                          // targets dropped (an import with fewer): forget their saved tables
+  if (persist && n.nTargets < oldCount) {              // targets dropped (an import with fewer): forget their saved tables (never in a preview: a revert keeps them)
     for (int i = n.nTargets; i < oldCount; i++) { free(gStored[i]); gStored[i] = nullptr; gStoredN[i] = 0; if (persist) eraseTargetKeys(i); }
   }
   if (mqttTouched) gMqttGen++;
@@ -693,6 +735,7 @@ String settingsFromJson(JsonVariantConst d, bool persist, bool imported) {
 }
 
 String settingsChange(JsonVariantConst d) {
+  FlushAfter flushAfter;                     // (written once the lock below is released)
   Lock l;
   if (!gPreview || d["targets"].is<JsonArrayConst>()) return settingsFromJson(d, true);   // nothing unsaved (or a whole new list of targets): an ordinary save
   // A live preview is open on the setup page: the change goes into what is shown (on top of the preview) and into what is saved, and only the saved settings are written.
@@ -703,7 +746,7 @@ String settingsChange(JsonVariantConst d) {
   e = applyRequest(live, d, true, true, &touchedLive);
   if (e.length()) return e;
   gSet = live;
-  writeFlash(saved);
+  markSaved(saved);
   if (touchedLive || touchedSaved) gMqttGen++;
   tableRebuild();
   return "";                                 // gPreview stays set: the page can still save or revert its preview
@@ -751,6 +794,7 @@ static int hexv(char c) {
 }
 
 String tableStoreHex(int target, int start, int count, const char* hex, size_t hexLen) {
+  FlushAfter flushAfter;                     // (written once the lock below is released)
   if (target < 0 || target >= kMaxTargets) return "No such target";
   if (count < 1 || count > fwb::kMaxLeds) return "LED count out of range";
   if (start < 0 || start > 20000) return "First LED out of range";
@@ -788,6 +832,7 @@ String tableStoreHex(int target, int start, int count, const char* hex, size_t h
 
 // ---------------------------------------------------------------- adding and removing targets
 String targetAdd(int* index) {
+  FlushAfter flushAfter;                     // (written once the lock below is released)
   Lock l;
   if (gSet.nTargets >= kMaxTargets) return "There can be at most " + String(kMaxTargets) + " targets";
   const int i = gSet.nTargets++;
@@ -805,6 +850,7 @@ String targetAdd(int* index) {
 }
 
 String targetRemove(int index) {
+  FlushAfter flushAfter;                     // (written once the lock below is released)
   Lock l;
   if (gSet.nTargets <= 1) return "At least one target is needed";
   if (index < 0 || index >= gSet.nTargets) return "There is no target " + String(index + 1);
@@ -885,6 +931,7 @@ static void restoreTables(TableSnap& s) {              // takes over the snapsho
 static void freeSnap(TableSnap& s) { for (int i = 0; i < kMaxTargets; i++) { free(s.data[i]); s.data[i] = nullptr; } }
 
 String settingsImport(JsonVariantConst doc) {
+  FlushAfter flushAfter;                     // (written once the lock below is released)
   if (String(doc["format"] | "") != kExportFormat) return "This is not a Fancy2WLED config file.";
   const int ver = doc["version"] | 0;
   if (ver < 1) return "This config file has no version number.";

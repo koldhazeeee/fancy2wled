@@ -254,6 +254,16 @@ async function cdp(wsUrl) {
       check('live map: when the box has been silent the zones go plain and the note says so', (await fillOf(3)) === 'var(--bg)' && /Waiting for a picture/.test(await text('mapLiveNote')), await text('mapLiveNote'));
       dev.state.zonesAge = null; dev.state.zones = null; await sleep(1200);
     }
+    {    // ---- a hidden tab does not keep polling the board (it has two web connections); shown again, the status comes at once
+      const statusCalls = () => dev.calls.filter(c => c === 'GET /api/status').length;
+      await ota("Object.defineProperty(document,'hidden',{configurable:true,get:function(){return true;}}); 1");
+      await sleep(600);
+      const hiddenBefore = statusCalls(); await sleep(5600);
+      check('hidden tab: no status polling while the tab is hidden', statusCalls() === hiddenBefore, String(statusCalls() - hiddenBefore));
+      const shownBefore = statusCalls();
+      await ota("delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); 1"); await sleep(500);
+      check('hidden tab: shown again, the page asks for the status at once', statusCalls() > shownBefore, String(statusCalls() - shownBefore));
+    }
     {    // ---- "Check this WLED": what the device answers is shown as text, and its on / off state only when the board could read it
       const hostWas = await ota("document.getElementById('wHost').value");
       const checkHost = async h => { await ota(osv('wHost', h) + "document.getElementById('wCheck').click(); 1"); await sleep(600); return text('wInfo'); };

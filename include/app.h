@@ -141,7 +141,10 @@ struct Lock {
 #endif
 
 void settingsBegin();                       // create lock, load from flash
-void settingsSave();
+void settingsSave();                        // marks the settings in RAM as saved; they are written to flash outside the lock (settingsFlush)
+// Writes saved settings that are not in flash yet. Does nothing while the calling task holds gLock (the outermost function that saved calls it once the lock is
+// free). The functions in settings.cpp flush by themselves; call it after settingsSave() made inside a Lock of your own, and before a restart.
+void settingsFlush();
 void settingsReset();                       // erase everything incl. Wi-Fi
 void settingsToJson(JsonDocument& d);       // GET /api/config
 // Everything worth moving to another board, as a self-describing document (POST /api/export): the settings, the calibrated
@@ -244,6 +247,9 @@ struct RelayStatus {
 void relayUpdateBegin();                    // a firmware update is about to be written: stop streaming and hand the WLEDs back
 void relayUpdateEnd();                      // ... it failed: carry on
 void relayBegin();
+// Before a restart (relay task only): hands every target back as when the stream stops, then waits up to maxMs for the background task to do it. Up to 0.5.1 a
+// restart left each WLED as the stream had left it (switched on, at the stream's brightness), since its state from before lives only in RAM.
+void relayStopAll(uint32_t maxMs);
 void relayWait(uint32_t maxMs);              // sleep until a Sync Box packet arrives or the relay needs to act (max maxMs)
 void relayLoop();
 void relayDiagnostics(JsonObject d);                       // counters and a few raw frames, for a bug report (GET /api/diag)

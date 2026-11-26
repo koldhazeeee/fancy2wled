@@ -36,6 +36,8 @@ void loop() {
   if (!wifiIsAp() && WiFi.status() == WL_CONNECTED) { relayLoop(); mqttLoop(); }
   ledStatusLoop();
   if (restartDue()) {
+    if (!wifiIsAp() && WiFi.status() == WL_CONNECTED) relayStopAll(4000);   // hand the lights back first (a Govee light that takes longer is handed back after the start)
+    settingsFlush();
     delay(100);
     ESP.restart();
   }

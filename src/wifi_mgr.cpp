@@ -104,6 +104,7 @@ String wifiScanJson() {
 bool wifiSave(const String& ssid, const String& pass) {
   if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 63) return false;
   { Lock l; gSet.ssid = ssid; gSet.pass = pass; settingsSave(); }
+  settingsFlush();                            // (the lock is free now: written before the answer and the restart)
   requestRestart(1200);
   return true;
 }

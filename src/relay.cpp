@@ -506,8 +506,10 @@ static int sharingTarget(int i, const String& host) {
   return -1;
 }
 
+static volatile int gJobsOpen = 0;                 // jobs queued or running (relayStopAll waits for them before a restart)
 static bool postJob(WledJob* j) {
-  if (!gJobs || xQueueSend(gJobs, &j, 0) != pdTRUE) { delete j; return false; }
+  __atomic_add_fetch(&gJobsOpen, 1, __ATOMIC_SEQ_CST);
+  if (!gJobs || xQueueSend(gJobs, &j, 0) != pdTRUE) { __atomic_sub_fetch(&gJobsOpen, 1, __ATOMIC_SEQ_CST); delete j; return false; }
   return true;
 }
 
@@ -659,6 +661,7 @@ static void wledWorker(void*) {
   for (;;) {
     WledJob* j = nullptr;
     if (xQueueReceive(gJobs, &j, portMAX_DELAY) != pdTRUE || !j) continue;
+    struct Done { ~Done() { __atomic_sub_fetch(&gJobsOpen, 1, __ATOMIC_SEQ_CST); } } done;   // counted off when this pass ends (every continue below included)
     if (j->probe) { probeJob(j); delete j; continue; }
     if (j->govee) { goveeJob(j); delete j; continue; }
     if (j->resolveOnly) {
@@ -1533,6 +1536,17 @@ static void finishCal(int i) {
   r.o.converged = false;
   r.prepared = false;
   r.lastLen = 0;
+}
+
+void relayStopAll(uint32_t maxMs) {
+  for (int i = 0; i < kMaxTargets; i++) {
+    bool cal;
+    { Lock l; cal = gRt[i].cal.active || gRt[i].cal.endPending; }
+    if (cal) finishCal(i);                                    // the finder lit it: put it back like at the end of the finder
+    if (gRt[i].prepared) requestRestore(i);                   // (two targets on one WLED: the last one hands it back)
+  }
+  const uint32_t t0 = millis();
+  while (gJobs && __atomic_load_n(&gJobsOpen, __ATOMIC_SEQ_CST) > 0 && millis() - t0 < maxMs) delay(20);
 }
 
 void testPattern(int target, int seconds) {

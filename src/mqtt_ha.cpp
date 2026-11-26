@@ -630,8 +630,12 @@ void mqttLoop() {
   perfSync(wantPerf);
   if (!gClient || !gConnected) return;
   const uint32_t now = millis();
-  { const String sig = targetSig();
-    if (sig != gTargetSig) { if (gTargetSig.length()) publishDiscovery(); gTargetSig = sig; } }
+  static uint32_t lastSig = 0;
+  if (now - lastSig >= 1000 || !gTargetSig.length()) {       // once a second (this runs on every pass of the relay's loop: up to 0.5.1 it built the string under the lock every time)
+    lastSig = now;
+    const String sig = targetSig();
+    if (sig != gTargetSig) { if (gTargetSig.length()) publishDiscovery(); gTargetSig = sig; }
+  }
   if (wantPerf && now - gLastPerf >= 5000) {
     gLastPerf = now;
     PerfSnapshot p;

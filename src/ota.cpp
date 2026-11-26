@@ -139,7 +139,8 @@ static void startArduinoOta() {
   ArduinoOTA.setHostname(FWB_HOSTNAME);
   ArduinoOTA.setMdnsEnabled(false);                                      // wifi_mgr.cpp already runs mDNS
   ArduinoOTA.setPassword(gAoPass.c_str());
-  ArduinoOTA.onStart([]() { gBusy = true; relayUpdateBegin(); relayLoop(); });   // one relay step: the WLEDs are handed back before handle() blocks
+  // the lights are handed back before handle() blocks for the upload (up to 0.5.1 one relay step, which did nothing when no output tick was due yet)
+  ArduinoOTA.onStart([]() { gBusy = true; relayUpdateBegin(); relayStopAll(1500); });
   ArduinoOTA.onEnd([]() {});                                             // restarts by itself
   ArduinoOTA.onError([](ota_error_t) { gBusy = false; relayUpdateEnd(); });
   ArduinoOTA.begin();
@@ -167,5 +168,8 @@ void otaLoop() {
   const bool up = !wifiIsAp() && WiFi.status() == WL_CONNECTED;
   if (gAoRunning && !up) { ArduinoOTA.end(); gAoRunning = false; }
   if (gAoWanted && up && !gAoRunning && !gPending) startArduinoOta();         // not while the running firmware is unconfirmed (see above)
-  if (gAoRunning) ArduinoOTA.handle();
+  // Every 50 ms, not on every pass of the loop: each look for an espota invitation (WiFiUDP::parsePacket) allocates and frees a 1460-byte buffer, and the loop runs
+  // well over a hundred times a second. The invitation waits in the socket, and espota waits seconds for the answer.
+  static uint32_t lastPoll = 0;
+  if (gAoRunning && millis() - lastPoll >= 50) { lastPoll = millis(); ArduinoOTA.handle(); }
 }

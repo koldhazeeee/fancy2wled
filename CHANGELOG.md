@@ -4,6 +4,23 @@ What changed in each release, written for someone deciding whether to update. Up
 default). Anything you may want to check after updating is marked **After updating**. The full list of commits is on the
 repository's releases page.
 
+## 0.5.2 - 2026-11-25
+
+Smoother lights while settings change, and a restart that hands the lights back, found in a second review (measured on the board with the atoms3-tickstat build):
+
+* Faster: saving a setting no longer stalls the lights. Writing the settings to flash took about 40 ms while holding what the relay needs for every frame, so every
+  save (each Home Assistant command, a tap on the button, *Save* on the page) cost one or two frames. The write now happens outside it: the relay waits under
+  half a millisecond.
+* Faster: ending a preview (stopping the rainbow test, unticking *Preview on the lights*, leaving the page) no longer stalls the lights for 172 ms (about five
+  frames). The saved settings are put back from memory instead of being read from flash again.
+* Fix: a restart (from Home Assistant, the setup page or a factory reset) now hands every light back first, as when the stream stops. Before, a WLED stayed as the
+  stream had left it: switched on, at the stream's brightness, even if it had been off. An update pushed with PlatformIO (espota) now hands the lights back
+  reliably before it starts, too.
+* Less work for the board: with updates over Wi-Fi switched on, it no longer allocates and frees 1.4 KB more than a hundred times a second looking for an
+  update; and Home Assistant's check for renamed targets runs once a second instead of on every pass of the relay.
+* The setup page no longer asks the board for its status every 2.5 seconds while its tab is hidden (a forgotten tab kept one of the board's two web connections
+  busy). It catches up as soon as the tab is shown again.
+
 ## 0.5.1 - 2026-11-25
 
 Fixes for lights that were not put back the way they were, found in a review of 0.5.0:

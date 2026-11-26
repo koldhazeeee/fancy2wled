@@ -1321,7 +1321,9 @@ input[type=range].wide{width:100%}
     if(s0&&s0.mode==='ap')try{var w=await j('/api/wifi/scan');var o=w.networks.map(function(n){return '<option>'+n.replace(/[<&]/g,'')+'</option>';}).join('');$('ssidSel').innerHTML=o;$('ssid').value=w.networks[0]||'';}catch(e){}
     $('mapLiveOn').checked=liveOn;
     $('mapLiveOn').onchange=function(){liveOn=$('mapLiveOn').checked;live=null;try{localStorage.setItem('fwbLive',liveOn?'1':'0');}catch(e){}drawMap();};
-    await load();setInterval(status,2500);liveTick();
+    /* the status every 2.5 s, but not while the tab is hidden (a forgotten tab kept one of the board's two web connections busy for good); at once when it is shown again */
+    await load();setInterval(function(){if(!document.hidden)status();},2500);liveTick();
+    document.addEventListener('visibilitychange',function(){if(!document.hidden)status();});
   })();
 })();
 </script><dialog id="pwDlg"><form method="dialog">
